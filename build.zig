@@ -1,0 +1,122 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    // --- raylib-zig dependency ---
+    const raylib_dep = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+        .linux_display_backend = .X11,
+    });
+    const raylib = raylib_dep.module("raylib");
+    const raylib_artifact = raylib_dep.artifact("raylib");
+
+    // --- cmark-gfm static C library ---
+    const cmark_lib = b.addStaticLibrary(.{
+        .name = "cmark-gfm",
+        .target = target,
+        .optimize = optimize,
+    });
+    cmark_lib.linkLibC();
+
+    // Include paths: config headers first (override generated), then source, then extensions
+    cmark_lib.addIncludePath(b.path("deps/cmark-gfm-config"));
+    cmark_lib.addIncludePath(b.path("deps/cmark-gfm/src"));
+    cmark_lib.addIncludePath(b.path("deps/cmark-gfm/extensions"));
+
+    const cmark_flags = &.{"-std=c99"};
+
+    cmark_lib.addCSourceFiles(.{
+        .root = b.path("deps/cmark-gfm/src"),
+        .files = &.{
+            "arena.c",
+            "blocks.c",
+            "buffer.c",
+            "cmark.c",
+            "cmark_ctype.c",
+            "commonmark.c",
+            "footnotes.c",
+            "houdini_href_e.c",
+            "houdini_html_e.c",
+            "houdini_html_u.c",
+            "html.c",
+            "inlines.c",
+            "iterator.c",
+            "linked_list.c",
+            "map.c",
+            "node.c",
+            "plaintext.c",
+            "plugin.c",
+            "references.c",
+            "registry.c",
+            "render.c",
+            "scanners.c",
+            "syntax_extension.c",
+            "utf8.c",
+        },
+        .flags = cmark_flags,
+    });
+
+    cmark_lib.addCSourceFiles(.{
+        .root = b.path("deps/cmark-gfm/extensions"),
+        .files = &.{
+            "autolink.c",
+            "core-extensions.c",
+            "ext_scanners.c",
+            "strikethrough.c",
+            "table.c",
+            "tagfilter.c",
+            "tasklist.c",
+        },
+        .flags = cmark_flags,
+    });
+
+    // --- Selkie executable ---
+    const exe = b.addExecutable(.{
+        .name = "selkie",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Link dependencies
+    exe.linkLibrary(raylib_artifact);
+    exe.linkLibrary(cmark_lib);
+    exe.root_module.addImport("raylib", raylib);
+
+    // cmark-gfm include paths for @cImport
+    exe.addIncludePath(b.path("deps/cmark-gfm-config"));
+    exe.addIncludePath(b.path("deps/cmark-gfm/src"));
+    exe.addIncludePath(b.path("deps/cmark-gfm/extensions"));
+
+    b.installArtifact(exe);
+
+    // --- Run step ---
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the application");
+    run_step.dependOn(&run_cmd.step);
+
+    // --- Test step ---
+    const unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    unit_tests.linkLibrary(cmark_lib);
+    unit_tests.linkLibrary(raylib_artifact);
+    unit_tests.root_module.addImport("raylib", raylib);
+    unit_tests.addIncludePath(b.path("deps/cmark-gfm-config"));
+    unit_tests.addIncludePath(b.path("deps/cmark-gfm/src"));
+    unit_tests.addIncludePath(b.path("deps/cmark-gfm/extensions"));
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
+}
