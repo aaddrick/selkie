@@ -1,0 +1,45 @@
+{
+  "name": "Selkie Light",
+  "colors": {
+    "background": "#ffffff",
+    "text": "#24292e",
+    "heading": ["#0366d6", "#24292e", "#24292e", "#24292e", "#6a737d", "#6a737d"],
+    "link": "#0366d6",
+    "link_hover": "#004099",
+    "code_text": "#24292e",
+    "code_background": "#f6f8fa",
+    "blockquote_border": "#dfe2e5",
+    "blockquote_text": "#6a737d",
+    "table_header_bg": "#f6f8fa",
+    "table_border": "#dfe2e5",
+    "table_alt_row_bg": "#f6f8fa",
+    "hr_color": "#dfe2e5",
+    "scrollbar": "#b4b4b4",
+    "scrollbar_track": "#f0f0f0",
+    "syntax_keyword": "#cf222e",
+    "syntax_string": "#0a3069",
+    "syntax_comment": "#6a737d",
+    "syntax_number": "#0550ae",
+    "syntax_type": "#6639ba",
+    "syntax_function": "#8250df",
+    "syntax_operator": "#24292e",
+    "syntax_punctuation": "#24292e",
+    "line_number_color": "#afb8c1"
+  },
+  "sizing": {
+    "body_font_size": 16,
+    "heading_scale": [2.0, 1.5, 1.25, 1.1, 0.9, 0.8],
+    "mono_font_size": 14,
+    "line_height": 1.5
+  },
+  "spacing": {
+    "paragraph_spacing": 16,
+    "heading_spacing_above": 24,
+    "heading_spacing_below": 8,
+    "list_indent": 24,
+    "blockquote_indent": 16,
+    "code_block_padding": 12,
+    "page_margin": 40,
+    "max_content_width": 800
+  }
+}

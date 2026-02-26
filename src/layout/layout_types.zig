@@ -49,6 +49,7 @@ pub const LayoutNodeKind = enum {
     table_cell,
     table_border,
     table_row_bg,
+    image,
 };
 
 pub const LayoutNode = struct {
@@ -66,6 +67,9 @@ pub const LayoutNode = struct {
     blockquote_depth: u8 = 0,
     // HR color
     hr_color: ?rl.Color = null,
+    // Image data
+    image_texture: ?rl.Texture2D = null,
+    image_alt: ?[]const u8 = null,
 
     pub fn init(allocator: Allocator) LayoutNode {
         return .{

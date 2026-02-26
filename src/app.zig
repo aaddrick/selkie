@@ -13,6 +13,7 @@ const renderer = @import("render/renderer.zig");
 const LinkHandler = @import("render/link_handler.zig").LinkHandler;
 const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
+const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 
 pub const App = struct {
     allocator: Allocator,
@@ -24,6 +25,10 @@ pub const App = struct {
     scroll: ScrollState,
     viewport: Viewport,
     link_handler: LinkHandler = .{ .hovered_url = null, .theme = &defaults.light },
+    image_renderer: ImageRenderer,
+    /// Owned custom theme loaded from JSON (null if using built-in themes)
+    custom_theme: ?Theme,
+    has_custom_theme: bool,
 
     pub fn init(allocator: Allocator) App {
         return .{
@@ -35,7 +40,27 @@ pub const App = struct {
             .fonts = undefined,
             .scroll = .{},
             .viewport = Viewport.init(),
+            .image_renderer = ImageRenderer.init(allocator),
+            .custom_theme = null,
+            .has_custom_theme = false,
         };
+    }
+
+    /// Set the initial theme. If custom_theme is provided, it's stored as an owned value.
+    pub fn setTheme(self: *App, custom: ?Theme, dark: bool) void {
+        if (custom) |ct| {
+            self.custom_theme = ct;
+            self.has_custom_theme = true;
+            self.theme = &self.custom_theme.?;
+            self.is_dark = false;
+        } else if (dark) {
+            self.is_dark = true;
+            self.theme = &defaults.dark;
+        } else {
+            self.is_dark = false;
+            self.theme = &defaults.light;
+        }
+        self.link_handler.theme = self.theme;
     }
 
     pub fn loadFonts(self: *App) !void {
@@ -64,6 +89,10 @@ pub const App = struct {
         rl.unloadFont(self.fonts.mono);
     }
 
+    pub fn setBaseDir(self: *App, path: []const u8) void {
+        self.image_renderer.setBaseDir(path);
+    }
+
     pub fn loadMarkdown(self: *App, text: []const u8) !void {
         // Free existing document
         if (self.document) |*doc| doc.deinit();
@@ -83,14 +112,24 @@ pub const App = struct {
                 self.theme,
                 &self.fonts,
                 self.viewport.width,
+                &self.image_renderer,
             );
             self.scroll.total_height = self.layout_tree.?.total_height;
         }
     }
 
     pub fn toggleTheme(self: *App) void {
-        self.is_dark = !self.is_dark;
-        self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+        if (self.has_custom_theme) {
+            // Toggle between custom theme and its opposite (built-in dark/light)
+            if (self.theme == &self.custom_theme.?) {
+                self.theme = &defaults.dark;
+            } else {
+                self.theme = &self.custom_theme.?;
+            }
+        } else {
+            self.is_dark = !self.is_dark;
+            self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+        }
         self.link_handler.theme = self.theme;
         self.relayout() catch {};
     }
@@ -132,5 +171,6 @@ pub const App = struct {
     pub fn deinit(self: *App) void {
         if (self.layout_tree) |*tree| tree.deinit();
         if (self.document) |*doc| doc.deinit();
+        self.image_renderer.unloadAll();
     }
 };

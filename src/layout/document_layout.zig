@@ -7,6 +7,7 @@ const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const table_layout = @import("table_layout.zig");
 const code_block_layout = @import("code_block_layout.zig");
+const ImageRenderer = @import("../render/image_renderer.zig").ImageRenderer;
 
 pub const LayoutContext = struct {
     allocator: Allocator,
@@ -25,6 +26,8 @@ pub const LayoutContext = struct {
     // Footnote tracking
     seen_footnote: bool = false,
     footnote_index: u32 = 0,
+    // Image renderer for loading textures
+    image_renderer: ?*ImageRenderer = null,
 
     pub fn init(
         allocator: Allocator,
@@ -118,8 +121,60 @@ fn layoutInlines(
                 }
             },
             .image => {
-                // For now, render alt text
-                try layoutInlines(ctx, child, style, layout_node, cursor_x, line_height);
+                // Create a block-level image node
+                // First, collect alt text from children
+                var alt_buf: [512]u8 = undefined;
+                var alt_len: usize = 0;
+                for (child.children.items) |*img_child| {
+                    if (img_child.literal) |text| {
+                        const copy_len = @min(text.len, alt_buf.len - alt_len);
+                        @memcpy(alt_buf[alt_len..][0..copy_len], text[0..copy_len]);
+                        alt_len += copy_len;
+                    }
+                }
+
+                var img_node = lt.LayoutNode.init(ctx.allocator);
+                img_node.kind = .image;
+
+                // Try to load the texture
+                var texture: ?rl.Texture2D = null;
+                if (child.url) |url| {
+                    if (ctx.image_renderer) |ir| {
+                        texture = ir.getOrLoad(url);
+                    }
+                }
+
+                var img_height: f32 = 80; // placeholder height
+                if (texture) |tex| {
+                    img_node.image_texture = tex;
+                    // Scale to fit content width, preserving aspect ratio
+                    const tex_w: f32 = @floatFromInt(tex.width);
+                    const tex_h: f32 = @floatFromInt(tex.height);
+                    if (tex_w > 0 and tex_h > 0) {
+                        const scale = @min(1.0, ctx.content_width / tex_w);
+                        img_height = tex_h * scale;
+                    }
+                }
+
+                if (alt_len > 0) {
+                    img_node.image_alt = alt_buf[0..alt_len];
+                }
+
+                // Move to a new line before the image
+                cursor_x.* = ctx.content_x;
+                ctx.cursor_y += line_height.*;
+
+                img_node.rect = .{
+                    .x = ctx.content_x,
+                    .y = ctx.cursor_y,
+                    .width = ctx.content_width,
+                    .height = img_height,
+                };
+                try ctx.tree.nodes.append(img_node);
+
+                ctx.cursor_y += img_height + ctx.theme.paragraph_spacing;
+                cursor_x.* = ctx.content_x;
+                line_height.* = 0;
             },
             else => {
                 // Recurse for any other inline types
@@ -511,10 +566,12 @@ pub fn layout(
     theme: *const Theme,
     fonts: *const Fonts,
     window_width: f32,
+    image_renderer: ?*ImageRenderer,
 ) !lt.LayoutTree {
     var tree = lt.LayoutTree.init(allocator);
     var ctx = LayoutContext.init(allocator, theme, fonts, window_width);
     ctx.tree = &tree;
+    ctx.image_renderer = image_renderer;
 
     try layoutBlock(&ctx, &document.root);
 

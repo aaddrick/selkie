@@ -3,6 +3,7 @@ const lt = @import("../layout/layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const text_renderer = @import("text_renderer.zig");
+const ImageRenderer = @import("image_renderer.zig").ImageRenderer;
 
 /// Draw a code block: rounded background rectangle, line number gutter, and syntax-highlighted text.
 pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
@@ -69,6 +70,15 @@ pub fn drawBlockQuoteBorder(node: *const lt.LayoutNode, theme: *const Theme, scr
 pub fn drawTextBlock(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
     for (node.text_runs.items) |*run| {
         text_renderer.drawTextRun(run, fonts, scroll_y);
+    }
+}
+
+/// Draw an image or placeholder if texture is missing.
+pub fn drawImage(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+    if (node.image_texture) |texture| {
+        ImageRenderer.drawImage(texture, node.rect, scroll_y);
+    } else {
+        ImageRenderer.drawPlaceholder(node.rect, node.image_alt, fonts, scroll_y);
     }
 }
 
