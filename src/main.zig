@@ -1,34 +1,51 @@
 const std = @import("std");
 const rl = @import("raylib");
-
-const c = @cImport({
-    @cInclude("cmark-gfm.h");
-    @cInclude("cmark-gfm-core-extensions.h");
-});
+const App = @import("app.zig").App;
 
 pub fn main() !void {
-    // Quick smoke test: parse a tiny markdown string with cmark-gfm
-    c.cmark_gfm_core_extensions_ensure_registered();
-    const parser = c.cmark_parser_new(c.CMARK_OPT_DEFAULT);
-    defer c.cmark_parser_free(parser);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    const md = "# Hello Selkie\n\nIt works!\n";
-    c.cmark_parser_feed(parser, md, md.len);
-    const doc = c.cmark_parser_finish(parser);
-    defer c.cmark_node_free(doc);
+    // Parse CLI args
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    // Open a raylib window
-    const screen_width = 800;
-    const screen_height = 600;
-    rl.initWindow(screen_width, screen_height, "Selkie — Markdown Viewer");
+    // Read markdown file
+    var file_content: ?[]u8 = null;
+    defer if (file_content) |content| allocator.free(content);
+
+    if (args.len > 1) {
+        const path = args[1];
+        file_content = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch |err| {
+            std.log.err("Failed to read file '{s}': {}", .{ path, err });
+            return;
+        };
+    }
+
+    // Init window
+    rl.initWindow(960, 720, "Selkie — Markdown Viewer");
     defer rl.closeWindow();
     rl.setTargetFPS(60);
+    rl.setWindowState(.{ .window_resizable = true });
 
+    // Init app
+    var app = App.init(allocator);
+    defer app.deinit();
+
+    try app.loadFonts();
+    defer app.unloadFonts();
+
+    // Load document
+    if (file_content) |content| {
+        app.loadMarkdown(content) catch |err| {
+            std.log.err("Failed to parse markdown: {}", .{err});
+        };
+    }
+
+    // Main loop
     while (!rl.windowShouldClose()) {
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
-        rl.clearBackground(rl.Color.ray_white);
-        rl.drawText("Selkie — build system works!", 190, 280, 20, rl.Color.dark_gray);
+        app.update();
+        app.draw();
     }
 }
