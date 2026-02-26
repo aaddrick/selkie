@@ -6,6 +6,7 @@ const lt = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const table_layout = @import("table_layout.zig");
+const code_block_layout = @import("code_block_layout.zig");
 
 pub const LayoutContext = struct {
     allocator: Allocator,
@@ -259,29 +260,17 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y = start_y + layout_node.rect.height + ctx.theme.paragraph_spacing;
         },
         .code_block => {
-            var layout_node = lt.LayoutNode.init(ctx.allocator);
-            layout_node.kind = .code_block;
-            layout_node.code_text = node.literal;
-            layout_node.code_bg_color = ctx.theme.code_background;
-
-            // Measure code block height
-            const code_text = node.literal orelse "";
-            var line_count: f32 = 1;
-            for (code_text) |ch| {
-                if (ch == '\n') line_count += 1;
-            }
-            const code_height = line_count * ctx.theme.mono_font_size * ctx.theme.line_height;
-            const total_height = code_height + ctx.theme.code_block_padding * 2;
-
-            layout_node.rect = .{
-                .x = ctx.content_x,
-                .y = ctx.cursor_y,
-                .width = ctx.content_width,
-                .height = total_height,
-            };
-
-            try ctx.tree.nodes.append(layout_node);
-            ctx.cursor_y += total_height + ctx.theme.paragraph_spacing;
+            try code_block_layout.layoutCodeBlock(
+                ctx.allocator,
+                node.literal,
+                node.fence_info,
+                ctx.theme,
+                ctx.fonts,
+                ctx.content_x,
+                ctx.content_width,
+                &ctx.cursor_y,
+                ctx.tree,
+            );
         },
         .thematic_break => {
             var layout_node = lt.LayoutNode.init(ctx.allocator);

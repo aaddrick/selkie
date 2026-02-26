@@ -29,6 +29,17 @@ pub const light = Theme{
     .scrollbar = rgb(180, 180, 180),
     .scrollbar_track = rgb(240, 240, 240),
 
+    // Syntax highlighting (GitHub-inspired light theme)
+    .syntax_keyword = rgb(207, 34, 46),
+    .syntax_string = rgb(10, 48, 105),
+    .syntax_comment = rgb(106, 115, 125),
+    .syntax_number = rgb(5, 80, 174),
+    .syntax_type = rgb(102, 57, 186),
+    .syntax_function = rgb(130, 80, 223),
+    .syntax_operator = rgb(36, 41, 46),
+    .syntax_punctuation = rgb(36, 41, 46),
+    .line_number_color = rgb(175, 184, 193),
+
     .body_font_size = 16,
     .heading_scale = .{ 2.0, 1.5, 1.25, 1.1, 0.9, 0.8 },
     .mono_font_size = 14,
@@ -67,6 +78,17 @@ pub const dark = Theme{
     .hr_color = rgb(88, 91, 112),
     .scrollbar = rgb(88, 91, 112),
     .scrollbar_track = rgb(30, 30, 46),
+
+    // Syntax highlighting (Catppuccin Mocha-inspired)
+    .syntax_keyword = rgb(203, 166, 247),
+    .syntax_string = rgb(166, 227, 161),
+    .syntax_comment = rgb(108, 112, 134),
+    .syntax_number = rgb(250, 179, 135),
+    .syntax_type = rgb(249, 226, 175),
+    .syntax_function = rgb(137, 180, 250),
+    .syntax_operator = rgb(148, 226, 213),
+    .syntax_punctuation = rgb(147, 153, 178),
+    .line_number_color = rgb(108, 112, 134),
 
     .body_font_size = 16,
     .heading_scale = .{ 2.0, 1.5, 1.25, 1.1, 0.9, 0.8 },

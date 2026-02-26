@@ -18,6 +18,17 @@ pub const Theme = struct {
     scrollbar: rl.Color,
     scrollbar_track: rl.Color,
 
+    // Syntax highlighting
+    syntax_keyword: rl.Color,
+    syntax_string: rl.Color,
+    syntax_comment: rl.Color,
+    syntax_number: rl.Color,
+    syntax_type: rl.Color,
+    syntax_function: rl.Color,
+    syntax_operator: rl.Color,
+    syntax_punctuation: rl.Color,
+    line_number_color: rl.Color,
+
     // Sizing
     body_font_size: f32,
     heading_scale: [6]f32,

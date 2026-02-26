@@ -58,6 +58,8 @@ pub const LayoutNode = struct {
     // Code block content
     code_text: ?[]const u8 = null,
     code_bg_color: ?rl.Color = null,
+    code_lang: ?[]const u8 = null,
+    line_number_gutter_width: f32 = 0,
     // Heading level for styling
     heading_level: u8 = 0,
     // Block quote depth
