@@ -12,6 +12,10 @@ const gantt_renderer = @import("../mermaid/renderers/gantt_renderer.zig");
 const class_renderer = @import("../mermaid/renderers/class_renderer.zig");
 const er_renderer = @import("../mermaid/renderers/er_renderer.zig");
 const state_renderer = @import("../mermaid/renderers/state_renderer.zig");
+const mindmap_renderer = @import("../mermaid/renderers/mindmap_renderer.zig");
+const gitgraph_renderer = @import("../mermaid/renderers/gitgraph_renderer.zig");
+const journey_renderer = @import("../mermaid/renderers/journey_renderer.zig");
+const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
 
 pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
@@ -100,6 +104,50 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
                     );
                 } else if (node.mermaid_state) |model| {
                     state_renderer.drawStateDiagram(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_mindmap) |model| {
+                    mindmap_renderer.drawMindMap(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_gitgraph) |model| {
+                    gitgraph_renderer.drawGitGraph(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_journey) |model| {
+                    journey_renderer.drawJourney(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_timeline) |model| {
+                    timeline_renderer.drawTimeline(
                         model,
                         node.rect.x,
                         node.rect.y,

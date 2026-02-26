@@ -8,6 +8,10 @@ const GanttModel = @import("../mermaid/models/gantt_model.zig").GanttModel;
 const ClassModel = @import("../mermaid/models/class_model.zig").ClassModel;
 const ERModel = @import("../mermaid/models/er_model.zig").ERModel;
 const StateModel = @import("../mermaid/models/state_model.zig").StateModel;
+const MindMapModel = @import("../mermaid/models/mindmap_model.zig").MindMapModel;
+const GitGraphModel = @import("../mermaid/models/gitgraph_model.zig").GitGraphModel;
+const JourneyModel = @import("../mermaid/models/journey_model.zig").JourneyModel;
+const TimelineModel = @import("../mermaid/models/timeline_model.zig").TimelineModel;
 
 pub const Rect = struct {
     x: f32,
@@ -86,6 +90,10 @@ pub const LayoutNode = struct {
     mermaid_class: ?*ClassModel = null,
     mermaid_er: ?*ERModel = null,
     mermaid_state: ?*StateModel = null,
+    mermaid_mindmap: ?*MindMapModel = null,
+    mermaid_gitgraph: ?*GitGraphModel = null,
+    mermaid_journey: ?*JourneyModel = null,
+    mermaid_timeline: ?*TimelineModel = null,
 
     pub fn init(allocator: Allocator) LayoutNode {
         return .{
@@ -116,6 +124,18 @@ pub const LayoutNode = struct {
             model.deinit();
         }
         if (self.mermaid_state) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_mindmap) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_gitgraph) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_journey) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_timeline) |model| {
             model.deinit();
         }
     }

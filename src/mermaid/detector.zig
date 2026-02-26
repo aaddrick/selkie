@@ -8,6 +8,10 @@ const gantt_parser = @import("parsers/gantt.zig");
 const class_parser = @import("parsers/class_diagram.zig");
 const er_parser = @import("parsers/er.zig");
 const state_parser = @import("parsers/state.zig");
+const mindmap_parser = @import("parsers/mindmap.zig");
+const gitgraph_parser = @import("parsers/gitgraph.zig");
+const journey_parser = @import("parsers/journey.zig");
+const timeline_parser = @import("parsers/timeline_diagram.zig");
 const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 const PieModel = @import("models/pie_model.zig").PieModel;
@@ -15,6 +19,10 @@ const GanttModel = @import("models/gantt_model.zig").GanttModel;
 const ClassModel = @import("models/class_model.zig").ClassModel;
 const ERModel = @import("models/er_model.zig").ERModel;
 const StateModel = @import("models/state_model.zig").StateModel;
+const MindMapModel = @import("models/mindmap_model.zig").MindMapModel;
+const GitGraphModel = @import("models/gitgraph_model.zig").GitGraphModel;
+const JourneyModel = @import("models/journey_model.zig").JourneyModel;
+const TimelineModel = @import("models/timeline_model.zig").TimelineModel;
 
 pub const DiagramType = enum {
     flowchart,
@@ -24,6 +32,10 @@ pub const DiagramType = enum {
     class_diagram,
     er_diagram,
     state_diagram,
+    mindmap,
+    gitgraph,
+    journey,
+    timeline,
     unsupported,
 };
 
@@ -35,6 +47,10 @@ pub const DetectResult = union(enum) {
     class_diagram: ClassModel,
     er_diagram: ERModel,
     state_diagram: StateModel,
+    mindmap: MindMapModel,
+    gitgraph: GitGraphModel,
+    journey: JourneyModel,
+    timeline: TimelineModel,
     unsupported: []const u8,
 };
 
@@ -76,6 +92,22 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
             if (std.mem.eql(u8, tok.text, "stateDiagram")) {
                 const model = try state_parser.parse(allocator, source);
                 return .{ .state_diagram = model };
+            }
+            if (std.mem.eql(u8, tok.text, "mindmap")) {
+                const model = try mindmap_parser.parse(allocator, source);
+                return .{ .mindmap = model };
+            }
+            if (std.mem.eql(u8, tok.text, "gitGraph")) {
+                const model = try gitgraph_parser.parse(allocator, source);
+                return .{ .gitgraph = model };
+            }
+            if (std.mem.eql(u8, tok.text, "journey")) {
+                const model = try journey_parser.parse(allocator, source);
+                return .{ .journey = model };
+            }
+            if (std.mem.eql(u8, tok.text, "timeline")) {
+                const model = try timeline_parser.parse(allocator, source);
+                return .{ .timeline = model };
             }
             // Return unsupported for other diagram types
             return .{ .unsupported = tok.text };

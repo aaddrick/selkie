@@ -13,6 +13,11 @@ const GanttModel = @import("models/gantt_model.zig").GanttModel;
 const ClassModel = @import("models/class_model.zig").ClassModel;
 const ERModel = @import("models/er_model.zig").ERModel;
 const StateModel = @import("models/state_model.zig").StateModel;
+const MindMapModel = @import("models/mindmap_model.zig").MindMapModel;
+const GitGraphModel = @import("models/gitgraph_model.zig").GitGraphModel;
+const JourneyModel = @import("models/journey_model.zig").JourneyModel;
+const TimelineModel = @import("models/timeline_model.zig").TimelineModel;
+const tree_layout = @import("layout/tree_layout.zig");
 
 pub fn layoutMermaidBlock(
     allocator: Allocator,
@@ -286,6 +291,146 @@ pub fn layoutMermaidBlock(
                 .height = diagram_height,
             };
             node.mermaid_state = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .mindmap => |mm_val| {
+            const model_ptr = try allocator.create(MindMapModel);
+            model_ptr.* = mm_val;
+
+            const layout_result = tree_layout.layout(model_ptr, fonts, theme, content_width);
+
+            const diagram_width = @min(layout_result.width, content_width);
+            const diagram_height = layout_result.height;
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_mindmap = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .gitgraph => |gg_val| {
+            const model_ptr = try allocator.create(GitGraphModel);
+            model_ptr.* = gg_val;
+
+            // Compute layout dimensions
+            const padding: f32 = 20;
+            const branch_label_w: f32 = 80;
+            const lane_spacing: f32 = 30;
+            const commit_spacing: f32 = 50;
+
+            const num_branches: f32 = @floatFromInt(@max(model_ptr.branches.items.len, @as(usize, 1)));
+            const num_commits: f32 = @floatFromInt(@max(model_ptr.commits.items.len, @as(usize, 1)));
+
+            var diagram_width: f32 = undefined;
+            var diagram_height: f32 = undefined;
+
+            if (model_ptr.orientation == .lr) {
+                diagram_width = @min(padding * 2 + branch_label_w + num_commits * commit_spacing + 40, content_width);
+                diagram_height = padding * 2 + 20 + num_branches * lane_spacing + 40;
+            } else {
+                diagram_width = @min(padding * 2 + branch_label_w + num_branches * lane_spacing + 40, content_width);
+                diagram_height = padding * 2 + 20 + num_commits * commit_spacing + 40;
+            }
+
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_gitgraph = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .journey => |j_val| {
+            const model_ptr = try allocator.create(JourneyModel);
+            model_ptr.* = j_val;
+
+            // Compute layout dimensions
+            const padding: f32 = 20;
+            const title_space: f32 = if (model_ptr.title.len > 0) 35 else 0;
+            const task_h: f32 = 50;
+            const section_header_h: f32 = 30;
+            const actor_h: f32 = 15;
+
+            var total_height: f32 = padding + title_space;
+            for (model_ptr.sections.items) |section| {
+                total_height += section_header_h + padding;
+                total_height += task_h + 30;
+                // Actors
+                var max_actors: usize = 0;
+                for (section.tasks.items) |task| {
+                    max_actors = @max(max_actors, task.actors.items.len);
+                }
+                if (max_actors > 0) {
+                    total_height += @as(f32, @floatFromInt(max_actors)) * actor_h;
+                }
+            }
+            total_height += padding;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = content_x,
+                .y = cursor_y.*,
+                .width = content_width,
+                .height = total_height,
+            };
+            node.mermaid_journey = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += total_height + theme.paragraph_spacing;
+        },
+        .timeline => |tl_val| {
+            const model_ptr = try allocator.create(TimelineModel);
+            model_ptr.* = tl_val;
+
+            // Compute layout dimensions
+            const padding: f32 = 20;
+            const title_space: f32 = if (model_ptr.title.len > 0) 35 else 0;
+            const axis_offset: f32 = 80;
+            const event_h: f32 = 24;
+            const event_spacing: f32 = 6;
+
+            // Find max events in any period
+            var max_events: usize = 0;
+            for (model_ptr.sections.items) |section| {
+                for (section.periods.items) |period| {
+                    max_events = @max(max_events, period.events.items.len);
+                }
+            }
+
+            const events_above = @as(f32, @floatFromInt((max_events + 1) / 2));
+            const events_below = @as(f32, @floatFromInt(max_events / 2));
+            const space_above = events_above * (event_h + event_spacing) + 20;
+            const space_below = events_below * (event_h + event_spacing) + 40;
+
+            const diagram_height = padding * 2 + title_space + axis_offset + space_above + space_below;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = content_x,
+                .y = cursor_y.*,
+                .width = content_width,
+                .height = diagram_height,
+            };
+            node.mermaid_timeline = model_ptr;
 
             try tree.nodes.append(node);
             cursor_y.* += diagram_height + theme.paragraph_spacing;
