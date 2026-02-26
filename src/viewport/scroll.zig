@@ -35,7 +35,7 @@ pub const ScrollState = struct {
         return @max(0, self.total_height - screen_h);
     }
 
-    fn clamp(self: *ScrollState) void {
+    pub fn clamp(self: *ScrollState) void {
         self.y = @max(0, @min(self.y, self.maxScroll()));
     }
 };

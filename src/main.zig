@@ -1,6 +1,8 @@
 const std = @import("std");
 const rl = @import("raylib");
+
 const App = @import("app.zig").App;
+const Theme = @import("theme/theme.zig").Theme;
 const theme_loader = @import("theme/theme_loader.zig");
 
 pub fn main() !void {
@@ -8,7 +10,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Parse CLI args
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -34,33 +35,29 @@ pub fn main() !void {
         }
     }
 
-    // Read markdown file
-    var file_content: ?[]u8 = null;
-    defer if (file_content) |content| allocator.free(content);
-
-    if (file_path) |path| {
-        file_content = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch |err| {
+    const max_file_size = 10 * 1024 * 1024;
+    const file_content: ?[]u8 = if (file_path) |path|
+        std.fs.cwd().readFileAlloc(allocator, path, max_file_size) catch |err| {
             std.log.err("Failed to read file '{s}': {}", .{ path, err });
             return;
-        };
-    }
+        }
+    else
+        null;
+    defer if (file_content) |content| allocator.free(content);
 
-    // Load custom theme if specified
-    var custom_theme: ?@import("theme/theme.zig").Theme = null;
-    if (theme_path) |tp| {
-        custom_theme = theme_loader.loadFromFile(allocator, tp) catch |err| {
+    const custom_theme: ?Theme = if (theme_path) |tp|
+        theme_loader.loadFromFile(allocator, tp) catch |err| {
             std.log.err("Failed to load theme '{s}': {}", .{ tp, err });
             return;
-        };
-    }
+        }
+    else
+        null;
 
-    // Init window
     rl.initWindow(960, 720, "Selkie \xe2\x80\x94 Markdown Viewer");
     defer rl.closeWindow();
     rl.setTargetFPS(60);
     rl.setWindowState(.{ .window_resizable = true });
 
-    // Init app
     var app = App.init(allocator);
     defer app.deinit();
 
@@ -69,20 +66,18 @@ pub fn main() !void {
     try app.loadFonts();
     defer app.unloadFonts();
 
-    // Set base directory for relative image paths
     if (file_path) |path| {
         const dir = std.fs.path.dirname(path) orelse ".";
         app.setBaseDir(dir);
+        app.setFilePath(path);
     }
 
-    // Load document
     if (file_content) |content| {
         app.loadMarkdown(content) catch |err| {
             std.log.err("Failed to parse markdown: {}", .{err});
         };
     }
 
-    // Main loop
     while (!rl.windowShouldClose()) {
         app.update();
         app.draw();

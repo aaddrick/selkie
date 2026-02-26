@@ -14,8 +14,11 @@ const LinkHandler = @import("render/link_handler.zig").LinkHandler;
 const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
 const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
+const FileWatcher = @import("file_watcher.zig").FileWatcher;
 
 pub const App = struct {
+    const max_file_size = 10 * 1024 * 1024;
+
     allocator: Allocator,
     document: ?ast.Document,
     layout_tree: ?lt.LayoutTree,
@@ -24,11 +27,18 @@ pub const App = struct {
     fonts: Fonts,
     scroll: ScrollState,
     viewport: Viewport,
-    link_handler: LinkHandler = .{ .hovered_url = null, .theme = &defaults.light },
+    link_handler: LinkHandler,
     image_renderer: ImageRenderer,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
     custom_theme: ?Theme,
-    has_custom_theme: bool,
+    /// File watcher for auto-reload (null if no file path set)
+    file_watcher: ?FileWatcher = null,
+    /// File path from CLI args (not owned)
+    file_path: ?[]const u8 = null,
+    /// Timestamp when last reload happened, for visual indicator
+    reload_indicator_ms: i64 = 0,
+    /// Whether the watched file has been deleted
+    file_deleted: bool = false,
 
     pub fn init(allocator: Allocator) App {
         return .{
@@ -40,9 +50,9 @@ pub const App = struct {
             .fonts = undefined,
             .scroll = .{},
             .viewport = Viewport.init(),
+            .link_handler = LinkHandler.init(&defaults.light),
             .image_renderer = ImageRenderer.init(allocator),
             .custom_theme = null,
-            .has_custom_theme = false,
         };
     }
 
@@ -50,43 +60,37 @@ pub const App = struct {
     pub fn setTheme(self: *App, custom: ?Theme, dark: bool) void {
         if (custom) |ct| {
             self.custom_theme = ct;
-            self.has_custom_theme = true;
+            // Take pointer to the stored copy (safe: just assigned above)
             self.theme = &self.custom_theme.?;
-            self.is_dark = false;
         } else if (dark) {
             self.is_dark = true;
             self.theme = &defaults.dark;
         } else {
-            self.is_dark = false;
             self.theme = &defaults.light;
         }
         self.link_handler.theme = self.theme;
     }
 
+    const font_paths = .{
+        .{ "body", "assets/fonts/Inter-Regular.ttf" },
+        .{ "bold", "assets/fonts/Inter-Bold.ttf" },
+        .{ "italic", "assets/fonts/Inter-Italic.ttf" },
+        .{ "bold_italic", "assets/fonts/Inter-BoldItalic.ttf" },
+        .{ "mono", "assets/fonts/JetBrainsMono-Regular.ttf" },
+    };
+
     pub fn loadFonts(self: *App) !void {
         const size = 32; // Load at high size, scale down when rendering
-        self.fonts = .{
-            .body = try rl.loadFontEx("assets/fonts/Inter-Regular.ttf", size, null),
-            .bold = try rl.loadFontEx("assets/fonts/Inter-Bold.ttf", size, null),
-            .italic = try rl.loadFontEx("assets/fonts/Inter-Italic.ttf", size, null),
-            .bold_italic = try rl.loadFontEx("assets/fonts/Inter-BoldItalic.ttf", size, null),
-            .mono = try rl.loadFontEx("assets/fonts/JetBrainsMono-Regular.ttf", size, null),
-        };
-
-        // Use bilinear filtering for clean text
-        rl.setTextureFilter(self.fonts.body.texture, .bilinear);
-        rl.setTextureFilter(self.fonts.bold.texture, .bilinear);
-        rl.setTextureFilter(self.fonts.italic.texture, .bilinear);
-        rl.setTextureFilter(self.fonts.bold_italic.texture, .bilinear);
-        rl.setTextureFilter(self.fonts.mono.texture, .bilinear);
+        inline for (font_paths) |entry| {
+            @field(self.fonts, entry[0]) = try rl.loadFontEx(entry[1], size, null);
+            rl.setTextureFilter(@field(self.fonts, entry[0]).texture, .bilinear);
+        }
     }
 
     pub fn unloadFonts(self: *App) void {
-        rl.unloadFont(self.fonts.body);
-        rl.unloadFont(self.fonts.bold);
-        rl.unloadFont(self.fonts.italic);
-        rl.unloadFont(self.fonts.bold_italic);
-        rl.unloadFont(self.fonts.mono);
+        inline for (font_paths) |entry| {
+            rl.unloadFont(@field(self.fonts, entry[0]));
+        }
     }
 
     pub fn setBaseDir(self: *App, path: []const u8) void {
@@ -94,7 +98,6 @@ pub const App = struct {
     }
 
     pub fn loadMarkdown(self: *App, text: []const u8) !void {
-        // Free existing document
         if (self.document) |*doc| doc.deinit();
         if (self.layout_tree) |*tree| tree.deinit();
 
@@ -102,53 +105,90 @@ pub const App = struct {
         try self.relayout();
     }
 
+    /// Set the file path and start watching for changes
+    pub fn setFilePath(self: *App, path: []const u8) void {
+        self.file_path = path;
+        self.file_watcher = FileWatcher.init(path);
+    }
+
+    /// Reload the markdown file from disk, preserving scroll position
+    fn reloadFromDisk(self: *App) void {
+        const path = self.file_path orelse return;
+
+        const content = std.fs.cwd().readFileAlloc(self.allocator, path, max_file_size) catch |err| {
+            std.log.err("Failed to reload file '{s}': {}", .{ path, err });
+            return;
+        };
+        defer self.allocator.free(content);
+
+        const saved_scroll_y = self.scroll.y;
+
+        self.loadMarkdown(content) catch |err| {
+            std.log.err("Failed to parse reloaded markdown: {}", .{err});
+            return;
+        };
+
+        // Restore scroll position, clamped to new document height
+        self.scroll.y = saved_scroll_y;
+        self.scroll.clamp();
+
+        self.reload_indicator_ms = std.time.milliTimestamp();
+        self.file_deleted = false;
+    }
+
     pub fn relayout(self: *App) !void {
         if (self.layout_tree) |*tree| tree.deinit();
 
-        if (self.document) |*doc| {
-            self.layout_tree = try document_layout.layout(
-                self.allocator,
-                doc,
-                self.theme,
-                &self.fonts,
-                self.viewport.width,
-                &self.image_renderer,
-            );
-            self.scroll.total_height = self.layout_tree.?.total_height;
-        }
+        const doc = &(self.document orelse return);
+        const tree = try document_layout.layout(
+            self.allocator,
+            doc,
+            self.theme,
+            &self.fonts,
+            self.viewport.width,
+            &self.image_renderer,
+        );
+        self.scroll.total_height = tree.total_height;
+        self.layout_tree = tree;
     }
 
     pub fn toggleTheme(self: *App) void {
-        if (self.has_custom_theme) {
-            // Toggle between custom theme and its opposite (built-in dark/light)
-            if (self.theme == &self.custom_theme.?) {
-                self.theme = &defaults.dark;
-            } else {
-                self.theme = &self.custom_theme.?;
-            }
+        if (self.custom_theme) |*ct| {
+            // Toggle between custom theme and built-in dark
+            self.theme = if (self.theme == ct) &defaults.dark else ct;
         } else {
             self.is_dark = !self.is_dark;
             self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
         }
         self.link_handler.theme = self.theme;
+        // Best-effort relayout — failure here is non-fatal since the old layout remains visible
         self.relayout() catch {};
     }
 
     pub fn update(self: *App) void {
-        // Handle input
         self.scroll.update();
 
-        // Toggle theme with T key
         if (rl.isKeyPressed(.t)) {
             self.toggleTheme();
         }
 
-        // Re-layout on window resize
+        // Re-layout on window resize (best-effort — old layout remains usable on failure)
         if (self.viewport.updateSize()) {
             self.relayout() catch {};
         }
 
-        // Update link hover/click
+        // Check for file changes
+        if (self.file_watcher) |*watcher| {
+            switch (watcher.checkForChanges()) {
+                .file_changed => self.reloadFromDisk(),
+                .file_deleted => {
+                    self.file_deleted = true;
+                    self.reload_indicator_ms = std.time.milliTimestamp();
+                },
+                .no_change => {},
+            }
+        }
+
         if (self.layout_tree) |*tree| {
             self.link_handler.update(tree, self.scroll.y);
             self.link_handler.handleClick();
@@ -166,9 +206,41 @@ pub const App = struct {
         } else {
             rl.drawText("No document loaded. Usage: selkie <file.md>", 20, 20, 20, self.theme.text);
         }
+
+        // Draw reload/deletion indicator
+        self.drawReloadIndicator();
+    }
+
+    fn drawReloadIndicator(self: *App) void {
+        if (self.reload_indicator_ms == 0) return;
+
+        const now = std.time.milliTimestamp();
+        const elapsed = now - self.reload_indicator_ms;
+        const fade_duration: i64 = 1500;
+
+        if (elapsed >= fade_duration) {
+            self.reload_indicator_ms = 0;
+            return;
+        }
+
+        const t: f32 = @floatFromInt(elapsed);
+        const d: f32 = @floatFromInt(fade_duration);
+        const alpha: u8 = @intFromFloat((1.0 - t / d) * 255.0);
+
+        const text: [:0]const u8 = if (self.file_deleted) "File deleted" else "Reloaded";
+        const color: rl.Color = if (self.file_deleted)
+            .{ .r = 220, .g = 60, .b = 60, .a = alpha }
+        else
+            .{ .r = self.theme.text.r, .g = self.theme.text.g, .b = self.theme.text.b, .a = alpha };
+
+        const font_size: i32 = 16;
+        const screen_w = rl.getScreenWidth();
+        const text_w = rl.measureText(text, font_size);
+        rl.drawText(text, screen_w - text_w - 16, 8, font_size, color);
     }
 
     pub fn deinit(self: *App) void {
+        if (self.file_watcher) |*watcher| watcher.deinit();
         if (self.layout_tree) |*tree| tree.deinit();
         if (self.document) |*doc| doc.deinit();
         self.image_renderer.unloadAll();

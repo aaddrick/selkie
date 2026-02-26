@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
 const rl = @import("raylib");
+
 const ast = @import("../parser/ast.zig");
 const lt = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
@@ -15,19 +17,12 @@ fn measureCellContent(
 ) f32 {
     var width: f32 = 0;
     for (node.children.items) |*child| {
-        switch (child.node_type) {
-            .paragraph => {
-                width += measureInlineWidth(child, fonts, font_size, is_bold);
-            },
-            .text => {
-                if (child.literal) |text| {
-                    const m = fonts.measure(text, font_size, is_bold, false, false);
-                    width += m.x;
-                }
-            },
-            else => {
-                width += measureInlineWidth(child, fonts, font_size, is_bold);
-            },
+        if (child.node_type == .text) {
+            if (child.literal) |text| {
+                width += fonts.measure(text, font_size, is_bold, false, false).x;
+            }
+        } else {
+            width += measureInlineWidth(child, fonts, font_size, is_bold);
         }
     }
     return width;
@@ -136,8 +131,15 @@ pub fn layoutTable(
         const is_header = row.is_header_row;
         const row_height = line_h + cell_pad * 2;
 
-        // Row background
-        if (is_header) {
+        // Row background: header gets header color, even body rows get alternating color
+        const row_bg_color: ?rl.Color = if (is_header)
+            theme.table_header_bg
+        else if (row_idx % 2 == 0)
+            theme.table_alt_row_bg
+        else
+            null;
+
+        if (row_bg_color) |bg_color| {
             var bg_node = lt.LayoutNode.init(allocator);
             bg_node.kind = .table_row_bg;
             bg_node.rect = .{
@@ -146,19 +148,7 @@ pub fn layoutTable(
                 .width = content_width,
                 .height = row_height,
             };
-            bg_node.code_bg_color = theme.table_header_bg;
-            try tree.nodes.append(bg_node);
-        } else if (row_idx % 2 == 0) {
-            // Alternating row background (even body rows)
-            var bg_node = lt.LayoutNode.init(allocator);
-            bg_node.kind = .table_row_bg;
-            bg_node.rect = .{
-                .x = content_x,
-                .y = row_y,
-                .width = content_width,
-                .height = row_height,
-            };
-            bg_node.code_bg_color = theme.table_alt_row_bg;
+            bg_node.code_bg_color = bg_color;
             try tree.nodes.append(bg_node);
         }
 
@@ -179,12 +169,11 @@ pub fn layoutTable(
             const text_y = row_y + cell_pad;
             const available_w = col_w - cell_pad * 2;
 
-            var style = lt.TextStyle{
+            const style = lt.TextStyle{
                 .font_size = font_size,
                 .color = theme.text,
                 .bold = is_header,
             };
-            _ = &style;
 
             try layoutCellInlines(
                 cell,
@@ -267,16 +256,8 @@ fn layoutCellInlines(
     available_w: f32,
     alignment: ast.Alignment,
 ) !void {
-    // Collect all inline text from the cell (cells contain paragraphs which contain inlines)
     for (cell.children.items) |*child| {
-        switch (child.node_type) {
-            .paragraph => {
-                try layoutCellInlineContent(child, fonts, layout_node, style, text_x, text_y, available_w, alignment);
-            },
-            else => {
-                try layoutCellInlineContent(child, fonts, layout_node, style, text_x, text_y, available_w, alignment);
-            },
-        }
+        try layoutCellInlineContent(child, fonts, layout_node, style, text_x, text_y, available_w, alignment);
     }
 }
 

@@ -1,5 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+const rl = @import("raylib");
+
 const lt = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
@@ -25,7 +28,6 @@ pub fn layoutCodeBlock(
     const line_h = font_size * theme.line_height;
     const spacing = font_size / 10.0;
 
-    // Count lines
     var line_count: u32 = 1;
     for (source) |ch| {
         if (ch == '\n') line_count += 1;
@@ -36,15 +38,12 @@ pub fn layoutCodeBlock(
         if (line_count == 0) line_count = 1;
     }
 
-    // Calculate gutter width based on digit count
+    // Measure the widest line number string to size the gutter
     var digit_buf: [16]u8 = undefined;
     const digit_str = std.fmt.bufPrint(&digit_buf, "{d}", .{line_count}) catch "0";
-    const digit_count = digit_str.len;
-    // Measure the widest digit string for gutter
     const gutter_text_width = fonts.measure(digit_str, font_size, false, false, true).x;
-    const gutter_padding: f32 = 12; // padding on each side of gutter
+    const gutter_padding: f32 = 12;
     const gutter_width = gutter_text_width + gutter_padding * 2;
-    _ = digit_count;
 
     // Total code block height
     const code_height = @as(f32, @floatFromInt(line_count)) * line_h;
@@ -94,7 +93,6 @@ pub fn layoutCodeBlock(
     const lang_def = if (fence_info) |fi| syntax.getLangDef(fi) else null;
 
     if (lang_def) |ld| {
-        // Highlighted rendering
         const tokens = try syntax.tokenize(allocator, source, ld);
         defer allocator.free(tokens);
 
@@ -105,54 +103,19 @@ pub fn layoutCodeBlock(
             const token_text = source[token.start..token.end];
             const color = tokenColor(token.kind, theme);
 
-            // Process token text character by character for newlines
             var seg_start: usize = 0;
             for (token_text, 0..) |tch, ti| {
                 if (tch == '\n') {
-                    // Emit text before newline
                     if (ti > seg_start) {
-                        const seg = token_text[seg_start..ti];
-                        const seg_w = fonts.measure(seg, font_size, false, false, true).x;
-                        try layout_node.text_runs.append(.{
-                            .text = seg,
-                            .style = .{
-                                .font_size = font_size,
-                                .color = color,
-                                .is_code = true,
-                            },
-                            .rect = .{
-                                .x = cur_x,
-                                .y = line_y + @as(f32, @floatFromInt(cur_line)) * line_h,
-                                .width = seg_w,
-                                .height = line_h,
-                            },
-                        });
-                        cur_x += seg_w;
+                        cur_x += try appendCodeRun(&layout_node, fonts, token_text[seg_start..ti], color, font_size, cur_x, line_y, cur_line, line_h);
                     }
                     cur_line += 1;
                     cur_x = code_x;
                     seg_start = ti + 1;
                 }
             }
-            // Emit remaining text after last newline
             if (seg_start < token_text.len) {
-                const seg = token_text[seg_start..];
-                const seg_w = fonts.measure(seg, font_size, false, false, true).x;
-                try layout_node.text_runs.append(.{
-                    .text = seg,
-                    .style = .{
-                        .font_size = font_size,
-                        .color = color,
-                        .is_code = true,
-                    },
-                    .rect = .{
-                        .x = cur_x,
-                        .y = line_y + @as(f32, @floatFromInt(cur_line)) * line_h,
-                        .width = seg_w,
-                        .height = line_h,
-                    },
-                });
-                cur_x += seg_w;
+                cur_x += try appendCodeRun(&layout_node, fonts, token_text[seg_start..], color, font_size, cur_x, line_y, cur_line, line_h);
             }
         }
     } else {
@@ -162,45 +125,14 @@ pub fn layoutCodeBlock(
         for (source, 0..) |ch, si| {
             if (ch == '\n') {
                 if (si > line_start) {
-                    const line_text = source[line_start..si];
-                    const lw = fonts.measure(line_text, font_size, false, false, true).x;
-                    try layout_node.text_runs.append(.{
-                        .text = line_text,
-                        .style = .{
-                            .font_size = font_size,
-                            .color = theme.code_text,
-                            .is_code = true,
-                        },
-                        .rect = .{
-                            .x = code_x,
-                            .y = line_y + @as(f32, @floatFromInt(cur_line)) * line_h,
-                            .width = lw,
-                            .height = line_h,
-                        },
-                    });
+                    _ = try appendCodeRun(&layout_node, fonts, source[line_start..si], theme.code_text, font_size, code_x, line_y, cur_line, line_h);
                 }
                 cur_line += 1;
                 line_start = si + 1;
             }
         }
-        // Last line (no trailing newline)
         if (line_start < source.len) {
-            const line_text = source[line_start..];
-            const lw = fonts.measure(line_text, font_size, false, false, true).x;
-            try layout_node.text_runs.append(.{
-                .text = line_text,
-                .style = .{
-                    .font_size = font_size,
-                    .color = theme.code_text,
-                    .is_code = true,
-                },
-                .rect = .{
-                    .x = code_x,
-                    .y = line_y + @as(f32, @floatFromInt(cur_line)) * line_h,
-                    .width = lw,
-                    .height = line_h,
-                },
-            });
+            _ = try appendCodeRun(&layout_node, fonts, source[line_start..], theme.code_text, font_size, code_x, line_y, cur_line, line_h);
         }
     }
 
@@ -208,7 +140,37 @@ pub fn layoutCodeBlock(
     cursor_y.* += total_height + theme.paragraph_spacing;
 }
 
-fn tokenColor(kind: syntax.TokenKind, theme: *const Theme) @import("raylib").Color {
+/// Append a single code text run and return its measured width.
+fn appendCodeRun(
+    layout_node: *lt.LayoutNode,
+    fonts: *const Fonts,
+    text: []const u8,
+    color: rl.Color,
+    font_size: f32,
+    x: f32,
+    base_y: f32,
+    line: u32,
+    line_h: f32,
+) !f32 {
+    const seg_w = fonts.measure(text, font_size, false, false, true).x;
+    try layout_node.text_runs.append(.{
+        .text = text,
+        .style = .{
+            .font_size = font_size,
+            .color = color,
+            .is_code = true,
+        },
+        .rect = .{
+            .x = x,
+            .y = base_y + @as(f32, @floatFromInt(line)) * line_h,
+            .width = seg_w,
+            .height = line_h,
+        },
+    });
+    return seg_w;
+}
+
+fn tokenColor(kind: syntax.TokenKind, theme: *const Theme) rl.Color {
     return switch (kind) {
         .keyword => theme.syntax_keyword,
         .string => theme.syntax_string,

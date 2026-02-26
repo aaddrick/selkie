@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
 const rl = @import("raylib");
+
 const ast = @import("../parser/ast.zig");
 const lt = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
@@ -226,9 +228,7 @@ fn layoutTextRun(
         };
         try layout_node.text_runs.append(run);
 
-        if (measured.y > line_height.*) {
-            line_height.* = measured.y;
-        }
+        line_height.* = @max(line_height.*, measured.y);
 
         cursor_x.* += measured.x;
         remaining = remaining[chunk_end..];
@@ -279,10 +279,9 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             };
 
             // Update rect height based on actual text runs
-            if (layout_node.text_runs.items.len > 0) {
-                const last_run = layout_node.text_runs.items[layout_node.text_runs.items.len - 1];
-                const actual_bottom = last_run.rect.y + last_run.rect.height;
-                layout_node.rect.height = actual_bottom - ctx.cursor_y;
+            const runs = layout_node.text_runs.items;
+            if (runs.len > 0) {
+                layout_node.rect.height = runs[runs.len - 1].rect.bottom() - ctx.cursor_y;
             }
 
             try ctx.tree.nodes.append(layout_node);
@@ -316,11 +315,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y = start_y + layout_node.rect.height + ctx.theme.paragraph_spacing;
         },
         .code_block => {
-            // Check if this is a mermaid diagram
-            const is_mermaid = if (node.fence_info) |info|
-                std.mem.eql(u8, info, "mermaid")
-            else
-                false;
+            const is_mermaid = if (node.fence_info) |info| std.mem.eql(u8, info, "mermaid") else false;
 
             if (is_mermaid) {
                 try mermaid_layout.layoutMermaidBlock(
@@ -427,7 +422,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             var marker_node = lt.LayoutNode.init(ctx.allocator);
             marker_node.kind = .text_block;
 
-            const is_dimmed = if (node.tasklist_checked) |checked| checked else false;
+            const is_dimmed = node.tasklist_checked orelse false;
             const marker_color = if (is_dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
             const marker_style = lt.TextStyle{
                 .font_size = ctx.theme.body_font_size,
@@ -492,17 +487,14 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             try ctx.tree.nodes.append(marker_node);
 
             // Layout children with dimmed style if checked task
-            if (is_dimmed) {
-                ctx.dimmed = true;
-            }
+            const saved_dimmed = ctx.dimmed;
+            if (is_dimmed) ctx.dimmed = true;
 
             for (node.children.items) |*child| {
                 try layoutBlock(ctx, child);
             }
 
-            if (is_dimmed) {
-                ctx.dimmed = false;
-            }
+            ctx.dimmed = saved_dimmed;
 
             ctx.content_x = saved_x;
             ctx.content_width = saved_w;

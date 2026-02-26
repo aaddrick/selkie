@@ -52,9 +52,7 @@ fn mapNodeType(cmark_type: cmark.cmark_node_type, type_string: ?[]const u8) ?ast
 }
 
 fn getNodeTypeString(cmark_node: *cmark.cmark_node) ?[]const u8 {
-    const type_str = cmark.cmark_node_get_type_string(cmark_node);
-    if (type_str) |s| return std.mem.span(s);
-    return null;
+    return if (cmark.cmark_node_get_type_string(cmark_node)) |s| std.mem.span(s) else null;
 }
 
 fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!ast.Node {
@@ -64,14 +62,13 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
 
     var node = ast.Node.init(allocator, node_type);
 
-    // Extract content based on type
     switch (node_type) {
         .text, .code, .html_block, .html_inline => {
-            node.literal = dupeString(allocator, cmark.cmark_node_get_literal(cmark_node)) catch return ParseError.OutOfMemory;
+            node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
         },
         .code_block => {
-            node.literal = dupeString(allocator, cmark.cmark_node_get_literal(cmark_node)) catch return ParseError.OutOfMemory;
-            node.fence_info = dupeString(allocator, cmark.cmark_node_get_fence_info(cmark_node)) catch return ParseError.OutOfMemory;
+            node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
+            node.fence_info = try dupeString(allocator, cmark.cmark_node_get_fence_info(cmark_node));
         },
         .heading => {
             node.heading_level = @intCast(cmark.cmark_node_get_heading_level(cmark_node));
@@ -85,8 +82,8 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
             node.list_tight = cmark.cmark_node_get_list_tight(cmark_node) != 0;
         },
         .link, .image => {
-            node.url = dupeString(allocator, cmark.cmark_node_get_url(cmark_node)) catch return ParseError.OutOfMemory;
-            node.title = dupeString(allocator, cmark.cmark_node_get_title(cmark_node)) catch return ParseError.OutOfMemory;
+            node.url = try dupeString(allocator, cmark.cmark_node_get_url(cmark_node));
+            node.title = try dupeString(allocator, cmark.cmark_node_get_title(cmark_node));
         },
         .table => {
             const ncols = cmark.cmark_gfm_extensions_get_table_columns(cmark_node);
@@ -94,7 +91,7 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
             if (ncols > 0) {
                 const c_aligns = cmark.cmark_gfm_extensions_get_table_alignments(cmark_node);
                 if (c_aligns) |aligns_ptr| {
-                    const alignments = allocator.alloc(ast.Alignment, ncols) catch return ParseError.OutOfMemory;
+                    const alignments = try allocator.alloc(ast.Alignment, ncols);
                     for (0..ncols) |i| {
                         alignments[i] = switch (aligns_ptr[i]) {
                             'l' => .left,
@@ -111,22 +108,13 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
             node.is_header_row = cmark.cmark_gfm_extensions_get_table_row_is_header(cmark_node) != 0;
         },
         .item => {
-            // Check if this is a tasklist item
-            const parent = cmark.cmark_node_parent(cmark_node);
-            if (parent) |p| {
-                _ = p;
-                // tasklist extension sets a property on the item node
-                if (cmark.cmark_gfm_extensions_get_tasklist_item_checked(cmark_node)) {
-                    node.tasklist_checked = true;
-                } else {
-                    // Distinguish between "unchecked" and "not a tasklist item"
-                    // cmark-gfm returns false for both - check type string
-                    const item_type_str = getNodeTypeString(cmark_node);
-                    if (item_type_str) |ts| {
-                        if (std.mem.eql(u8, ts, "tasklist")) {
-                            node.tasklist_checked = false;
-                        }
-                    }
+            if (cmark.cmark_gfm_extensions_get_tasklist_item_checked(cmark_node)) {
+                node.tasklist_checked = true;
+            } else if (getNodeTypeString(cmark_node)) |ts| {
+                // Distinguish "unchecked" from "not a tasklist item":
+                // cmark-gfm returns false for both, so check the type string
+                if (std.mem.eql(u8, ts, "tasklist")) {
+                    node.tasklist_checked = false;
                 }
             }
         },
@@ -137,7 +125,7 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
     var child = cmark.cmark_node_first_child(cmark_node);
     while (child) |c_node| {
         const child_node = try convertNode(allocator, c_node);
-        node.children.append(child_node) catch return ParseError.OutOfMemory;
+        try node.children.append(child_node);
         child = cmark.cmark_node_next(c_node);
     }
 
@@ -165,7 +153,6 @@ pub fn parse(allocator: Allocator, text: []const u8) ParseError!ast.Document {
     try attachExtension(parser, "tasklist");
     try attachExtension(parser, "tagfilter");
 
-    // Parse
     cmark.cmark_parser_feed(parser, text.ptr, text.len);
     const doc = cmark.cmark_parser_finish(parser) orelse return ParseError.ParseFailed;
     defer cmark.cmark_node_free(doc);
@@ -173,8 +160,5 @@ pub fn parse(allocator: Allocator, text: []const u8) ParseError!ast.Document {
     // Convert cmark tree to Zig AST
     const root = try convertNode(allocator, doc);
 
-    return ast.Document{
-        .root = root,
-        .allocator = allocator,
-    };
+    return .{ .root = root, .allocator = allocator };
 }

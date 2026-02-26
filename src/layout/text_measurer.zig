@@ -1,5 +1,6 @@
-const rl = @import("raylib");
 const std = @import("std");
+
+const rl = @import("raylib");
 
 pub const Fonts = struct {
     body: rl.Font,

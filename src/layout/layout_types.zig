@@ -1,6 +1,8 @@
-const rl = @import("raylib");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+const rl = @import("raylib");
+
 const FlowchartModel = @import("../mermaid/models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("../mermaid/models/sequence_model.zig").SequenceModel;
 const PieModel = @import("../mermaid/models/pie_model.zig").PieModel;
@@ -98,45 +100,29 @@ pub const LayoutNode = struct {
     pub fn init(allocator: Allocator) LayoutNode {
         return .{
             .kind = .text_block,
-            .rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+            .rect = std.mem.zeroes(Rect),
             .text_runs = std.ArrayList(TextRun).init(allocator),
         };
     }
 
     pub fn deinit(self: *LayoutNode) void {
         self.text_runs.deinit();
-        if (self.mermaid_flowchart) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_sequence) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_pie) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_gantt) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_class) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_er) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_state) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_mindmap) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_gitgraph) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_journey) |model| {
-            model.deinit();
-        }
-        if (self.mermaid_timeline) |model| {
-            model.deinit();
+
+        // Deinit all optional mermaid diagram models
+        inline for (.{
+            "mermaid_flowchart",
+            "mermaid_sequence",
+            "mermaid_pie",
+            "mermaid_gantt",
+            "mermaid_class",
+            "mermaid_er",
+            "mermaid_state",
+            "mermaid_mindmap",
+            "mermaid_gitgraph",
+            "mermaid_journey",
+            "mermaid_timeline",
+        }) |field_name| {
+            if (@field(self, field_name)) |model| model.deinit();
         }
     }
 };

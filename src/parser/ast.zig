@@ -78,10 +78,6 @@ pub const Node = struct {
         };
     }
 
-    pub fn addChild(self: *Node, child: Node) !void {
-        try self.children.append(child);
-    }
-
     pub fn deinit(self: *Node, allocator: Allocator) void {
         for (self.children.items) |*child| {
             child.deinit(allocator);
