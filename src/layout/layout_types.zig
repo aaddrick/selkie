@@ -131,12 +131,16 @@ pub const LayoutTree = struct {
     nodes: std.ArrayList(LayoutNode),
     total_height: f32,
     allocator: Allocator,
+    /// Arena for strings generated during layout (formatted numbers, alt text, etc.).
+    /// Freed in bulk by deinit(), so individual strings need no cleanup.
+    arena: std.heap.ArenaAllocator,
 
     pub fn init(allocator: Allocator) LayoutTree {
         return .{
             .nodes = std.ArrayList(LayoutNode).init(allocator),
             .total_height = 0,
             .allocator = allocator,
+            .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -145,5 +149,6 @@ pub const LayoutTree = struct {
             node.deinit();
         }
         self.nodes.deinit();
+        self.arena.deinit();
     }
 };

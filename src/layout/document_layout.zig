@@ -37,6 +37,7 @@ pub const LayoutContext = struct {
         theme: *const Theme,
         fonts: *const Fonts,
         window_width: f32,
+        tree: *lt.LayoutTree,
     ) LayoutContext {
         const content_width = @min(
             theme.max_content_width,
@@ -51,7 +52,7 @@ pub const LayoutContext = struct {
             .content_width = content_width,
             .content_x = content_x,
             .cursor_y = theme.page_margin,
-            .tree = undefined,
+            .tree = tree,
         };
     }
 };
@@ -117,22 +118,20 @@ fn layoutInlines(
                     var fn_style = style;
                     fn_style.font_size = style.font_size * 0.7;
                     fn_style.color = ctx.theme.link;
-                    // Wrap in brackets: [ref]
-                    var ref_buf: [64]u8 = undefined;
-                    const ref_str = std.fmt.bufPrint(&ref_buf, "[{s}]", .{ref_text}) catch ref_text;
+                    // Wrap in brackets: [ref] — allocated in arena so it outlives the layout pass
+                    const ref_str = try std.fmt.allocPrint(ctx.tree.arena.allocator(), "[{s}]", .{ref_text});
                     try layoutTextRun(ctx, ref_str, fn_style, layout_node, cursor_x, line_height);
                 }
             },
             .image => {
                 // Create a block-level image node
-                // First, collect alt text from children
-                var alt_buf: [512]u8 = undefined;
-                var alt_len: usize = 0;
+                // Collect alt text from children into an arena-allocated buffer
+                const arena_alloc = ctx.tree.arena.allocator();
+                var alt_parts = std.ArrayList([]const u8).init(ctx.allocator);
+                defer alt_parts.deinit();
                 for (child.children.items) |*img_child| {
                     if (img_child.literal) |text| {
-                        const copy_len = @min(text.len, alt_buf.len - alt_len);
-                        @memcpy(alt_buf[alt_len..][0..copy_len], text[0..copy_len]);
-                        alt_len += copy_len;
+                        try alt_parts.append(text);
                     }
                 }
 
@@ -159,8 +158,8 @@ fn layoutInlines(
                     }
                 }
 
-                if (alt_len > 0) {
-                    img_node.image_alt = alt_buf[0..alt_len];
+                if (alt_parts.items.len > 0) {
+                    img_node.image_alt = try std.mem.concat(arena_alloc, u8, alt_parts.items);
                 }
 
                 // Move to a new line before the image
@@ -443,9 +442,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
                     },
                 });
             } else if (ctx.list_type == .ordered) {
-                // Ordered list: render number prefix
-                var num_buf: [16]u8 = undefined;
-                const num_str = std.fmt.bufPrint(&num_buf, "{d}. ", .{ctx.list_item_index}) catch "? ";
+                // Ordered list: render number prefix — arena-allocated to outlive layout pass
+                const num_str = try std.fmt.allocPrint(ctx.tree.arena.allocator(), "{d}. ", .{ctx.list_item_index});
                 try marker_node.text_runs.append(.{
                     .text = num_str,
                     .style = marker_style,
@@ -534,10 +532,9 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             var lh: f32 = small_size * ctx.theme.line_height;
             const start_y = ctx.cursor_y;
 
-            // Add footnote number prefix
+            // Add footnote number prefix — arena-allocated to outlive layout pass
             ctx.footnote_index += 1;
-            var fn_buf: [16]u8 = undefined;
-            const fn_str = std.fmt.bufPrint(&fn_buf, "{d}. ", .{ctx.footnote_index}) catch "? ";
+            const fn_str = try std.fmt.allocPrint(ctx.tree.arena.allocator(), "{d}. ", .{ctx.footnote_index});
             const fn_m = ctx.fonts.measure(fn_str, small_size, false, false, false);
             try layout_node.text_runs.append(.{
                 .text = fn_str,
@@ -581,8 +578,7 @@ pub fn layout(
     image_renderer: ?*ImageRenderer,
 ) !lt.LayoutTree {
     var tree = lt.LayoutTree.init(allocator);
-    var ctx = LayoutContext.init(allocator, theme, fonts, window_width);
-    ctx.tree = &tree;
+    var ctx = LayoutContext.init(allocator, theme, fonts, window_width, &tree);
     ctx.image_renderer = image_renderer;
 
     try layoutBlock(&ctx, &document.root);

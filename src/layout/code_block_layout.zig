@@ -62,14 +62,14 @@ pub fn layoutCodeBlock(
         .height = total_height,
     };
 
-    // Add line number text runs
+    // Add line number text runs — each string arena-allocated to outlive layout pass
     const gutter_x = content_x + gutter_padding;
     const code_x = content_x + gutter_width + spacing * 2; // small gap after gutter
     const line_y = cursor_y.* + padding;
-    var line_num_buf: [16]u8 = undefined;
+    const arena_alloc = tree.arena.allocator();
     var line_idx: u32 = 1;
     while (line_idx <= line_count) : (line_idx += 1) {
-        const num_str = std.fmt.bufPrint(&line_num_buf, "{d}", .{line_idx}) catch "?";
+        const num_str = try std.fmt.allocPrint(arena_alloc, "{d}", .{line_idx});
         const num_width = fonts.measure(num_str, font_size, false, false, true).x;
         // Right-align line numbers within gutter
         const num_x = gutter_x + (gutter_text_width - num_width);
