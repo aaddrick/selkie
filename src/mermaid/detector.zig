@@ -2,7 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tokenizer = @import("tokenizer.zig");
 const flowchart_parser = @import("parsers/flowchart.zig");
+const sequence_parser = @import("parsers/sequence.zig");
 const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
+const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 
 pub const DiagramType = enum {
     flowchart,
@@ -13,6 +15,7 @@ pub const DiagramType = enum {
 
 pub const DetectResult = union(enum) {
     flowchart: FlowchartModel,
+    sequence: SequenceModel,
     unsupported: []const u8,
 };
 
@@ -29,6 +32,10 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
             if (std.mem.eql(u8, tok.text, "graph") or std.mem.eql(u8, tok.text, "flowchart")) {
                 const model = try flowchart_parser.parse(allocator, tokens);
                 return .{ .flowchart = model };
+            }
+            if (std.mem.eql(u8, tok.text, "sequenceDiagram")) {
+                const model = try sequence_parser.parse(allocator, source);
+                return .{ .sequence = model };
             }
             // Return unsupported for other diagram types
             return .{ .unsupported = tok.text };

@@ -5,7 +5,9 @@ const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const detector = @import("detector.zig");
 const dagre = @import("layout/dagre.zig");
+const linear_layout = @import("layout/linear_layout.zig");
 const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
+const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 
 pub fn layoutMermaidBlock(
     allocator: Allocator,
@@ -52,6 +54,36 @@ pub fn layoutMermaidBlock(
                 .height = diagram_height,
             };
             node.mermaid_flowchart = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .sequence => |seq_val| {
+            const model_ptr = try allocator.create(SequenceModel);
+            model_ptr.* = seq_val;
+
+            const layout_result = try linear_layout.layout(
+                allocator,
+                model_ptr,
+                fonts,
+                theme,
+                content_width,
+            );
+
+            const diagram_width = @min(layout_result.width, content_width);
+            const diagram_height = layout_result.height;
+
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_sequence = model_ptr;
 
             try tree.nodes.append(node);
             cursor_y.* += diagram_height + theme.paragraph_spacing;

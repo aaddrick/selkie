@@ -2,6 +2,7 @@ const rl = @import("raylib");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const FlowchartModel = @import("../mermaid/models/flowchart_model.zig").FlowchartModel;
+const SequenceModel = @import("../mermaid/models/sequence_model.zig").SequenceModel;
 
 pub const Rect = struct {
     x: f32,
@@ -74,6 +75,7 @@ pub const LayoutNode = struct {
     image_alt: ?[]const u8 = null,
     // Mermaid diagram data
     mermaid_flowchart: ?*FlowchartModel = null,
+    mermaid_sequence: ?*SequenceModel = null,
 
     pub fn init(allocator: Allocator) LayoutNode {
         return .{
@@ -87,9 +89,9 @@ pub const LayoutNode = struct {
         self.text_runs.deinit();
         if (self.mermaid_flowchart) |model| {
             model.deinit();
-            // Note: the allocator that created this is the tree's allocator
-            // We can't easily free the pointer here without knowing the allocator,
-            // but it will be freed when the arena/page allocator is released.
+        }
+        if (self.mermaid_sequence) |model| {
+            model.deinit();
         }
     }
 };
