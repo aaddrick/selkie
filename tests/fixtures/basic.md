@@ -2,22 +2,49 @@
 
 Selkie is a **Zig-based** markdown viewer with *native* rendering.
 
-## Features
+## Inline Formatting
 
-- GFM markdown support
-- Native Mermaid chart rendering
-- Customizable **themes**
+This paragraph has **bold text**, *italic text*, ***bold and italic text***, ~~strikethrough text~~, and `inline code` all in one place.
 
-### Getting Started
+Here is a [link](https://example.com) and some more `code snippets` with **bold** and *italic* nearby.
 
-This is a paragraph with `inline code` and a [link](https://example.com).
+## Lists
 
-Here is some more text to test word wrapping. This paragraph should be long enough to wrap to the next line when rendered in the viewer window with the default content width settings applied.
+### Unordered Lists
 
----
+- First item
+- Second item
+  - Nested item A
+  - Nested item B
+    - Deeply nested item
+    - Another deep item
+  - Back to second level
+- Third item
+
+### Ordered Lists
+
+1. First step
+2. Second step
+3. Third step
+
+### Mixed Nesting
+
+- Bullet item
+  1. Ordered sub-item one
+  2. Ordered sub-item two
+- Another bullet
+  - Sub-bullet
+    - Deep sub-bullet
+
+## Block Elements
 
 > This is a blockquote. It should have a colored left border
 > and indented content.
+
+> Nested blockquotes:
+> > This is a nested blockquote inside another blockquote.
+
+---
 
 ## Code Example
 
@@ -29,10 +56,15 @@ pub fn main() !void {
 }
 ```
 
-### Another Section
+### Heading Levels
 
-1. First item
-2. Second item
-3. Third item
+# Heading 1
+## Heading 2
+### Heading 3
+#### Heading 4
+##### Heading 5
+###### Heading 6
+
+---
 
 That's all for now. Press **T** to toggle dark mode!

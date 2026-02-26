@@ -29,6 +29,7 @@ pub const TextStyle = struct {
     strikethrough: bool = false,
     underline: bool = false,
     is_code: bool = false,
+    code_bg: ?rl.Color = null,
 };
 
 pub const TextRun = struct {

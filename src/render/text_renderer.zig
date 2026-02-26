@@ -27,12 +27,29 @@ pub fn drawTextRun(run: *const lt.TextRun, fonts: *const Fonts, scroll_y: f32) v
     if (draw_y + run.rect.height < 0) return;
     if (draw_y > @as(f32, @floatFromInt(rl.getScreenHeight()))) return;
 
-    const font = if (run.style.is_code)
-        fonts.mono
-    else if (run.style.bold)
-        fonts.bold
-    else
-        fonts.body;
+    const font = fonts.selectFont(.{
+        .bold = run.style.bold,
+        .italic = run.style.italic,
+        .is_code = run.style.is_code,
+    });
+
+    // Draw inline code background
+    if (run.style.is_code) {
+        if (run.style.code_bg) |bg| {
+            const pad: f32 = 2;
+            rl.drawRectangleRounded(
+                .{
+                    .x = run.rect.x - pad,
+                    .y = draw_y - pad,
+                    .width = run.rect.width + pad * 2,
+                    .height = run.rect.height + pad * 2,
+                },
+                0.2,
+                4,
+                bg,
+            );
+        }
+    }
 
     const spacing = run.style.font_size / 10.0;
 

@@ -14,6 +14,10 @@ pub const LayoutContext = struct {
     content_x: f32,
     cursor_y: f32,
     tree: *lt.LayoutTree,
+    // List context
+    list_depth: u8 = 0,
+    list_type: ast.ListType = .bullet,
+    list_item_index: u32 = 0,
 
     pub fn init(
         allocator: Allocator,
@@ -68,6 +72,7 @@ fn layoutInlines(
                     var code_style = style;
                     code_style.is_code = true;
                     code_style.color = ctx.theme.code_text;
+                    code_style.code_bg = ctx.theme.code_background;
                     try layoutTextRun(ctx, text, code_style, layout_node, cursor_x, line_height);
                 }
             },
@@ -125,7 +130,7 @@ fn layoutTextRun(
         const chunk_end = if (word_end < remaining.len) word_end + 1 else word_end;
         const word = remaining[0..chunk_end];
 
-        const measured = ctx.fonts.measure(word, style.font_size, style.bold, style.is_code);
+        const measured = ctx.fonts.measure(word, style.font_size, style.bold, style.italic, style.is_code);
 
         // Wrap if this word would exceed the line
         if (cursor_x.* + measured.x > max_x and cursor_x.* > ctx.content_x) {
@@ -289,9 +294,21 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_width = saved_w;
         },
         .list => {
+            const saved_depth = ctx.list_depth;
+            const saved_type = ctx.list_type;
+            const saved_index = ctx.list_item_index;
+
+            ctx.list_type = node.list_type;
+            ctx.list_item_index = node.list_start;
+            ctx.list_depth += 1;
+
             for (node.children.items) |*child| {
                 try layoutBlock(ctx, child);
             }
+
+            ctx.list_depth = saved_depth;
+            ctx.list_type = saved_type;
+            ctx.list_item_index = saved_index;
         },
         .item => {
             // Indent list items
@@ -304,21 +321,47 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             var marker_node = lt.LayoutNode.init(ctx.allocator);
             marker_node.kind = .text_block;
 
-            const bullet = "\xE2\x80\xA2 "; // bullet "• "
             const marker_style = lt.TextStyle{
                 .font_size = ctx.theme.body_font_size,
                 .color = ctx.theme.text,
             };
-            try marker_node.text_runs.append(.{
-                .text = bullet,
-                .style = marker_style,
-                .rect = .{
-                    .x = saved_x + ctx.theme.list_indent - 16,
-                    .y = ctx.cursor_y,
-                    .width = 16,
-                    .height = ctx.theme.body_font_size * ctx.theme.line_height,
-                },
-            });
+
+            if (ctx.list_type == .ordered) {
+                // Ordered list: render number prefix
+                var num_buf: [16]u8 = undefined;
+                const num_str = std.fmt.bufPrint(&num_buf, "{d}. ", .{ctx.list_item_index}) catch "? ";
+                try marker_node.text_runs.append(.{
+                    .text = num_str,
+                    .style = marker_style,
+                    .rect = .{
+                        .x = saved_x + ctx.theme.list_indent - 24,
+                        .y = ctx.cursor_y,
+                        .width = 24,
+                        .height = ctx.theme.body_font_size * ctx.theme.line_height,
+                    },
+                });
+                ctx.list_item_index += 1;
+            } else {
+                // Unordered list: use different bullet per nesting level
+                const bullets = [_][]const u8{
+                    "\xE2\x80\xA2 ", // • (bullet)
+                    "\xE2\x97\xA6 ", // ◦ (white bullet)
+                    "\xE2\x96\xAA ", // ▪ (black small square)
+                };
+                const depth_idx = @min(ctx.list_depth - 1, bullets.len - 1);
+                const bullet = bullets[depth_idx];
+                try marker_node.text_runs.append(.{
+                    .text = bullet,
+                    .style = marker_style,
+                    .rect = .{
+                        .x = saved_x + ctx.theme.list_indent - 16,
+                        .y = ctx.cursor_y,
+                        .width = 16,
+                        .height = ctx.theme.body_font_size * ctx.theme.line_height,
+                    },
+                });
+            }
+
             marker_node.rect = .{
                 .x = saved_x,
                 .y = ctx.cursor_y,

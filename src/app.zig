@@ -41,18 +41,24 @@ pub const App = struct {
         self.fonts = .{
             .body = try rl.loadFontEx("assets/fonts/Inter-Regular.ttf", size, null),
             .bold = try rl.loadFontEx("assets/fonts/Inter-Bold.ttf", size, null),
+            .italic = try rl.loadFontEx("assets/fonts/Inter-Italic.ttf", size, null),
+            .bold_italic = try rl.loadFontEx("assets/fonts/Inter-BoldItalic.ttf", size, null),
             .mono = try rl.loadFontEx("assets/fonts/JetBrainsMono-Regular.ttf", size, null),
         };
 
         // Use bilinear filtering for clean text
         rl.setTextureFilter(self.fonts.body.texture, .bilinear);
         rl.setTextureFilter(self.fonts.bold.texture, .bilinear);
+        rl.setTextureFilter(self.fonts.italic.texture, .bilinear);
+        rl.setTextureFilter(self.fonts.bold_italic.texture, .bilinear);
         rl.setTextureFilter(self.fonts.mono.texture, .bilinear);
     }
 
     pub fn unloadFonts(self: *App) void {
         rl.unloadFont(self.fonts.body);
         rl.unloadFont(self.fonts.bold);
+        rl.unloadFont(self.fonts.italic);
+        rl.unloadFont(self.fonts.bold_italic);
         rl.unloadFont(self.fonts.mono);
     }
 
