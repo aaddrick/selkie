@@ -5,6 +5,7 @@ const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const block_renderer = @import("block_renderer.zig");
 const table_renderer = @import("table_renderer.zig");
 const image_renderer = @import("image_renderer.zig");
+const flowchart_renderer = @import("../mermaid/renderers/flowchart_renderer.zig");
 
 pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
@@ -24,6 +25,20 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
             .table_border => table_renderer.drawTableBorder(node, theme, scroll_y),
             .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y),
             .image => block_renderer.drawImage(node, fonts, scroll_y),
+            .mermaid_diagram => {
+                if (node.mermaid_flowchart) |model| {
+                    flowchart_renderer.drawFlowchart(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                }
+            },
         }
     }
 

@@ -40,6 +40,15 @@ pub const light = Theme{
     .syntax_punctuation = rgb(36, 41, 46),
     .line_number_color = rgb(175, 184, 193),
 
+    // Mermaid (light: blue-gray nodes, dark borders)
+    .mermaid_node_fill = rgb(218, 232, 252),
+    .mermaid_node_border = rgb(100, 130, 180),
+    .mermaid_node_text = rgb(36, 41, 46),
+    .mermaid_edge = rgb(100, 100, 100),
+    .mermaid_edge_text = rgb(36, 41, 46),
+    .mermaid_label_bg = rgb(232, 232, 232),
+    .mermaid_subgraph_bg = rgb(240, 245, 255),
+
     .body_font_size = 16,
     .heading_scale = .{ 2.0, 1.5, 1.25, 1.1, 0.9, 0.8 },
     .mono_font_size = 14,
@@ -89,6 +98,15 @@ pub const dark = Theme{
     .syntax_operator = rgb(148, 226, 213),
     .syntax_punctuation = rgb(147, 153, 178),
     .line_number_color = rgb(108, 112, 134),
+
+    // Mermaid (Catppuccin-style teal/mauve fills)
+    .mermaid_node_fill = rgb(69, 71, 90),
+    .mermaid_node_border = rgb(148, 226, 213),
+    .mermaid_node_text = rgb(205, 214, 244),
+    .mermaid_edge = rgb(166, 173, 200),
+    .mermaid_edge_text = rgb(205, 214, 244),
+    .mermaid_label_bg = rgb(49, 50, 68),
+    .mermaid_subgraph_bg = rgb(36, 36, 54),
 
     .body_font_size = 16,
     .heading_scale = .{ 2.0, 1.5, 1.25, 1.1, 0.9, 0.8 },

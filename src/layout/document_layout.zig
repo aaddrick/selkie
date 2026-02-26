@@ -7,6 +7,7 @@ const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const table_layout = @import("table_layout.zig");
 const code_block_layout = @import("code_block_layout.zig");
+const mermaid_layout = @import("../mermaid/mermaid_layout.zig");
 const ImageRenderer = @import("../render/image_renderer.zig").ImageRenderer;
 
 pub const LayoutContext = struct {
@@ -315,17 +316,36 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y = start_y + layout_node.rect.height + ctx.theme.paragraph_spacing;
         },
         .code_block => {
-            try code_block_layout.layoutCodeBlock(
-                ctx.allocator,
-                node.literal,
-                node.fence_info,
-                ctx.theme,
-                ctx.fonts,
-                ctx.content_x,
-                ctx.content_width,
-                &ctx.cursor_y,
-                ctx.tree,
-            );
+            // Check if this is a mermaid diagram
+            const is_mermaid = if (node.fence_info) |info|
+                std.mem.eql(u8, info, "mermaid")
+            else
+                false;
+
+            if (is_mermaid) {
+                try mermaid_layout.layoutMermaidBlock(
+                    ctx.allocator,
+                    node.literal,
+                    ctx.theme,
+                    ctx.fonts,
+                    ctx.content_x,
+                    ctx.content_width,
+                    &ctx.cursor_y,
+                    ctx.tree,
+                );
+            } else {
+                try code_block_layout.layoutCodeBlock(
+                    ctx.allocator,
+                    node.literal,
+                    node.fence_info,
+                    ctx.theme,
+                    ctx.fonts,
+                    ctx.content_x,
+                    ctx.content_width,
+                    &ctx.cursor_y,
+                    ctx.tree,
+                );
+            }
         },
         .thematic_break => {
             var layout_node = lt.LayoutNode.init(ctx.allocator);

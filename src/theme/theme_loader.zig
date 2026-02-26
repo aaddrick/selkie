@@ -49,6 +49,13 @@ const JsonColors = struct {
     syntax_operator: ?[]const u8 = null,
     syntax_punctuation: ?[]const u8 = null,
     line_number_color: ?[]const u8 = null,
+    mermaid_node_fill: ?[]const u8 = null,
+    mermaid_node_border: ?[]const u8 = null,
+    mermaid_node_text: ?[]const u8 = null,
+    mermaid_edge: ?[]const u8 = null,
+    mermaid_edge_text: ?[]const u8 = null,
+    mermaid_label_bg: ?[]const u8 = null,
+    mermaid_subgraph_bg: ?[]const u8 = null,
 };
 
 const JsonSizing = struct {
@@ -135,6 +142,13 @@ pub fn loadFromJson(json_data: []const u8) !Theme {
         theme.syntax_operator = colorOrDefault(c.syntax_operator, def.syntax_operator);
         theme.syntax_punctuation = colorOrDefault(c.syntax_punctuation, def.syntax_punctuation);
         theme.line_number_color = colorOrDefault(c.line_number_color, def.line_number_color);
+        theme.mermaid_node_fill = colorOrDefault(c.mermaid_node_fill, def.mermaid_node_fill);
+        theme.mermaid_node_border = colorOrDefault(c.mermaid_node_border, def.mermaid_node_border);
+        theme.mermaid_node_text = colorOrDefault(c.mermaid_node_text, def.mermaid_node_text);
+        theme.mermaid_edge = colorOrDefault(c.mermaid_edge, def.mermaid_edge);
+        theme.mermaid_edge_text = colorOrDefault(c.mermaid_edge_text, def.mermaid_edge_text);
+        theme.mermaid_label_bg = colorOrDefault(c.mermaid_label_bg, def.mermaid_label_bg);
+        theme.mermaid_subgraph_bg = colorOrDefault(c.mermaid_subgraph_bg, def.mermaid_subgraph_bg);
 
         // Heading colors array
         if (c.heading) |headings| {

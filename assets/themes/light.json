@@ -24,7 +24,14 @@
     "syntax_function": "#8250df",
     "syntax_operator": "#24292e",
     "syntax_punctuation": "#24292e",
-    "line_number_color": "#afb8c1"
+    "line_number_color": "#afb8c1",
+    "mermaid_node_fill": "#dae8fc",
+    "mermaid_node_border": "#6482b4",
+    "mermaid_node_text": "#24292e",
+    "mermaid_edge": "#646464",
+    "mermaid_edge_text": "#24292e",
+    "mermaid_label_bg": "#e8e8e8",
+    "mermaid_subgraph_bg": "#f0f5ff"
   },
   "sizing": {
     "body_font_size": 16,

@@ -29,6 +29,15 @@ pub const Theme = struct {
     syntax_punctuation: rl.Color,
     line_number_color: rl.Color,
 
+    // Mermaid diagram colors
+    mermaid_node_fill: rl.Color,
+    mermaid_node_border: rl.Color,
+    mermaid_node_text: rl.Color,
+    mermaid_edge: rl.Color,
+    mermaid_edge_text: rl.Color,
+    mermaid_label_bg: rl.Color,
+    mermaid_subgraph_bg: rl.Color,
+
     // Sizing
     body_font_size: f32,
     heading_scale: [6]f32,
