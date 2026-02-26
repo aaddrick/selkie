@@ -10,6 +10,9 @@ const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 const PieModel = @import("models/pie_model.zig").PieModel;
 const GanttModel = @import("models/gantt_model.zig").GanttModel;
+const ClassModel = @import("models/class_model.zig").ClassModel;
+const ERModel = @import("models/er_model.zig").ERModel;
+const StateModel = @import("models/state_model.zig").StateModel;
 
 pub fn layoutMermaidBlock(
     allocator: Allocator,
@@ -194,6 +197,99 @@ pub fn layoutMermaidBlock(
             try tree.nodes.append(node);
             cursor_y.* += diagram_height + theme.paragraph_spacing;
         },
+        .class_diagram => |cls_val| {
+            var model_ptr = try allocator.create(ClassModel);
+            model_ptr.* = cls_val;
+
+            // Pre-compute node sizes based on class content
+            precomputeClassNodeSizes(model_ptr, fonts, theme);
+
+            const layout_result = try dagre.layout(
+                allocator,
+                &model_ptr.graph,
+                fonts,
+                theme,
+                content_width,
+            );
+
+            const diagram_width = @min(layout_result.width, content_width);
+            const diagram_height = layout_result.height;
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_class = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .er_diagram => |er_val| {
+            var model_ptr = try allocator.create(ERModel);
+            model_ptr.* = er_val;
+
+            // Pre-compute node sizes based on entity content
+            precomputeERNodeSizes(model_ptr, fonts, theme);
+
+            const layout_result = try dagre.layout(
+                allocator,
+                &model_ptr.graph,
+                fonts,
+                theme,
+                content_width,
+            );
+
+            const diagram_width = @min(layout_result.width, content_width);
+            const diagram_height = layout_result.height;
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_er = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
+        .state_diagram => |st_val| {
+            var model_ptr = try allocator.create(StateModel);
+            model_ptr.* = st_val;
+
+            const layout_result = try dagre.layout(
+                allocator,
+                &model_ptr.graph,
+                fonts,
+                theme,
+                content_width,
+            );
+
+            const diagram_width = @min(layout_result.width, content_width);
+            const diagram_height = layout_result.height;
+            const diagram_x = content_x + (content_width - diagram_width) / 2;
+
+            var node = lt.LayoutNode.init(allocator);
+            node.kind = .mermaid_diagram;
+            node.rect = .{
+                .x = diagram_x,
+                .y = cursor_y.*,
+                .width = diagram_width,
+                .height = diagram_height,
+            };
+            node.mermaid_state = model_ptr;
+
+            try tree.nodes.append(node);
+            cursor_y.* += diagram_height + theme.paragraph_spacing;
+        },
         .unsupported => |diagram_type| {
             // Render placeholder text
             var node = lt.LayoutNode.init(allocator);
@@ -227,5 +323,80 @@ pub fn layoutMermaidBlock(
             try tree.nodes.append(node);
             cursor_y.* += measured.y + theme.paragraph_spacing;
         },
+    }
+}
+
+fn precomputeClassNodeSizes(model: *ClassModel, fonts: *const Fonts, theme: *const Theme) void {
+    const font_size = theme.body_font_size * 0.85;
+    const line_h: f32 = font_size + 4;
+    const section_pad: f32 = 4;
+    const min_width: f32 = 100;
+
+    for (model.classes.items) |cls| {
+        // Compute width from class name and member names
+        var max_w: f32 = fonts.measure(cls.label, font_size, false, false, false).x;
+        if (cls.annotation) |ann| {
+            const ann_w = fonts.measure(ann, font_size * 0.85, false, false, false).x;
+            max_w = @max(max_w, ann_w);
+        }
+        for (cls.members.items) |member| {
+            const m_w = fonts.measure(member.name, font_size * 0.9, false, false, false).x + 20; // visibility prefix
+            max_w = @max(max_w, m_w);
+        }
+        const width = @max(min_width, max_w + 30);
+
+        // Compute height: header + divider + attrs + divider + methods
+        var height: f32 = section_pad; // top padding
+        if (cls.annotation != null) height += line_h;
+        height += line_h + section_pad; // class name + padding
+        height += section_pad + 1; // divider
+
+        var attr_count: f32 = 0;
+        var method_count: f32 = 0;
+        for (cls.members.items) |member| {
+            if (member.is_method) {
+                method_count += 1;
+            } else {
+                attr_count += 1;
+            }
+        }
+        height += @max(1, attr_count) * line_h;
+        height += section_pad + 1 + section_pad; // divider
+        height += @max(1, method_count) * line_h;
+        height += section_pad; // bottom padding
+
+        // Set on the graph node
+        if (model.graph.nodes.getPtr(cls.id)) |gnode| {
+            gnode.width = width;
+            gnode.height = height;
+        }
+    }
+}
+
+fn precomputeERNodeSizes(model: *ERModel, fonts: *const Fonts, theme: *const Theme) void {
+    const font_size = theme.body_font_size * 0.85;
+    const header_h: f32 = font_size + 10;
+    const row_h: f32 = font_size + 6;
+    const min_width: f32 = 100;
+
+    for (model.entities.items) |entity| {
+        // Width from entity name and attribute text
+        var max_w: f32 = fonts.measure(entity.name, font_size, false, false, false).x;
+        for (entity.attributes.items) |attr| {
+            const type_w = fonts.measure(attr.attr_type, font_size * 0.8, false, false, false).x;
+            const name_w = fonts.measure(attr.name, font_size * 0.8, false, false, false).x;
+            const row_w: f32 = 30 + type_w + 6 + name_w + 10; // key prefix + type + gap + name + padding
+            max_w = @max(max_w, row_w);
+        }
+        const width = @max(min_width, max_w + 20);
+
+        // Height: header + attribute rows
+        const attr_h: f32 = @as(f32, @floatFromInt(@max(entity.attributes.items.len, @as(usize, 1)))) * row_h;
+        const height = header_h + attr_h + 4;
+
+        if (model.graph.nodes.getPtr(entity.name)) |gnode| {
+            gnode.width = width;
+            gnode.height = height;
+        }
     }
 }

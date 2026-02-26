@@ -5,6 +5,9 @@ const FlowchartModel = @import("../mermaid/models/flowchart_model.zig").Flowchar
 const SequenceModel = @import("../mermaid/models/sequence_model.zig").SequenceModel;
 const PieModel = @import("../mermaid/models/pie_model.zig").PieModel;
 const GanttModel = @import("../mermaid/models/gantt_model.zig").GanttModel;
+const ClassModel = @import("../mermaid/models/class_model.zig").ClassModel;
+const ERModel = @import("../mermaid/models/er_model.zig").ERModel;
+const StateModel = @import("../mermaid/models/state_model.zig").StateModel;
 
 pub const Rect = struct {
     x: f32,
@@ -80,6 +83,9 @@ pub const LayoutNode = struct {
     mermaid_sequence: ?*SequenceModel = null,
     mermaid_pie: ?*PieModel = null,
     mermaid_gantt: ?*GanttModel = null,
+    mermaid_class: ?*ClassModel = null,
+    mermaid_er: ?*ERModel = null,
+    mermaid_state: ?*StateModel = null,
 
     pub fn init(allocator: Allocator) LayoutNode {
         return .{
@@ -101,6 +107,15 @@ pub const LayoutNode = struct {
             model.deinit();
         }
         if (self.mermaid_gantt) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_class) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_er) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_state) |model| {
             model.deinit();
         }
     }

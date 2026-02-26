@@ -5,10 +5,16 @@ const flowchart_parser = @import("parsers/flowchart.zig");
 const sequence_parser = @import("parsers/sequence.zig");
 const pie_parser = @import("parsers/pie.zig");
 const gantt_parser = @import("parsers/gantt.zig");
+const class_parser = @import("parsers/class_diagram.zig");
+const er_parser = @import("parsers/er.zig");
+const state_parser = @import("parsers/state.zig");
 const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 const PieModel = @import("models/pie_model.zig").PieModel;
 const GanttModel = @import("models/gantt_model.zig").GanttModel;
+const ClassModel = @import("models/class_model.zig").ClassModel;
+const ERModel = @import("models/er_model.zig").ERModel;
+const StateModel = @import("models/state_model.zig").StateModel;
 
 pub const DiagramType = enum {
     flowchart,
@@ -16,6 +22,8 @@ pub const DiagramType = enum {
     pie,
     gantt,
     class_diagram,
+    er_diagram,
+    state_diagram,
     unsupported,
 };
 
@@ -24,6 +32,9 @@ pub const DetectResult = union(enum) {
     sequence: SequenceModel,
     pie: PieModel,
     gantt: GanttModel,
+    class_diagram: ClassModel,
+    er_diagram: ERModel,
+    state_diagram: StateModel,
     unsupported: []const u8,
 };
 
@@ -52,6 +63,19 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
             if (std.mem.eql(u8, tok.text, "gantt")) {
                 const model = try gantt_parser.parse(allocator, source);
                 return .{ .gantt = model };
+            }
+            if (std.mem.eql(u8, tok.text, "classDiagram")) {
+                const model = try class_parser.parse(allocator, source);
+                return .{ .class_diagram = model };
+            }
+            if (std.mem.eql(u8, tok.text, "erDiagram")) {
+                const model = try er_parser.parse(allocator, source);
+                return .{ .er_diagram = model };
+            }
+            // stateDiagram or stateDiagram-v2 — tokenizer may split on hyphen
+            if (std.mem.eql(u8, tok.text, "stateDiagram")) {
+                const model = try state_parser.parse(allocator, source);
+                return .{ .state_diagram = model };
             }
             // Return unsupported for other diagram types
             return .{ .unsupported = tok.text };

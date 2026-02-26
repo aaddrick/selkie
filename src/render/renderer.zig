@@ -9,6 +9,9 @@ const flowchart_renderer = @import("../mermaid/renderers/flowchart_renderer.zig"
 const sequence_renderer = @import("../mermaid/renderers/sequence_renderer.zig");
 const pie_renderer = @import("../mermaid/renderers/pie_renderer.zig");
 const gantt_renderer = @import("../mermaid/renderers/gantt_renderer.zig");
+const class_renderer = @import("../mermaid/renderers/class_renderer.zig");
+const er_renderer = @import("../mermaid/renderers/er_renderer.zig");
+const state_renderer = @import("../mermaid/renderers/state_renderer.zig");
 
 pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
@@ -64,6 +67,39 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
                     );
                 } else if (node.mermaid_gantt) |model| {
                     gantt_renderer.drawGanttChart(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_class) |model| {
+                    class_renderer.drawClassDiagram(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_er) |model| {
+                    er_renderer.drawERDiagram(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_state) |model| {
+                    state_renderer.drawStateDiagram(
                         model,
                         node.rect.x,
                         node.rect.y,
