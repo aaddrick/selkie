@@ -8,6 +8,7 @@ const TimelineEvent = tm.TimelineEvent;
 
 pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
     var model = TimelineModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

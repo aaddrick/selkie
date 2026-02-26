@@ -23,6 +23,7 @@ pub fn isComment(line: []const u8) bool {
 /// Caller owns the returned ArrayList and must call deinit().
 pub fn splitLines(allocator: Allocator, source: []const u8) !std.ArrayList([]const u8) {
     var lines = std.ArrayList([]const u8).init(allocator);
+    errdefer lines.deinit();
     var start: usize = 0;
     for (source, 0..) |ch, i| {
         if (ch == '\n') {

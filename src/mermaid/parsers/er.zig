@@ -8,6 +8,7 @@ const Cardinality = em.Cardinality;
 
 pub fn parse(allocator: Allocator, source: []const u8) !ERModel {
     var model = ERModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

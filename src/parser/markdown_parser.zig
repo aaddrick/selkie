@@ -61,6 +61,7 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
     const node_type = mapNodeType(cmark_type, type_string) orelse .paragraph;
 
     var node = ast.Node.init(allocator, node_type);
+    errdefer node.deinit(allocator);
 
     switch (node_type) {
         .text, .code, .html_block, .html_inline => {
@@ -124,7 +125,8 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
     // Recursively convert children
     var child = cmark.cmark_node_first_child(cmark_node);
     while (child) |c_node| {
-        const child_node = try convertNode(allocator, c_node);
+        var child_node = try convertNode(allocator, c_node);
+        errdefer child_node.deinit(allocator);
         try node.children.append(child_node);
         child = cmark.cmark_node_next(c_node);
     }

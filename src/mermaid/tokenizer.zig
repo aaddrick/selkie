@@ -50,6 +50,7 @@ pub const Token = struct {
 
 pub fn tokenize(allocator: Allocator, source: []const u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(allocator);
+    errdefer tokens.deinit();
     var i: usize = 0;
 
     while (i < source.len) {

@@ -20,6 +20,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceModel {
         .source = source,
         .model = SequenceModel.init(allocator),
     };
+    errdefer parser.model.deinit();
 
     // Split source into lines
     parser.lines = std.ArrayList([]const u8).init(allocator);

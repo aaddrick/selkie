@@ -6,6 +6,7 @@ const utils = @import("../parse_utils.zig");
 
 pub fn parse(allocator: Allocator, source: []const u8) !PieModel {
     var model = PieModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = try utils.splitLines(allocator, source);
     defer lines.deinit();

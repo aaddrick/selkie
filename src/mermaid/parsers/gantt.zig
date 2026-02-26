@@ -8,6 +8,7 @@ const TaskTag = gm.TaskTag;
 
 pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
     var model = GanttModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

@@ -35,6 +35,7 @@ pub fn parse(allocator: Allocator, tokens: std.ArrayList(Token)) !FlowchartModel
     // Parse direction
     const direction = parser.parseDirection();
     parser.model = FlowchartModel.init(allocator, direction);
+    errdefer parser.model.deinit();
 
     parser.skipNewlines();
 

@@ -141,6 +141,7 @@ pub fn layoutTable(
 
         if (row_bg_color) |bg_color| {
             var bg_node = lt.LayoutNode.init(allocator);
+            errdefer bg_node.deinit();
             bg_node.kind = .table_row_bg;
             bg_node.rect = .{
                 .x = content_x,
@@ -162,6 +163,7 @@ pub fn layoutTable(
 
             // Create a text_block-like node for the cell
             var cell_node = lt.LayoutNode.init(allocator);
+            errdefer cell_node.deinit();
             cell_node.kind = .table_cell;
 
             // Layout inline content within the cell
@@ -200,6 +202,7 @@ pub fn layoutTable(
 
         // Horizontal border below row
         var h_border = lt.LayoutNode.init(allocator);
+        errdefer h_border.deinit();
         h_border.kind = .table_border;
         h_border.rect = .{
             .x = content_x,
@@ -216,6 +219,7 @@ pub fn layoutTable(
 
     // Top border
     var top_border = lt.LayoutNode.init(allocator);
+    errdefer top_border.deinit();
     top_border.kind = .table_border;
     top_border.rect = .{
         .x = content_x,
@@ -230,6 +234,7 @@ pub fn layoutTable(
     var vx = content_x;
     for (0..num_cols + 1) |i| {
         var v_border = lt.LayoutNode.init(allocator);
+        errdefer v_border.deinit();
         v_border.kind = .table_border;
         v_border.rect = .{
             .x = vx,

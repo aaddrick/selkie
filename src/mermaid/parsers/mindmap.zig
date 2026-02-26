@@ -7,6 +7,7 @@ const NodeShape = mm.NodeShape;
 
 pub fn parse(allocator: Allocator, source: []const u8) !MindMapModel {
     var model = MindMapModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

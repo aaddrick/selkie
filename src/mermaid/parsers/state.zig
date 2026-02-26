@@ -8,6 +8,7 @@ const Transition = sm.Transition;
 
 pub fn parse(allocator: Allocator, source: []const u8) !StateModel {
     var model = StateModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

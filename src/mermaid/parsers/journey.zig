@@ -7,6 +7,7 @@ const JourneyTask = jm.JourneyTask;
 
 pub fn parse(allocator: Allocator, source: []const u8) !JourneyModel {
     var model = JourneyModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

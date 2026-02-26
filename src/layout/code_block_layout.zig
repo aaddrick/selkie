@@ -50,6 +50,7 @@ pub fn layoutCodeBlock(
     const total_height = code_height + padding * 2;
 
     var layout_node = lt.LayoutNode.init(allocator);
+    errdefer layout_node.deinit();
     layout_node.kind = .code_block;
     layout_node.code_bg_color = theme.code_background;
     layout_node.code_lang = fence_info;

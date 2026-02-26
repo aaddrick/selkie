@@ -7,6 +7,7 @@ const CommitType = gg.CommitType;
 
 pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
     var model = GitGraphModel.init(allocator);
+    errdefer model.deinit();
 
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.deinit();

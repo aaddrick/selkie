@@ -161,6 +161,12 @@ fn buildLayerLists(allocator: Allocator, graph: *Graph) !std.ArrayList(std.Array
     }
 
     var layers = std.ArrayList(std.ArrayList([]const u8)).init(allocator);
+    errdefer {
+        for (layers.items) |*layer| {
+            layer.deinit();
+        }
+        layers.deinit();
+    }
     var l: i32 = 0;
     while (l <= max_layer) : (l += 1) {
         try layers.append(std.ArrayList([]const u8).init(allocator));

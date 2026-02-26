@@ -38,6 +38,7 @@ pub fn layoutMermaidBlock(
         .flowchart => |fc_val| {
             // We need a mutable copy since layout modifies the graph in-place
             var model_ptr = try allocator.create(FlowchartModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = fc_val;
 
             // Run layout algorithm
@@ -56,6 +57,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -70,6 +72,7 @@ pub fn layoutMermaidBlock(
         },
         .sequence => |seq_val| {
             const model_ptr = try allocator.create(SequenceModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = seq_val;
 
             const layout_result = try linear_layout.layout(
@@ -86,6 +89,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -100,6 +104,7 @@ pub fn layoutMermaidBlock(
         },
         .pie => |pie_val| {
             const model_ptr = try allocator.create(PieModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = pie_val;
 
             // Pie layout: compute positions
@@ -133,6 +138,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -147,6 +153,7 @@ pub fn layoutMermaidBlock(
         },
         .gantt => |gantt_val| {
             const model_ptr = try allocator.create(GanttModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = gantt_val;
 
             // Gantt layout: compute positions
@@ -190,6 +197,7 @@ pub fn layoutMermaidBlock(
             const diagram_height = title_space + time_axis_h + total_rows + gantt_padding;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = content_x,
@@ -204,6 +212,7 @@ pub fn layoutMermaidBlock(
         },
         .class_diagram => |cls_val| {
             var model_ptr = try allocator.create(ClassModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = cls_val;
 
             // Pre-compute node sizes based on class content
@@ -222,6 +231,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -236,6 +246,7 @@ pub fn layoutMermaidBlock(
         },
         .er_diagram => |er_val| {
             var model_ptr = try allocator.create(ERModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = er_val;
 
             // Pre-compute node sizes based on entity content
@@ -254,6 +265,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -268,6 +280,7 @@ pub fn layoutMermaidBlock(
         },
         .state_diagram => |st_val| {
             var model_ptr = try allocator.create(StateModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = st_val;
 
             const layout_result = try dagre.layout(
@@ -283,6 +296,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -297,6 +311,7 @@ pub fn layoutMermaidBlock(
         },
         .mindmap => |mm_val| {
             const model_ptr = try allocator.create(MindMapModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = mm_val;
 
             const layout_result = tree_layout.layout(model_ptr, fonts, theme, content_width);
@@ -306,6 +321,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -320,6 +336,7 @@ pub fn layoutMermaidBlock(
         },
         .gitgraph => |gg_val| {
             const model_ptr = try allocator.create(GitGraphModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = gg_val;
 
             // Compute layout dimensions
@@ -345,6 +362,7 @@ pub fn layoutMermaidBlock(
             const diagram_x = content_x + (content_width - diagram_width) / 2;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = diagram_x,
@@ -359,6 +377,7 @@ pub fn layoutMermaidBlock(
         },
         .journey => |j_val| {
             const model_ptr = try allocator.create(JourneyModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = j_val;
 
             // Compute layout dimensions
@@ -384,6 +403,7 @@ pub fn layoutMermaidBlock(
             total_height += padding;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = content_x,
@@ -398,6 +418,7 @@ pub fn layoutMermaidBlock(
         },
         .timeline => |tl_val| {
             const model_ptr = try allocator.create(TimelineModel);
+            errdefer allocator.destroy(model_ptr);
             model_ptr.* = tl_val;
 
             // Compute layout dimensions
@@ -423,6 +444,7 @@ pub fn layoutMermaidBlock(
             const diagram_height = padding * 2 + title_space + axis_offset + space_above + space_below;
 
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .mermaid_diagram;
             node.rect = .{
                 .x = content_x,
@@ -438,6 +460,7 @@ pub fn layoutMermaidBlock(
         .unsupported => |diagram_type| {
             // Render placeholder text
             var node = lt.LayoutNode.init(allocator);
+            errdefer node.deinit();
             node.kind = .text_block;
 
             const placeholder = "Unsupported diagram type";
