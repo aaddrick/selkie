@@ -3,6 +3,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const FlowchartModel = @import("../mermaid/models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("../mermaid/models/sequence_model.zig").SequenceModel;
+const PieModel = @import("../mermaid/models/pie_model.zig").PieModel;
+const GanttModel = @import("../mermaid/models/gantt_model.zig").GanttModel;
 
 pub const Rect = struct {
     x: f32,
@@ -76,6 +78,8 @@ pub const LayoutNode = struct {
     // Mermaid diagram data
     mermaid_flowchart: ?*FlowchartModel = null,
     mermaid_sequence: ?*SequenceModel = null,
+    mermaid_pie: ?*PieModel = null,
+    mermaid_gantt: ?*GanttModel = null,
 
     pub fn init(allocator: Allocator) LayoutNode {
         return .{
@@ -91,6 +95,12 @@ pub const LayoutNode = struct {
             model.deinit();
         }
         if (self.mermaid_sequence) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_pie) |model| {
+            model.deinit();
+        }
+        if (self.mermaid_gantt) |model| {
             model.deinit();
         }
     }

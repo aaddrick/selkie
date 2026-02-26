@@ -7,6 +7,8 @@ const table_renderer = @import("table_renderer.zig");
 const image_renderer = @import("image_renderer.zig");
 const flowchart_renderer = @import("../mermaid/renderers/flowchart_renderer.zig");
 const sequence_renderer = @import("../mermaid/renderers/sequence_renderer.zig");
+const pie_renderer = @import("../mermaid/renderers/pie_renderer.zig");
+const gantt_renderer = @import("../mermaid/renderers/gantt_renderer.zig");
 
 pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
@@ -40,6 +42,28 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
                     );
                 } else if (node.mermaid_sequence) |model| {
                     sequence_renderer.drawSequenceDiagram(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_pie) |model| {
+                    pie_renderer.drawPieChart(
+                        model,
+                        node.rect.x,
+                        node.rect.y,
+                        node.rect.width,
+                        node.rect.height,
+                        theme,
+                        fonts,
+                        scroll_y,
+                    );
+                } else if (node.mermaid_gantt) |model| {
+                    gantt_renderer.drawGanttChart(
                         model,
                         node.rect.x,
                         node.rect.y,
