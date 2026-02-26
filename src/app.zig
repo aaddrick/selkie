@@ -10,6 +10,7 @@ const Fonts = @import("layout/text_measurer.zig").Fonts;
 const lt = @import("layout/layout_types.zig");
 const document_layout = @import("layout/document_layout.zig");
 const renderer = @import("render/renderer.zig");
+const LinkHandler = @import("render/link_handler.zig").LinkHandler;
 const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
 
@@ -22,6 +23,7 @@ pub const App = struct {
     fonts: Fonts,
     scroll: ScrollState,
     viewport: Viewport,
+    link_handler: LinkHandler = .{ .hovered_url = null, .theme = &defaults.light },
 
     pub fn init(allocator: Allocator) App {
         return .{
@@ -89,6 +91,7 @@ pub const App = struct {
     pub fn toggleTheme(self: *App) void {
         self.is_dark = !self.is_dark;
         self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+        self.link_handler.theme = self.theme;
         self.relayout() catch {};
     }
 
@@ -104,6 +107,12 @@ pub const App = struct {
         // Re-layout on window resize
         if (self.viewport.updateSize()) {
             self.relayout() catch {};
+        }
+
+        // Update link hover/click
+        if (self.layout_tree) |*tree| {
+            self.link_handler.update(tree, self.scroll.y);
+            self.link_handler.handleClick();
         }
     }
 

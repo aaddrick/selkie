@@ -3,6 +3,7 @@ const lt = @import("../layout/layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const block_renderer = @import("block_renderer.zig");
+const table_renderer = @import("table_renderer.zig");
 
 pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
@@ -18,6 +19,9 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
             .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y),
             .thematic_break => block_renderer.drawThematicBreak(node, theme, scroll_y),
             .block_quote_border => block_renderer.drawBlockQuoteBorder(node, theme, scroll_y),
+            .table_row_bg => table_renderer.drawTableRowBg(node, scroll_y),
+            .table_border => table_renderer.drawTableBorder(node, theme, scroll_y),
+            .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y),
         }
     }
 

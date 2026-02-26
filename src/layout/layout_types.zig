@@ -30,6 +30,8 @@ pub const TextStyle = struct {
     underline: bool = false,
     is_code: bool = false,
     code_bg: ?rl.Color = null,
+    link_url: ?[]const u8 = null,
+    dimmed: bool = false,
 };
 
 pub const TextRun = struct {
@@ -44,6 +46,9 @@ pub const LayoutNodeKind = enum {
     code_block,
     thematic_break,
     block_quote_border,
+    table_cell,
+    table_border,
+    table_row_bg,
 };
 
 pub const LayoutNode = struct {

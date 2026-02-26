@@ -5,6 +5,7 @@ const ast = @import("../parser/ast.zig");
 const lt = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
+const table_layout = @import("table_layout.zig");
 
 pub const LayoutContext = struct {
     allocator: Allocator,
@@ -18,6 +19,11 @@ pub const LayoutContext = struct {
     list_depth: u8 = 0,
     list_type: ast.ListType = .bullet,
     list_item_index: u32 = 0,
+    // Task list dimming
+    dimmed: bool = false,
+    // Footnote tracking
+    seen_footnote: bool = false,
+    footnote_index: u32 = 0,
 
     pub fn init(
         allocator: Allocator,
@@ -95,7 +101,20 @@ fn layoutInlines(
                 var link_style = style;
                 link_style.color = ctx.theme.link;
                 link_style.underline = true;
+                link_style.link_url = child.url;
                 try layoutInlines(ctx, child, link_style, layout_node, cursor_x, line_height);
+            },
+            .footnote_reference => {
+                // Render as superscript number
+                if (child.literal) |ref_text| {
+                    var fn_style = style;
+                    fn_style.font_size = style.font_size * 0.7;
+                    fn_style.color = ctx.theme.link;
+                    // Wrap in brackets: [ref]
+                    var ref_buf: [64]u8 = undefined;
+                    const ref_str = std.fmt.bufPrint(&ref_buf, "[{s}]", .{ref_text}) catch ref_text;
+                    try layoutTextRun(ctx, ref_str, fn_style, layout_node, cursor_x, line_height);
+                }
             },
             .image => {
                 // For now, render alt text
@@ -159,6 +178,15 @@ fn layoutTextRun(
     }
 }
 
+fn blendColor(a: rl.Color, b: rl.Color, t: f32) rl.Color {
+    return .{
+        .r = @intFromFloat(@as(f32, @floatFromInt(a.r)) * (1 - t) + @as(f32, @floatFromInt(b.r)) * t),
+        .g = @intFromFloat(@as(f32, @floatFromInt(a.g)) * (1 - t) + @as(f32, @floatFromInt(b.g)) * t),
+        .b = @intFromFloat(@as(f32, @floatFromInt(a.b)) * (1 - t) + @as(f32, @floatFromInt(b.b)) * t),
+        .a = 255,
+    };
+}
+
 fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
     switch (node.node_type) {
         .document => {
@@ -207,9 +235,11 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             var layout_node = lt.LayoutNode.init(ctx.allocator);
             layout_node.kind = .text_block;
 
+            const text_color = if (ctx.dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
             const style = lt.TextStyle{
                 .font_size = ctx.theme.body_font_size,
-                .color = ctx.theme.text,
+                .color = text_color,
+                .dimmed = ctx.dimmed,
             };
 
             var cursor_x = ctx.content_x;
@@ -293,6 +323,18 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_x = saved_x;
             ctx.content_width = saved_w;
         },
+        .table => {
+            try table_layout.layoutTable(
+                ctx.allocator,
+                node,
+                ctx.tree,
+                ctx.theme,
+                ctx.fonts,
+                ctx.content_x,
+                ctx.content_width,
+                &ctx.cursor_y,
+            );
+        },
         .list => {
             const saved_depth = ctx.list_depth;
             const saved_type = ctx.list_type;
@@ -317,16 +359,31 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_x += ctx.theme.list_indent;
             ctx.content_width -= ctx.theme.list_indent;
 
-            // Add bullet/number marker
+            // Add bullet/number/checkbox marker
             var marker_node = lt.LayoutNode.init(ctx.allocator);
             marker_node.kind = .text_block;
 
+            const is_dimmed = if (node.tasklist_checked) |checked| checked else false;
+            const marker_color = if (is_dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
             const marker_style = lt.TextStyle{
                 .font_size = ctx.theme.body_font_size,
-                .color = ctx.theme.text,
+                .color = marker_color,
             };
 
-            if (ctx.list_type == .ordered) {
+            if (node.tasklist_checked) |checked| {
+                // Task list item: render checkbox
+                const checkbox = if (checked) "\xE2\x98\x91 " else "\xE2\x98\x90 "; // ☑ or ☐
+                try marker_node.text_runs.append(.{
+                    .text = checkbox,
+                    .style = marker_style,
+                    .rect = .{
+                        .x = saved_x + ctx.theme.list_indent - 20,
+                        .y = ctx.cursor_y,
+                        .width = 20,
+                        .height = ctx.theme.body_font_size * ctx.theme.line_height,
+                    },
+                });
+            } else if (ctx.list_type == .ordered) {
                 // Ordered list: render number prefix
                 var num_buf: [16]u8 = undefined;
                 const num_str = std.fmt.bufPrint(&num_buf, "{d}. ", .{ctx.list_item_index}) catch "? ";
@@ -370,12 +427,85 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             };
             try ctx.tree.nodes.append(marker_node);
 
+            // Layout children with dimmed style if checked task
+            if (is_dimmed) {
+                ctx.dimmed = true;
+            }
+
             for (node.children.items) |*child| {
                 try layoutBlock(ctx, child);
             }
 
+            if (is_dimmed) {
+                ctx.dimmed = false;
+            }
+
             ctx.content_x = saved_x;
             ctx.content_width = saved_w;
+        },
+        .footnote_definition => {
+            // Render footnote definitions at their natural position
+            // Add a separator line before the first footnote
+            if (!ctx.seen_footnote) {
+                ctx.seen_footnote = true;
+                ctx.cursor_y += ctx.theme.paragraph_spacing;
+
+                // Thin separator line
+                var sep_node = lt.LayoutNode.init(ctx.allocator);
+                sep_node.kind = .thematic_break;
+                sep_node.hr_color = ctx.theme.hr_color;
+                sep_node.rect = .{
+                    .x = ctx.content_x,
+                    .y = ctx.cursor_y,
+                    .width = ctx.content_width * 0.3,
+                    .height = 1,
+                };
+                try ctx.tree.nodes.append(sep_node);
+                ctx.cursor_y += 12;
+            }
+
+            // Render as a small paragraph with footnote number prefix
+            var layout_node = lt.LayoutNode.init(ctx.allocator);
+            layout_node.kind = .text_block;
+
+            const small_size = ctx.theme.body_font_size * 0.85;
+            const style = lt.TextStyle{
+                .font_size = small_size,
+                .color = ctx.theme.text,
+            };
+
+            var cursor_x = ctx.content_x;
+            var lh: f32 = small_size * ctx.theme.line_height;
+            const start_y = ctx.cursor_y;
+
+            // Add footnote number prefix
+            ctx.footnote_index += 1;
+            var fn_buf: [16]u8 = undefined;
+            const fn_str = std.fmt.bufPrint(&fn_buf, "{d}. ", .{ctx.footnote_index}) catch "? ";
+            const fn_m = ctx.fonts.measure(fn_str, small_size, false, false, false);
+            try layout_node.text_runs.append(.{
+                .text = fn_str,
+                .style = style,
+                .rect = .{ .x = cursor_x, .y = ctx.cursor_y, .width = fn_m.x, .height = fn_m.y },
+            });
+            cursor_x += fn_m.x;
+
+            // Layout the footnote content
+            for (node.children.items) |*child| {
+                if (child.node_type == .paragraph) {
+                    try layoutInlines(ctx, child, style, &layout_node, &cursor_x, &lh);
+                }
+            }
+
+            layout_node.rect = .{
+                .x = ctx.content_x,
+                .y = start_y,
+                .width = ctx.content_width,
+                .height = (ctx.cursor_y - start_y) + lh,
+            };
+
+            try ctx.tree.nodes.append(layout_node);
+            ctx.cursor_y = start_y + layout_node.rect.height + ctx.theme.paragraph_spacing * 0.5;
         },
         else => {
             // For unhandled block types, recurse into children

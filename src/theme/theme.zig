@@ -33,6 +33,7 @@ pub const Theme = struct {
     code_block_padding: f32,
     page_margin: f32,
     max_content_width: f32,
+    table_cell_padding: f32 = 8,
 
     pub fn headingSize(self: Theme, level: u8) f32 {
         if (level == 0 or level > 6) return self.body_font_size;
