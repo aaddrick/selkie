@@ -4,6 +4,7 @@ const rl = @import("raylib");
 const App = @import("app.zig").App;
 const Theme = @import("theme/theme.zig").Theme;
 const theme_loader = @import("theme/theme_loader.zig");
+const stdin_reader = @import("stdin_reader.zig");
 
 // Test imports: ensure the test runner discovers tests in all subsystems.
 // These are only referenced at comptime during `zig build test`.
@@ -20,6 +21,7 @@ test {
     _ = @import("menu_bar.zig");
     _ = @import("file_dialog.zig");
     _ = @import("app.zig");
+    _ = @import("stdin_reader.zig");
     // Search subsystem tests
     _ = @import("search/search_state.zig");
     _ = @import("search/searcher.zig");
@@ -59,6 +61,7 @@ pub fn main() !u8 {
     var file_path: ?[]const u8 = null;
     var theme_path: ?[]const u8 = null;
     var use_dark: bool = false;
+    var explicit_stdin: bool = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -73,11 +76,14 @@ pub fn main() !u8 {
             }
         } else if (std.mem.eql(u8, arg, "--dark")) {
             use_dark = true;
+        } else if (std.mem.eql(u8, arg, "-")) {
+            explicit_stdin = true;
         } else if (arg.len > 0 and arg[0] != '-') {
             file_path = arg;
         }
     }
 
+    // Read content from file or stdin
     const file_content: ?[]u8 = if (file_path) |path|
         std.fs.cwd().readFileAlloc(allocator, path, App.max_file_size) catch |err| {
             std.log.err("Failed to read file '{s}': {}", .{ path, err });
@@ -87,6 +93,33 @@ pub fn main() !u8 {
         null;
     defer if (file_content) |content| allocator.free(content);
 
+    // If no file argument given, try reading from stdin (piped or explicit "-").
+    // File argument takes priority — if both file and "-" are given, stdin is ignored.
+    const stdin_content: ?[]u8 = if (file_path == null) blk: {
+        const result = stdin_reader.readStdin(allocator, App.max_file_size) catch |err| switch (err) {
+            error.EmptyStdin => break :blk null,
+            error.StdinTooLarge => {
+                std.log.err("Stdin input exceeds maximum size ({d} bytes)", .{App.max_file_size});
+                return 1;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                std.log.err("Failed to read stdin: {}", .{err});
+                return 1;
+            },
+        };
+        if (result == null and explicit_stdin) {
+            std.log.err("stdin is a terminal \u{2014} pipe content or use redirection", .{});
+            return 1;
+        }
+        break :blk result;
+    } else null;
+    defer if (stdin_content) |s| allocator.free(s);
+
+    // Determine which content to use (file takes priority over stdin)
+    const content = file_content orelse stdin_content;
+    const source_is_stdin = file_content == null and stdin_content != null;
+
     const custom_theme: ?Theme = if (theme_path) |tp|
         theme_loader.loadFromFile(allocator, tp) catch |err| {
             std.log.err("Failed to load theme '{s}': {}", .{ tp, err });
@@ -95,7 +128,12 @@ pub fn main() !u8 {
     else
         null;
 
-    rl.initWindow(960, 720, "Selkie \xe2\x80\x94 Markdown Viewer");
+    const window_title: [:0]const u8 = if (source_is_stdin)
+        "Selkie \u{2014} stdin"
+    else
+        "Selkie \u{2014} Markdown Viewer";
+
+    rl.initWindow(960, 720, window_title);
     defer rl.closeWindow();
     rl.setTargetFPS(60);
     rl.setWindowState(.{ .window_resizable = true });
@@ -111,11 +149,11 @@ pub fn main() !u8 {
     if (file_path) |path| {
         const dir = std.fs.path.dirname(path) orelse ".";
         try app.setBaseDir(dir);
-        app.setFilePath(path);
+        app.setFilePath(path); // Starts file watcher — not used for stdin
     }
 
-    if (file_content) |content| {
-        app.loadMarkdown(content) catch |err| {
+    if (content) |c| {
+        app.loadMarkdown(c) catch |err| {
             std.log.err("Failed to parse markdown: {}", .{err});
         };
     }
