@@ -25,6 +25,10 @@ test {
     // Search subsystem tests
     _ = @import("search/search_state.zig");
     _ = @import("search/searcher.zig");
+    // Export subsystem tests
+    _ = @import("export/pdf_writer.zig");
+    _ = @import("export/pdf_exporter.zig");
+    _ = @import("export/save_dialog.zig");
     // Mermaid subsystem tests
     _ = @import("mermaid/parse_utils.zig");
     _ = @import("mermaid/tokenizer.zig");

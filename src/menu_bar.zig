@@ -27,6 +27,7 @@ pub const MenuBar = struct {
 
     pub const Action = enum {
         open_file,
+        export_pdf,
         close_app,
         toggle_theme,
         open_settings,
@@ -52,6 +53,7 @@ pub const MenuBar = struct {
 
     const file_items = [_]MenuItem{
         .{ .label = "Open", .shortcut = "Ctrl+O", .action = .open_file },
+        .{ .label = "Export as PDF...", .shortcut = "Ctrl+P", .action = .export_pdf },
         .{ .label = "Close", .action = .close_app },
     };
 
@@ -311,7 +313,7 @@ test "MenuBar isOpen reflects open_menu state" {
 }
 
 test "MenuBar menuItems returns correct item count per menu" {
-    try testing.expectEqual(@as(usize, 2), MenuBar.menuItems(.file).len);
+    try testing.expectEqual(@as(usize, 3), MenuBar.menuItems(.file).len);
     try testing.expectEqual(@as(usize, 1), MenuBar.menuItems(.view).len);
     try testing.expectEqual(@as(usize, 1), MenuBar.menuItems(.settings).len);
 }
@@ -319,7 +321,13 @@ test "MenuBar menuItems returns correct item count per menu" {
 test "MenuBar file menu items have correct actions" {
     const items = MenuBar.menuItems(.file);
     try testing.expectEqual(MenuBar.Action.open_file, items[0].action);
-    try testing.expectEqual(MenuBar.Action.close_app, items[1].action);
+    try testing.expectEqual(MenuBar.Action.export_pdf, items[1].action);
+    try testing.expectEqual(MenuBar.Action.close_app, items[2].action);
+}
+
+test "MenuBar export_pdf item has Ctrl+P shortcut" {
+    const items = MenuBar.menuItems(.file);
+    try testing.expectEqualStrings("Ctrl+P", items[1].shortcut.?);
 }
 
 test "MenuBar view menu has toggle_theme action" {

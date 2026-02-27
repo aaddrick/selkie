@@ -17,6 +17,8 @@ const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const MenuBar = @import("menu_bar.zig").MenuBar;
 const file_dialog = @import("file_dialog.zig");
+const pdf_exporter = @import("export/pdf_exporter.zig");
+const save_dialog = @import("export/save_dialog.zig");
 const SearchState = @import("search/search_state.zig").SearchState;
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
@@ -213,6 +215,45 @@ pub const App = struct {
         rl.setWindowTitle(title);
     }
 
+    /// Export the current document to PDF via a save-as dialog.
+    /// NOTE: Blocks the render loop while the dialog is open.
+    fn exportToPdf(self: *App) void {
+        const tree = &(self.layout_tree orelse {
+            std.log.warn("No document to export", .{});
+            return;
+        });
+        const fonts_val = self.fonts orelse return;
+
+        // Build a default filename from the current file path
+        const default_name = pdf_exporter.buildPdfName(self.allocator, self.file_path) catch {
+            std.log.err("Failed to build default PDF name", .{});
+            return;
+        };
+        defer self.allocator.free(default_name);
+
+        // Open save dialog
+        const output_path = save_dialog.saveFileDialog(self.allocator, default_name) catch |err| {
+            std.log.err("Save dialog error: {}", .{err});
+            return;
+        } orelse return; // User cancelled
+        defer self.allocator.free(output_path);
+
+        // Perform the export
+        pdf_exporter.exportPdf(
+            self.allocator,
+            tree,
+            self.theme,
+            &fonts_val,
+            output_path,
+        ) catch |err| {
+            std.log.err("PDF export failed: {}", .{err});
+            return;
+        };
+
+        // Show a brief status indicator reusing the reload indicator
+        self.reload_indicator_ms = std.time.milliTimestamp();
+    }
+
     pub fn relayout(self: *App) !void {
         if (self.layout_tree) |*tree| tree.deinit();
         self.layout_tree = null;
@@ -257,6 +298,7 @@ pub const App = struct {
         if (menu_action) |action| {
             switch (action) {
                 .open_file => self.openFileDialog(),
+                .export_pdf => self.exportToPdf(),
                 .close_app => rl.closeWindow(),
                 .toggle_theme => self.toggleTheme(),
                 .open_settings => std.log.info("Settings not yet implemented", .{}),
@@ -281,6 +323,9 @@ pub const App = struct {
                 if (ctrl_held) {
                     if (rl.isKeyPressed(.o)) {
                         self.openFileDialog();
+                    }
+                    if (rl.isKeyPressed(.p)) {
+                        self.exportToPdf();
                     }
                 }
 
