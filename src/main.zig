@@ -5,9 +5,14 @@ const App = @import("app.zig").App;
 const Theme = @import("theme/theme.zig").Theme;
 const theme_loader = @import("theme/theme_loader.zig");
 
-pub fn main() !void {
+pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer {
+        const check = gpa.deinit();
+        if (check == .leak) {
+            std.log.err("Memory leak detected by GeneralPurposeAllocator", .{});
+        }
+    }
     const allocator = gpa.allocator();
 
     const args = try std.process.argsAlloc(allocator);
@@ -26,7 +31,7 @@ pub fn main() !void {
                 theme_path = args[i];
             } else {
                 std.log.err("--theme requires a path argument", .{});
-                return;
+                return 1;
             }
         } else if (std.mem.eql(u8, arg, "--dark")) {
             use_dark = true;
@@ -35,11 +40,10 @@ pub fn main() !void {
         }
     }
 
-    const max_file_size = 10 * 1024 * 1024;
     const file_content: ?[]u8 = if (file_path) |path|
-        std.fs.cwd().readFileAlloc(allocator, path, max_file_size) catch |err| {
+        std.fs.cwd().readFileAlloc(allocator, path, App.max_file_size) catch |err| {
             std.log.err("Failed to read file '{s}': {}", .{ path, err });
-            return;
+            return 1;
         }
     else
         null;
@@ -48,7 +52,7 @@ pub fn main() !void {
     const custom_theme: ?Theme = if (theme_path) |tp|
         theme_loader.loadFromFile(allocator, tp) catch |err| {
             std.log.err("Failed to load theme '{s}': {}", .{ tp, err });
-            return;
+            return 1;
         }
     else
         null;
@@ -82,4 +86,6 @@ pub fn main() !void {
         app.update();
         app.draw();
     }
+
+    return 0;
 }

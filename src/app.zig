@@ -17,14 +17,15 @@ const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
 
 pub const App = struct {
-    const max_file_size = 10 * 1024 * 1024;
+    pub const max_file_size = 10 * 1024 * 1024;
+    const fade_duration: i64 = 1500;
 
     allocator: Allocator,
     document: ?ast.Document,
     layout_tree: ?lt.LayoutTree,
     theme: *const Theme,
     is_dark: bool,
-    fonts: Fonts,
+    fonts: ?Fonts,
     scroll: ScrollState,
     viewport: Viewport,
     link_handler: LinkHandler,
@@ -47,7 +48,7 @@ pub const App = struct {
             .layout_tree = null,
             .theme = &defaults.light,
             .is_dark = false,
-            .fonts = undefined,
+            .fonts = null,
             .scroll = .{},
             .viewport = Viewport.init(),
             .link_handler = LinkHandler.init(&defaults.light),
@@ -81,16 +82,31 @@ pub const App = struct {
 
     pub fn loadFonts(self: *App) !void {
         const size = 32; // Load at high size, scale down when rendering
-        inline for (font_paths) |entry| {
-            @field(self.fonts, entry[0]) = try rl.loadFontEx(entry[1], size, null);
-            rl.setTextureFilter(@field(self.fonts, entry[0]).texture, .bilinear);
+        var fonts: Fonts = undefined;
+        var loaded_count: usize = 0;
+        errdefer {
+            // Unload any fonts that were successfully loaded before the failure
+            var unload_idx: usize = 0;
+            inline for (font_paths) |entry| {
+                if (unload_idx >= loaded_count) break;
+                rl.unloadFont(@field(fonts, entry[0]));
+                unload_idx += 1;
+            }
         }
+        inline for (font_paths) |entry| {
+            @field(fonts, entry[0]) = try rl.loadFontEx(entry[1], size, null);
+            rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
+            loaded_count += 1;
+        }
+        self.fonts = fonts;
     }
 
     pub fn unloadFonts(self: *App) void {
+        const fonts = self.fonts orelse return;
         inline for (font_paths) |entry| {
-            rl.unloadFont(@field(self.fonts, entry[0]));
+            rl.unloadFont(@field(fonts, entry[0]));
         }
+        self.fonts = null;
     }
 
     pub fn setBaseDir(self: *App, path: []const u8) void {
@@ -98,10 +114,16 @@ pub const App = struct {
     }
 
     pub fn loadMarkdown(self: *App, text: []const u8) !void {
-        if (self.document) |*doc| doc.deinit();
-        if (self.layout_tree) |*tree| tree.deinit();
+        // Parse into local first — if parse fails, old document is preserved
+        var new_doc = try markdown_parser.parse(self.allocator, text);
+        errdefer new_doc.deinit();
 
-        self.document = try markdown_parser.parse(self.allocator, text);
+        // Parse succeeded — now safe to destroy old state and swap
+        if (self.layout_tree) |*tree| tree.deinit();
+        self.layout_tree = null;
+        if (self.document) |*doc| doc.deinit();
+
+        self.document = new_doc;
         try self.relayout();
     }
 
@@ -138,13 +160,15 @@ pub const App = struct {
 
     pub fn relayout(self: *App) !void {
         if (self.layout_tree) |*tree| tree.deinit();
+        self.layout_tree = null;
 
         const doc = &(self.document orelse return);
+        const fonts = &(self.fonts orelse return);
         const tree = try document_layout.layout(
             self.allocator,
             doc,
             self.theme,
-            &self.fonts,
+            fonts,
             self.viewport.width,
             &self.image_renderer,
         );
@@ -162,7 +186,9 @@ pub const App = struct {
         }
         self.link_handler.theme = self.theme;
         // Best-effort relayout — failure here is non-fatal since the old layout remains visible
-        self.relayout() catch {};
+        self.relayout() catch |err| {
+            std.log.err("Failed to relayout after theme toggle: {}", .{err});
+        };
     }
 
     pub fn update(self: *App) void {
@@ -174,7 +200,9 @@ pub const App = struct {
 
         // Re-layout on window resize (best-effort — old layout remains usable on failure)
         if (self.viewport.updateSize()) {
-            self.relayout() catch {};
+            self.relayout() catch |err| {
+                std.log.err("Failed to relayout after window resize: {}", .{err});
+            };
         }
 
         // Check for file changes
@@ -202,7 +230,7 @@ pub const App = struct {
         rl.clearBackground(self.theme.background);
 
         if (self.layout_tree) |*tree| {
-            renderer.render(tree, self.theme, &self.fonts, self.scroll.y);
+            renderer.render(tree, self.theme, &(self.fonts orelse return), self.scroll.y);
         } else {
             rl.drawText("No document loaded. Usage: selkie <file.md>", 20, 20, 20, self.theme.text);
         }
@@ -216,7 +244,6 @@ pub const App = struct {
 
         const now = std.time.milliTimestamp();
         const elapsed = now - self.reload_indicator_ms;
-        const fade_duration: i64 = 1500;
 
         if (elapsed >= fade_duration) {
             self.reload_indicator_ms = 0;
