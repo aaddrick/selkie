@@ -110,10 +110,7 @@ pub const LayoutNode = struct {
     pub fn deinit(self: *LayoutNode) void {
         self.text_runs.deinit();
 
-        // Deinit and destroy all optional mermaid diagram model pointers.
-        // Each model was heap-allocated with allocator.create() in mermaid_layout.zig.
-        // We must call model.deinit() to free internal ArrayLists, then
-        // allocator.destroy() to free the model struct itself.
+        // Free heap-allocated mermaid models (created via allocator.create() in mermaid_layout.zig)
         inline for (.{
             "mermaid_flowchart",
             "mermaid_sequence",
