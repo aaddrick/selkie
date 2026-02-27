@@ -95,7 +95,7 @@ pub const LayoutNode = struct {
 
     pub fn init(allocator: Allocator, data: NodeData) LayoutNode {
         return .{
-            .rect = std.mem.zeroes(Rect),
+            .rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
             .allocator = allocator,
             .text_runs = std.ArrayList(TextRun).init(allocator),
             .data = data,

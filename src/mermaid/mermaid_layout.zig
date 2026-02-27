@@ -19,6 +19,26 @@ const JourneyModel = @import("models/journey_model.zig").JourneyModel;
 const TimelineModel = @import("models/timeline_model.zig").TimelineModel;
 const tree_layout = @import("layout/tree_layout.zig");
 
+/// Create a LayoutNode for a diagram, set its rect, append to the tree, and advance the cursor.
+/// Caller retains ownership of any heap-allocated model inside `data` on error —
+/// only the node's text_runs list is cleaned up here.
+fn appendDiagramNode(
+    allocator: Allocator,
+    data: lt.NodeData,
+    x: f32,
+    y: *f32,
+    width: f32,
+    height: f32,
+    tree: *lt.LayoutTree,
+    spacing: f32,
+) !void {
+    var node = lt.LayoutNode.init(allocator, data);
+    errdefer node.text_runs.deinit();
+    node.rect = .{ .x = x, .y = y.*, .width = width, .height = height };
+    try tree.nodes.append(node);
+    y.* += height + spacing;
+}
+
 pub fn layoutMermaidBlock(
     allocator: Allocator,
     source: ?[]const u8,
@@ -38,7 +58,10 @@ pub fn layoutMermaidBlock(
         .flowchart => |fc_val| {
             // We need a mutable copy since layout modifies the graph in-place
             var model_ptr = try allocator.create(FlowchartModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = fc_val;
 
             // Run layout algorithm
@@ -53,24 +76,15 @@ pub fn layoutMermaidBlock(
             const diagram_width = @min(layout_result.width, content_width);
             const diagram_height = layout_result.height;
 
-            // Center diagram horizontally
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .flowchart = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .flowchart = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .sequence => |seq_val| {
             const model_ptr = try allocator.create(SequenceModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = seq_val;
 
             const layout_result = try linear_layout.layout(
@@ -85,22 +99,14 @@ pub fn layoutMermaidBlock(
             const diagram_height = layout_result.height;
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .sequence = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .sequence = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .pie => |pie_val| {
             const model_ptr = try allocator.create(PieModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = pie_val;
 
             // Pie layout: compute positions
@@ -132,22 +138,14 @@ pub fn layoutMermaidBlock(
             const diagram_height = title_space + pie_padding * 2 + radius * 2;
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .pie = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .pie = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .gantt => |gantt_val| {
             const model_ptr = try allocator.create(GanttModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = gantt_val;
 
             // Gantt layout: compute positions
@@ -190,21 +188,14 @@ pub fn layoutMermaidBlock(
 
             const diagram_height = title_space + time_axis_h + total_rows + gantt_padding;
 
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .gantt = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = content_x,
-                .y = cursor_y.*,
-                .width = content_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .gantt = model_ptr } }, content_x, cursor_y, content_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .class_diagram => |cls_val| {
             var model_ptr = try allocator.create(ClassModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = cls_val;
 
             // Pre-compute node sizes based on class content
@@ -221,22 +212,14 @@ pub fn layoutMermaidBlock(
             const diagram_width = @min(layout_result.width, content_width);
             const diagram_height = layout_result.height;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .class_diagram = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .class_diagram = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .er_diagram => |er_val| {
             var model_ptr = try allocator.create(ERModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = er_val;
 
             // Pre-compute node sizes based on entity content
@@ -253,22 +236,14 @@ pub fn layoutMermaidBlock(
             const diagram_width = @min(layout_result.width, content_width);
             const diagram_height = layout_result.height;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .er = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .er = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .state_diagram => |st_val| {
             var model_ptr = try allocator.create(StateModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = st_val;
 
             const layout_result = try dagre.layout(
@@ -282,22 +257,14 @@ pub fn layoutMermaidBlock(
             const diagram_width = @min(layout_result.width, content_width);
             const diagram_height = layout_result.height;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .state = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .state = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .mindmap => |mm_val| {
             const model_ptr = try allocator.create(MindMapModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = mm_val;
 
             const layout_result = tree_layout.layout(model_ptr, fonts, theme, content_width);
@@ -305,22 +272,14 @@ pub fn layoutMermaidBlock(
             const diagram_width = @min(layout_result.width, content_width);
             const diagram_height = layout_result.height;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .mindmap = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .mindmap = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .gitgraph => |gg_val| {
             const model_ptr = try allocator.create(GitGraphModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = gg_val;
 
             // Compute layout dimensions
@@ -344,22 +303,14 @@ pub fn layoutMermaidBlock(
             }
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
-
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .gitgraph = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = diagram_x,
-                .y = cursor_y.*,
-                .width = diagram_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .gitgraph = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
         .journey => |j_val| {
             const model_ptr = try allocator.create(JourneyModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = j_val;
 
             // Compute layout dimensions
@@ -384,21 +335,14 @@ pub fn layoutMermaidBlock(
             }
             total_height += padding;
 
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .journey = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = content_x,
-                .y = cursor_y.*,
-                .width = content_width,
-                .height = total_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += total_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .journey = model_ptr } }, content_x, cursor_y, content_width, total_height, tree, theme.paragraph_spacing);
         },
         .timeline => |tl_val| {
             const model_ptr = try allocator.create(TimelineModel);
-            errdefer allocator.destroy(model_ptr);
+            errdefer {
+                model_ptr.deinit();
+                allocator.destroy(model_ptr);
+            }
             model_ptr.* = tl_val;
 
             // Compute layout dimensions
@@ -423,26 +367,15 @@ pub fn layoutMermaidBlock(
 
             const diagram_height = padding * 2 + title_space + axis_offset + space_above + space_below;
 
-            var node = lt.LayoutNode.init(allocator, .{ .mermaid_diagram = .{ .timeline = model_ptr } });
-            errdefer node.deinit();
-            node.rect = .{
-                .x = content_x,
-                .y = cursor_y.*,
-                .width = content_width,
-                .height = diagram_height,
-            };
-
-            try tree.nodes.append(node);
-            cursor_y.* += diagram_height + theme.paragraph_spacing;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .timeline = model_ptr } }, content_x, cursor_y, content_width, diagram_height, tree, theme.paragraph_spacing);
         },
-        .unsupported => |diagram_type| {
+        .unsupported => {
             // Render placeholder text
             var node = lt.LayoutNode.init(allocator, .text_block);
             errdefer node.deinit();
 
             const placeholder = "Unsupported diagram type";
             const measured = fonts.measure(placeholder, theme.body_font_size, false, false, false);
-            _ = diagram_type;
 
             try node.text_runs.append(.{
                 .text = placeholder,
