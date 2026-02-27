@@ -61,8 +61,7 @@ pub const App = struct {
     pub fn setTheme(self: *App, custom: ?Theme, dark: bool) void {
         if (custom) |ct| {
             self.custom_theme = ct;
-            // Take pointer to the stored copy (safe: just assigned above)
-            self.theme = &self.custom_theme.?;
+            self.theme = &(self.custom_theme orelse unreachable);
         } else if (dark) {
             self.is_dark = true;
             self.theme = &defaults.dark;
@@ -115,16 +114,19 @@ pub const App = struct {
 
     pub fn loadMarkdown(self: *App, text: []const u8) !void {
         // Parse into local first — if parse fails, old document is preserved
-        var new_doc = try markdown_parser.parse(self.allocator, text);
-        errdefer new_doc.deinit();
+        const new_doc = try markdown_parser.parse(self.allocator, text);
 
-        // Parse succeeded — now safe to destroy old state and swap
+        // Parse succeeded — destroy old state and swap in new document.
+        // From here, self owns new_doc, so no errdefer (relayout failure is non-fatal).
         if (self.layout_tree) |*tree| tree.deinit();
         self.layout_tree = null;
         if (self.document) |*doc| doc.deinit();
-
         self.document = new_doc;
-        try self.relayout();
+
+        // Best-effort layout — document is valid even if layout fails
+        self.relayout() catch |err| {
+            std.log.err("Failed to layout document: {}", .{err});
+        };
     }
 
     /// Set the file path and start watching for changes
