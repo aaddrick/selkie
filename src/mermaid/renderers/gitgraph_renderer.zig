@@ -7,11 +7,7 @@ const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
 const ru = @import("../render_utils.zig");
 
-const LANE_SPACING: f32 = 30;
-const COMMIT_SPACING: f32 = 50;
 const COMMIT_RADIUS: f32 = 8;
-const DIAGRAM_PADDING: f32 = 20;
-const BRANCH_LABEL_WIDTH: f32 = 80;
 const TAG_HEIGHT: f32 = 20;
 
 pub fn drawGitGraph(
@@ -35,32 +31,36 @@ pub fn drawGitGraph(
     if (model.commits.items.len == 0) return;
 
     const is_lr = model.orientation == .lr;
-    const start_x = origin_x + DIAGRAM_PADDING + BRANCH_LABEL_WIDTH;
-    const start_y = origin_y + DIAGRAM_PADDING + 20;
+    const lane_spacing = model.effective_lane_spacing;
+    const eff_padding = model.effective_padding;
+    const eff_label_w = model.effective_branch_label_w;
+    const eff_header = model.effective_header_offset;
 
     // Draw branch lane lines
     for (model.branches.items) |branch| {
         const lane_f: f32 = @floatFromInt(branch.lane);
         if (is_lr) {
-            const ly = start_y + lane_f * LANE_SPACING;
+            const ly = origin_y + eff_padding + eff_header + lane_f * lane_spacing;
+            const lane_start_x = origin_x + eff_padding + eff_label_w;
             rl.drawLineEx(
-                .{ .x = start_x, .y = ly - scroll_y },
-                .{ .x = origin_x + diagram_width - DIAGRAM_PADDING, .y = ly - scroll_y },
+                .{ .x = lane_start_x, .y = ly - scroll_y },
+                .{ .x = origin_x + diagram_width - eff_padding, .y = ly - scroll_y },
                 2,
                 ru.withAlpha(branch.color, 80),
             );
             // Branch label
-            ru.drawText(branch.name, origin_x + DIAGRAM_PADDING, ly, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, false);
+            ru.drawText(branch.name, origin_x + eff_padding, ly, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, false);
         } else {
-            const lx = start_x + lane_f * LANE_SPACING;
+            const lx = origin_x + eff_padding + eff_label_w + lane_f * lane_spacing;
+            const lane_start_y = origin_y + eff_padding + eff_header;
             rl.drawLineEx(
-                .{ .x = lx, .y = start_y - scroll_y },
-                .{ .x = lx, .y = origin_y + diagram_height - DIAGRAM_PADDING - scroll_y },
+                .{ .x = lx, .y = lane_start_y - scroll_y },
+                .{ .x = lx, .y = origin_y + diagram_height - eff_padding - scroll_y },
                 2,
                 ru.withAlpha(branch.color, 80),
             );
             // Branch label
-            ru.drawText(branch.name, lx, origin_y + DIAGRAM_PADDING, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, true);
+            ru.drawText(branch.name, lx, origin_y + eff_padding, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, true);
         }
     }
 
@@ -71,22 +71,10 @@ pub fn drawGitGraph(
         const from = model.commits.items[merge.from_commit];
         const to = model.commits.items[merge.to_commit];
 
-        var from_x: f32 = undefined;
-        var from_y: f32 = undefined;
-        var to_x: f32 = undefined;
-        var to_y: f32 = undefined;
-
-        if (is_lr) {
-            from_x = start_x + @as(f32, @floatFromInt(from.seq)) * COMMIT_SPACING;
-            from_y = start_y + @as(f32, @floatFromInt(from.lane)) * LANE_SPACING;
-            to_x = start_x + @as(f32, @floatFromInt(to.seq)) * COMMIT_SPACING;
-            to_y = start_y + @as(f32, @floatFromInt(to.lane)) * LANE_SPACING;
-        } else {
-            from_x = start_x + @as(f32, @floatFromInt(from.lane)) * LANE_SPACING;
-            from_y = start_y + @as(f32, @floatFromInt(from.seq)) * COMMIT_SPACING;
-            to_x = start_x + @as(f32, @floatFromInt(to.lane)) * LANE_SPACING;
-            to_y = start_y + @as(f32, @floatFromInt(to.seq)) * COMMIT_SPACING;
-        }
+        const from_x = origin_x + from.x;
+        const from_y = origin_y + from.y;
+        const to_x = origin_x + to.x;
+        const to_y = origin_y + to.y;
 
         // Determine merge line color from the source branch
         var merge_color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = 200 };
@@ -104,16 +92,8 @@ pub fn drawGitGraph(
 
     // Draw commits
     for (model.commits.items) |commit| {
-        var cx: f32 = undefined;
-        var cy: f32 = undefined;
-
-        if (is_lr) {
-            cx = start_x + @as(f32, @floatFromInt(commit.seq)) * COMMIT_SPACING;
-            cy = start_y + @as(f32, @floatFromInt(commit.lane)) * LANE_SPACING;
-        } else {
-            cx = start_x + @as(f32, @floatFromInt(commit.lane)) * LANE_SPACING;
-            cy = start_y + @as(f32, @floatFromInt(commit.seq)) * COMMIT_SPACING;
-        }
+        const cx = origin_x + commit.x;
+        const cy = origin_y + commit.y;
 
         // Get branch color
         var commit_color = rl.Color{ .r = 100, .g = 100, .b = 200, .a = 255 };

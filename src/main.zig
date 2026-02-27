@@ -42,6 +42,9 @@ test {
     _ = @import("mermaid/models/pie_model.zig");
     _ = @import("mermaid/models/gantt_model.zig");
     _ = @import("mermaid/models/state_model.zig");
+    _ = @import("mermaid/models/graph.zig");
+    _ = @import("mermaid/models/sequence_model.zig");
+    _ = @import("mermaid/models/mindmap_model.zig");
     _ = @import("mermaid/parsers/flowchart.zig");
     _ = @import("mermaid/parsers/sequence.zig");
     _ = @import("mermaid/parsers/pie.zig");

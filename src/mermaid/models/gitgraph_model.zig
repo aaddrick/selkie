@@ -60,6 +60,12 @@ pub const GitGraphModel = struct {
     orientation: Orientation = .lr,
     title: []const u8 = "",
     allocator: Allocator,
+    // Layout fields set by mermaid_layout after computing positions
+    effective_lane_spacing: f32 = 0,
+    effective_commit_spacing: f32 = 0,
+    effective_padding: f32 = 0,
+    effective_branch_label_w: f32 = 0,
+    effective_header_offset: f32 = 0,
 
     pub fn init(allocator: Allocator) GitGraphModel {
         return .{

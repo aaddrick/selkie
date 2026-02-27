@@ -73,8 +73,9 @@ pub fn layoutMermaidBlock(
                 content_width,
             );
 
+            const scale = model_ptr.graph.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .flowchart = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
@@ -95,8 +96,9 @@ pub fn layoutMermaidBlock(
                 content_width,
             );
 
+            const scale = model_ptr.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .sequence = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
@@ -209,8 +211,9 @@ pub fn layoutMermaidBlock(
                 content_width,
             );
 
+            const scale = model_ptr.graph.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .class_diagram = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
@@ -233,8 +236,9 @@ pub fn layoutMermaidBlock(
                 content_width,
             );
 
+            const scale = model_ptr.graph.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .er = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
@@ -254,8 +258,9 @@ pub fn layoutMermaidBlock(
                 content_width,
             );
 
+            const scale = model_ptr.graph.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .state = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
@@ -269,8 +274,9 @@ pub fn layoutMermaidBlock(
 
             const layout_result = tree_layout.layout(model_ptr, fonts, theme, content_width);
 
+            const scale = model_ptr.scaleToFit(layout_result.width, content_width);
             const diagram_width = @min(layout_result.width, content_width);
-            const diagram_height = layout_result.height;
+            const diagram_height = layout_result.height * scale;
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .mindmap = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
         },
@@ -291,16 +297,49 @@ pub fn layoutMermaidBlock(
             const num_branches: f32 = @floatFromInt(@max(model_ptr.branches.items.len, @as(usize, 1)));
             const num_commits: f32 = @floatFromInt(@max(model_ptr.commits.items.len, @as(usize, 1)));
 
-            var diagram_width: f32 = undefined;
-            var diagram_height: f32 = undefined;
+            const is_lr = model_ptr.orientation == .lr;
 
-            if (model_ptr.orientation == .lr) {
-                diagram_width = @min(padding * 2 + branch_label_w + num_commits * commit_spacing + 40, content_width);
-                diagram_height = padding * 2 + 20 + num_branches * lane_spacing + 40;
-            } else {
-                diagram_width = @min(padding * 2 + branch_label_w + num_branches * lane_spacing + 40, content_width);
-                diagram_height = padding * 2 + 20 + num_commits * commit_spacing + 40;
+            const cols = if (is_lr) num_commits else num_branches;
+            const rows = if (is_lr) num_branches else num_commits;
+            const col_spacing = if (is_lr) commit_spacing else lane_spacing;
+            const row_spacing = if (is_lr) lane_spacing else commit_spacing;
+
+            const natural_width = padding * 2 + branch_label_w + cols * col_spacing + 40;
+            const natural_height = padding * 2 + 20 + rows * row_spacing + 40;
+
+            // Pre-compute commit positions
+            const start_x = padding + branch_label_w;
+            const start_y = padding + 20;
+            for (model_ptr.commits.items) |*commit| {
+                const seq_f: f32 = @floatFromInt(commit.seq);
+                const lane_f: f32 = @floatFromInt(commit.lane);
+                if (is_lr) {
+                    commit.x = start_x + seq_f * commit_spacing;
+                    commit.y = start_y + lane_f * lane_spacing;
+                } else {
+                    commit.x = start_x + lane_f * lane_spacing;
+                    commit.y = start_y + seq_f * commit_spacing;
+                }
             }
+
+            const scale = if (natural_width > content_width and natural_width > 0) content_width / natural_width else 1.0;
+            const diagram_width = @min(natural_width, content_width);
+            const diagram_height = natural_height * scale;
+
+            // Scale pre-computed positions
+            if (scale < 1.0) {
+                for (model_ptr.commits.items) |*commit| {
+                    commit.x *= scale;
+                    commit.y *= scale;
+                }
+            }
+
+            // Store all effective layout values for the renderer
+            model_ptr.effective_lane_spacing = lane_spacing * scale;
+            model_ptr.effective_commit_spacing = commit_spacing * scale;
+            model_ptr.effective_padding = padding * scale;
+            model_ptr.effective_branch_label_w = branch_label_w * scale;
+            model_ptr.effective_header_offset = 20 * scale;
 
             const diagram_x = content_x + (content_width - diagram_width) / 2;
             try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .gitgraph = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
