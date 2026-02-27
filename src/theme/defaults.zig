@@ -29,6 +29,13 @@ pub const light = Theme{
     .scrollbar = rgb(180, 180, 180),
     .scrollbar_track = rgb(240, 240, 240),
 
+    // Menu bar
+    .menu_bar_bg = rgb(246, 248, 250),
+    .menu_text = rgb(36, 41, 46),
+    .menu_hover_bg = rgb(230, 233, 237),
+    .menu_active_bg = rgb(220, 224, 228),
+    .menu_separator = rgb(208, 215, 222),
+
     // Syntax highlighting (GitHub-inspired light theme)
     .syntax_keyword = rgb(207, 34, 46),
     .syntax_string = rgb(10, 48, 105),
@@ -87,6 +94,13 @@ pub const dark = Theme{
     .hr_color = rgb(88, 91, 112),
     .scrollbar = rgb(88, 91, 112),
     .scrollbar_track = rgb(30, 30, 46),
+
+    // Menu bar (Catppuccin surface0/surface1)
+    .menu_bar_bg = rgb(49, 50, 68),
+    .menu_text = rgb(205, 214, 244),
+    .menu_hover_bg = rgb(69, 71, 90),
+    .menu_active_bg = rgb(88, 91, 112),
+    .menu_separator = rgb(69, 71, 90),
 
     // Syntax highlighting (Catppuccin Mocha-inspired)
     .syntax_keyword = rgb(203, 166, 247),

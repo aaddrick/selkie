@@ -18,6 +18,13 @@ pub const Theme = struct {
     scrollbar: rl.Color,
     scrollbar_track: rl.Color,
 
+    // Menu bar
+    menu_bar_bg: rl.Color,
+    menu_text: rl.Color,
+    menu_hover_bg: rl.Color,
+    menu_active_bg: rl.Color,
+    menu_separator: rl.Color,
+
     // Syntax highlighting
     syntax_keyword: rl.Color,
     syntax_string: rl.Color,

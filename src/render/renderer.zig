@@ -17,10 +17,23 @@ const gitgraph_renderer = @import("../mermaid/renderers/gitgraph_renderer.zig");
 const journey_renderer = @import("../mermaid/renderers/journey_renderer.zig");
 const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
 
-pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+/// Render the document layout tree with frustum culling and scrollbar.
+/// `menu_bar_height` offsets the scissor clip region so content does not
+/// draw over the menu bar area.
+pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, menu_bar_height: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+    const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
     const view_top = scroll_y;
     const view_bottom = scroll_y + screen_h;
+
+    // Clip rendering to below the menu bar
+    rl.beginScissorMode(
+        0,
+        @intFromFloat(menu_bar_height),
+        @intFromFloat(screen_w),
+        @intFromFloat(screen_h - menu_bar_height),
+    );
+    defer rl.endScissorMode();
 
     for (tree.nodes.items) |*node| {
         // Frustum culling
@@ -54,28 +67,30 @@ pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts,
         }
     }
 
-    // Draw scrollbar
-    drawScrollbar(tree.total_height, scroll_y, screen_h, theme);
+    // Draw scrollbar (starts below menu bar)
+    drawScrollbar(tree.total_height, scroll_y, screen_h, menu_bar_height, theme);
 }
 
-fn drawScrollbar(total_height: f32, scroll_y: f32, screen_h: f32, theme: *const Theme) void {
-    if (total_height <= screen_h) return;
+fn drawScrollbar(total_height: f32, scroll_y: f32, screen_h: f32, menu_bar_height: f32, theme: *const Theme) void {
+    const visible_h = screen_h - menu_bar_height;
+    if (total_height <= visible_h) return;
 
     const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
     const bar_width: f32 = 8;
     const bar_x = screen_w - bar_width - 4;
 
-    // Track
+    // Track (starts below menu bar)
     rl.drawRectangleRec(
-        .{ .x = bar_x, .y = 0, .width = bar_width, .height = screen_h },
+        .{ .x = bar_x, .y = menu_bar_height, .width = bar_width, .height = visible_h },
         theme.scrollbar_track,
     );
 
     // Thumb
-    const visible_ratio = screen_h / total_height;
-    const thumb_height = @max(20, screen_h * visible_ratio);
-    const scroll_ratio = scroll_y / (total_height - screen_h);
-    const thumb_y = scroll_ratio * (screen_h - thumb_height);
+    const visible_ratio = visible_h / total_height;
+    const thumb_height = @max(20, visible_h * visible_ratio);
+    const max_scroll = total_height - visible_h;
+    const scroll_ratio = if (max_scroll > 0) scroll_y / max_scroll else 0;
+    const thumb_y = menu_bar_height + scroll_ratio * (visible_h - thumb_height);
 
     rl.drawRectangleRounded(
         .{ .x = bar_x, .y = thumb_y, .width = bar_width, .height = thumb_height },

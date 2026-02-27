@@ -38,6 +38,7 @@ pub const LayoutContext = struct {
         fonts: *const Fonts,
         window_width: f32,
         tree: *layout_types.LayoutTree,
+        y_offset: f32,
     ) LayoutContext {
         const content_width = @min(
             theme.max_content_width,
@@ -51,7 +52,7 @@ pub const LayoutContext = struct {
             .fonts = fonts,
             .content_width = content_width,
             .content_x = content_x,
-            .cursor_y = theme.page_margin,
+            .cursor_y = y_offset + theme.page_margin,
             .tree = tree,
         };
     }
@@ -568,6 +569,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
     }
 }
 
+/// Lay out a parsed document into positioned nodes for rendering.
+/// `y_offset` shifts content start downward (e.g., to leave room for a menu bar).
 pub fn layout(
     allocator: Allocator,
     document: *const ast.Document,
@@ -575,10 +578,11 @@ pub fn layout(
     fonts: *const Fonts,
     window_width: f32,
     image_renderer: ?*ImageRenderer,
+    y_offset: f32,
 ) !layout_types.LayoutTree {
     var tree = layout_types.LayoutTree.init(allocator);
     errdefer tree.deinit();
-    var ctx = LayoutContext.init(allocator, theme, fonts, window_width, &tree);
+    var ctx = LayoutContext.init(allocator, theme, fonts, window_width, &tree, y_offset);
     ctx.image_renderer = image_renderer;
 
     try layoutBlock(&ctx, &document.root);

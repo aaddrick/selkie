@@ -15,6 +15,8 @@ const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
 const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
+const MenuBar = @import("menu_bar.zig").MenuBar;
+const file_dialog = @import("file_dialog.zig");
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
@@ -30,6 +32,7 @@ pub const App = struct {
     viewport: Viewport,
     link_handler: LinkHandler,
     image_renderer: ImageRenderer,
+    menu_bar: MenuBar,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
     custom_theme: ?Theme,
     /// File watcher for auto-reload (null if no file path set)
@@ -53,6 +56,7 @@ pub const App = struct {
             .viewport = Viewport.init(),
             .link_handler = LinkHandler.init(&defaults.light),
             .image_renderer = ImageRenderer.init(allocator),
+            .menu_bar = MenuBar.init(),
             .custom_theme = null,
         };
     }
@@ -160,6 +164,50 @@ pub const App = struct {
         self.file_deleted = false;
     }
 
+    /// Open a native file dialog and load the selected markdown file.
+    /// NOTE: Blocks the render loop while the dialog is open — the window will
+    /// be unresponsive until the user selects a file or cancels.
+    fn openFileDialog(self: *App) void {
+        const selected = file_dialog.openFileDialog(self.allocator) catch |err| {
+            std.log.err("File dialog error: {}", .{err});
+            return;
+        } orelse return; // User cancelled
+        defer self.allocator.free(selected);
+
+        const content = std.fs.cwd().readFileAlloc(self.allocator, selected, max_file_size) catch |err| {
+            std.log.err("Failed to read file '{s}': {}", .{ selected, err });
+            return;
+        };
+        defer self.allocator.free(content);
+
+        // Set base dir for relative image paths
+        const dir = std.fs.path.dirname(selected) orelse ".";
+        self.setBaseDir(dir) catch |err| {
+            std.log.err("Failed to set base dir: {}", .{err});
+        };
+
+        self.loadMarkdown(content) catch |err| {
+            std.log.err("Failed to parse markdown from '{s}': {}", .{ selected, err });
+            return;
+        };
+
+        // Reset scroll to top for new file
+        self.scroll.y = 0;
+
+        // Disable file watching for dialog-opened files (we don't own the path long-term)
+        if (self.file_watcher) |*watcher| {
+            watcher.deinit();
+            self.file_watcher = null;
+        }
+        self.file_path = null;
+
+        // Update window title with filename
+        const basename = std.fs.path.basename(selected);
+        var title_buf: [256:0]u8 = undefined;
+        const title = std.fmt.bufPrintZ(&title_buf, "Selkie \xe2\x80\x94 {s}", .{basename}) catch "Selkie";
+        rl.setWindowTitle(title);
+    }
+
     pub fn relayout(self: *App) !void {
         if (self.layout_tree) |*tree| tree.deinit();
         self.layout_tree = null;
@@ -173,6 +221,7 @@ pub const App = struct {
             fonts,
             self.viewport.width,
             &self.image_renderer,
+            MenuBar.bar_height,
         );
         self.scroll.total_height = tree.total_height;
         self.layout_tree = tree;
@@ -194,10 +243,44 @@ pub const App = struct {
     }
 
     pub fn update(self: *App) void {
-        self.scroll.update();
+        const fonts = self.fonts orelse return;
 
-        if (rl.isKeyPressed(.t)) {
-            self.toggleTheme();
+        // Menu bar gets first crack at input
+        const menu_action = self.menu_bar.update(&fonts);
+        const menu_is_open = self.menu_bar.isOpen();
+
+        if (menu_action) |action| {
+            switch (action) {
+                .open_file => self.openFileDialog(),
+                .close_app => rl.closeWindow(),
+                .toggle_theme => self.toggleTheme(),
+                .open_settings => std.log.info("Settings not yet implemented", .{}),
+            }
+        }
+
+        // Keyboard shortcuts — suppressed when menu is open to avoid confusing UX
+        if (!menu_is_open) {
+            if (rl.isKeyPressed(.t)) {
+                self.toggleTheme();
+            }
+            if (rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control)) {
+                if (rl.isKeyPressed(.o)) {
+                    self.openFileDialog();
+                }
+            }
+        }
+
+        // Only process scroll/link input when menu is closed
+        if (!menu_is_open) {
+            self.scroll.update();
+        }
+
+        // Expire reload indicator (state mutation belongs in update, not draw)
+        if (self.reload_indicator_ms != 0) {
+            const elapsed = std.time.milliTimestamp() - self.reload_indicator_ms;
+            if (elapsed >= fade_duration) {
+                self.reload_indicator_ms = 0;
+            }
         }
 
         // Re-layout on window resize (best-effort — old layout remains usable on failure)
@@ -222,7 +305,11 @@ pub const App = struct {
         if (self.layout_tree) |*tree| {
             const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
             self.link_handler.update(tree, self.scroll.y, screen_h);
-            self.link_handler.handleClick();
+            // Don't process link clicks when menu is open or mouse is over menu bar
+            const mouse_y: f32 = @floatFromInt(rl.getMouseY());
+            if (!menu_is_open and mouse_y >= MenuBar.bar_height) {
+                self.link_handler.handleClick();
+            }
         }
     }
 
@@ -232,26 +319,27 @@ pub const App = struct {
 
         rl.clearBackground(self.theme.background);
 
+        const fonts_val = self.fonts orelse return;
+
         if (self.layout_tree) |*tree| {
-            renderer.render(tree, self.theme, &(self.fonts orelse return), self.scroll.y);
+            renderer.render(tree, self.theme, &fonts_val, self.scroll.y, MenuBar.bar_height);
         } else {
-            rl.drawText("No document loaded. Usage: selkie <file.md>", 20, 20, 20, self.theme.text);
+            const y_offset: i32 = @intFromFloat(MenuBar.bar_height + 8);
+            rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
         }
 
-        // Draw reload/deletion indicator
+        // Draw reload/deletion indicator (below menu bar)
         self.drawReloadIndicator();
+
+        // Menu bar drawn last so it's always on top
+        self.menu_bar.draw(self.theme, &fonts_val);
     }
 
-    fn drawReloadIndicator(self: *App) void {
+    fn drawReloadIndicator(self: *const App) void {
         if (self.reload_indicator_ms == 0) return;
 
-        const now = std.time.milliTimestamp();
-        const elapsed = now - self.reload_indicator_ms;
-
-        if (elapsed >= fade_duration) {
-            self.reload_indicator_ms = 0;
-            return;
-        }
+        const elapsed = std.time.milliTimestamp() - self.reload_indicator_ms;
+        if (elapsed >= fade_duration) return;
 
         const t: f32 = @floatFromInt(elapsed);
         const d: f32 = @floatFromInt(fade_duration);
@@ -266,7 +354,8 @@ pub const App = struct {
         const font_size: i32 = 16;
         const screen_w = rl.getScreenWidth();
         const text_w = rl.measureText(text, font_size);
-        rl.drawText(text, screen_w - text_w - 16, 8, font_size, color);
+        const indicator_y: i32 = @intFromFloat(MenuBar.bar_height + 8);
+        rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
     }
 
     pub fn deinit(self: *App) void {
@@ -276,3 +365,106 @@ pub const App = struct {
         self.image_renderer.deinit();
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "App.init returns correct default state" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    try testing.expectEqual(@as(?ast.Document, null), app.document);
+    try testing.expectEqual(@as(?LayoutTree, null), app.layout_tree);
+    try testing.expect(!app.is_dark);
+    try testing.expectEqual(@as(?Fonts, null), app.fonts);
+    try testing.expectEqual(@as(f32, 0), app.scroll.y);
+    try testing.expect(!app.menu_bar.isOpen());
+    try testing.expectEqual(@as(?Theme, null), app.custom_theme);
+    try testing.expectEqual(@as(?FileWatcher, null), app.file_watcher);
+    try testing.expectEqual(@as(?[]const u8, null), app.file_path);
+    try testing.expectEqual(@as(i64, 0), app.reload_indicator_ms);
+    try testing.expect(!app.file_deleted);
+}
+
+test "App.init uses light theme by default" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    // Default theme should be light
+    try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
+    try testing.expectEqual(defaults.light.background.g, app.theme.background.g);
+    try testing.expectEqual(defaults.light.background.b, app.theme.background.b);
+}
+
+test "App.setTheme selects dark theme" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    app.setTheme(null, true);
+
+    try testing.expect(app.is_dark);
+    try testing.expectEqual(defaults.dark.background.r, app.theme.background.r);
+    try testing.expectEqual(defaults.dark.background.g, app.theme.background.g);
+    try testing.expectEqual(defaults.dark.background.b, app.theme.background.b);
+    // link_handler should also be updated
+    try testing.expectEqual(defaults.dark.link.r, app.link_handler.theme.link.r);
+}
+
+test "App.setTheme with custom theme stores it" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    var custom = defaults.light;
+    custom.background = .{ .r = 1, .g = 2, .b = 3, .a = 255 };
+
+    app.setTheme(custom, false);
+
+    try testing.expect(app.custom_theme != null);
+    try testing.expectEqual(@as(u8, 1), app.theme.background.r);
+    try testing.expectEqual(@as(u8, 2), app.theme.background.g);
+    try testing.expectEqual(@as(u8, 3), app.theme.background.b);
+}
+
+test "App.setTheme with light sets light theme" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    // setTheme(null, false) selects light theme
+    app.setTheme(null, false);
+    try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
+    try testing.expectEqual(defaults.light.background.g, app.theme.background.g);
+    try testing.expectEqual(defaults.light.link.r, app.link_handler.theme.link.r);
+}
+
+test "App.toggleTheme switches between light and dark" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    // Start light
+    try testing.expect(!app.is_dark);
+    try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
+
+    // Toggle to dark
+    app.toggleTheme();
+    try testing.expect(app.is_dark);
+    try testing.expectEqual(defaults.dark.background.r, app.theme.background.r);
+    try testing.expectEqual(defaults.dark.link.r, app.link_handler.theme.link.r);
+
+    // Toggle back to light
+    app.toggleTheme();
+    try testing.expect(!app.is_dark);
+    try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
+}
+
+test "App.deinit cleans up without leaks" {
+    // testing.allocator will detect any leaks
+    var app = App.init(testing.allocator);
+    app.deinit();
+}
+
+// NOTE: loadMarkdown(), relayout(), update(), draw(), openFileDialog() depend
+// on cmark-gfm, raylib fonts/window, or external processes and cannot be
+// meaningfully unit tested. They require integration testing.

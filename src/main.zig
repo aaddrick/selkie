@@ -17,6 +17,9 @@ test {
     _ = @import("render/syntax_highlight.zig");
     _ = @import("utils/slice_utils.zig");
     _ = @import("file_watcher.zig");
+    _ = @import("menu_bar.zig");
+    _ = @import("file_dialog.zig");
+    _ = @import("app.zig");
     // Mermaid subsystem tests
     _ = @import("mermaid/parse_utils.zig");
     _ = @import("mermaid/tokenizer.zig");
