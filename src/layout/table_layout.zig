@@ -112,7 +112,7 @@ pub fn layoutTable(
 
             // Layout inline content within the cell
             const text_x = cell_x + cell_pad;
-            const text_y = row_y + cell_pad;
+            const text_y = row_y + (row_height - font_size) / 2.0;
             const available_w = col_w - cell_pad * 2;
 
             const style = layout_types.TextStyle{
@@ -124,6 +124,7 @@ pub fn layoutTable(
             try layoutCellInlineContent(
                 cell,
                 fonts,
+                theme,
                 &cell_node,
                 style,
                 text_x,
@@ -194,6 +195,7 @@ pub fn layoutTable(
 fn layoutCellInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
+    theme: *const Theme,
     layout_node: *layout_types.LayoutNode,
     style: layout_types.TextStyle,
     text_x: f32,
@@ -214,7 +216,7 @@ fn layoutCellInlineContent(
 
     // Second pass: place runs
     var cursor_x = text_x + offset;
-    try placeInlineRuns(node, fonts, layout_node, style, &cursor_x, text_y);
+    try placeInlineRuns(node, fonts, theme, layout_node, style, &cursor_x, text_y);
 }
 
 /// Recursively measure the total width of inline content within a node.
@@ -273,6 +275,7 @@ fn measureInlineRuns(
 fn placeInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
+    theme: *const Theme,
     layout_node: *layout_types.LayoutNode,
     style: layout_types.TextStyle,
     cursor_x: *f32,
@@ -295,6 +298,8 @@ fn placeInlineRuns(
                 if (child.literal) |text| {
                     var code_style = style;
                     code_style.is_code = true;
+                    code_style.color = theme.code_text;
+                    code_style.code_bg = theme.code_background;
                     const m = fonts.measure(text, style.font_size, false, false, true);
                     try layout_node.text_runs.append(.{
                         .text = text,
@@ -316,26 +321,27 @@ fn placeInlineRuns(
             .strong => {
                 var s = style;
                 s.bold = true;
-                try placeInlineRuns(child, fonts, layout_node, s, cursor_x, text_y);
+                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
             },
             .emph => {
                 var s = style;
                 s.italic = true;
-                try placeInlineRuns(child, fonts, layout_node, s, cursor_x, text_y);
+                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
             },
             .strikethrough => {
                 var s = style;
                 s.strikethrough = true;
-                try placeInlineRuns(child, fonts, layout_node, s, cursor_x, text_y);
+                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
             },
             .link => {
                 var s = style;
+                s.color = theme.link;
                 s.underline = true;
                 s.link_url = child.url;
-                try placeInlineRuns(child, fonts, layout_node, s, cursor_x, text_y);
+                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
             },
             else => {
-                try placeInlineRuns(child, fonts, layout_node, style, cursor_x, text_y);
+                try placeInlineRuns(child, fonts, theme, layout_node, style, cursor_x, text_y);
             },
         }
     }
