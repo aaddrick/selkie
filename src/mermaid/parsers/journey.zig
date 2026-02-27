@@ -97,26 +97,19 @@ fn parseTask(allocator: Allocator, line: []const u8) ?JourneyTask {
     // Remaining parts are actors (comma-separated)
     if (parts.items.len >= 3) {
         const actors_str = strip(parts.items[2]);
-        // Split by comma
         var actor_start: usize = 0;
         for (actors_str, 0..) |ch, i| {
             if (ch == ',') {
                 const actor = strip(actors_str[actor_start..i]);
                 if (actor.len > 0) {
-                    task.actors.append(actor) catch |err| {
-                        std.log.err("journey: failed to append actor: {}", .{err});
-                        return null;
-                    };
+                    task.actors.append(actor) catch return null;
                 }
                 actor_start = i + 1;
             }
         }
         const last_actor = strip(actors_str[actor_start..]);
         if (last_actor.len > 0) {
-            task.actors.append(last_actor) catch |err| {
-                std.log.err("journey: failed to append actor: {}", .{err});
-                return null;
-            };
+            task.actors.append(last_actor) catch return null;
         }
     }
 

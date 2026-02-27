@@ -169,7 +169,6 @@ fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, col
             // Mark as needing resolution in resolveAfterReferences.
             // The current resolver uses sequential placement (previous task's end_day).
             task.start_day = AFTER_SENTINEL;
-            if (task.id.len == 0) task.id = name;
         } else if (gm.parseDate(f)) |date| {
             task.start_day = date.toDayNumber();
         }

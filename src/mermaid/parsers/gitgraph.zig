@@ -160,8 +160,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
 }
 
 fn autoId(seq: u32) []const u8 {
-    // Mermaid auto-generates commit IDs like "0-0", "0-1", etc.
-    // We use a comptime-sized lookup for small values and a thread-local buffer for larger ones.
+    // Comptime lookup table for auto-generated commit IDs.
     const table = comptime blk: {
         const count = 32;
         var entries: [count][]const u8 = undefined;
