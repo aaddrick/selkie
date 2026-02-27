@@ -9,7 +9,6 @@ const graph_mod = @import("../models/graph.zig");
 const Point = graph_mod.Point;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
-const shapes = @import("shapes.zig");
 
 pub fn drawClassDiagram(model: *const ClassModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     // Background
@@ -54,8 +53,7 @@ fn drawClassBox(cls: *const ClassNode, nx: f32, ny: f32, nw: f32, nh: f32, origi
         cur_y += line_h;
     }
 
-    // Class name (bold-ish, centered)
-    shapes.drawTextCentered(cls.label, x, y + (cur_y - sy), nw, line_h, fonts, font_size, theme.mermaid_node_text, scroll_y + (cur_y - sy));
+    // Class name (centered)
     drawTextCenteredDirect(cls.label, x, cur_y, nw, fonts, font_size, theme.mermaid_node_text);
     cur_y += line_h + section_pad;
 
@@ -68,7 +66,7 @@ fn drawClassBox(cls: *const ClassNode, nx: f32, ny: f32, nw: f32, nh: f32, origi
     for (cls.members.items) |member| {
         if (!member.is_method) {
             has_attrs = true;
-            drawMember(member, x, cur_y, nw, fonts, font_size, theme);
+            drawMember(member, x, cur_y, fonts, font_size, theme);
             cur_y += line_h;
         }
     }
@@ -84,13 +82,13 @@ fn drawClassBox(cls: *const ClassNode, nx: f32, ny: f32, nw: f32, nh: f32, origi
     // Methods
     for (cls.members.items) |member| {
         if (member.is_method) {
-            drawMember(member, x, cur_y, nw, fonts, font_size, theme);
+            drawMember(member, x, cur_y, fonts, font_size, theme);
             cur_y += line_h;
         }
     }
 }
 
-fn drawMember(member: cm.ClassMember, x: f32, y: f32, w: f32, fonts: *const Fonts, font_size: f32, theme: *const Theme) void {
+fn drawMember(member: cm.ClassMember, x: f32, y: f32, fonts: *const Fonts, font_size: f32, theme: *const Theme) void {
     const vis_char: []const u8 = switch (member.visibility) {
         .public => "+",
         .private => "-",
@@ -104,7 +102,6 @@ fn drawMember(member: cm.ClassMember, x: f32, y: f32, w: f32, fonts: *const Font
 
     // Draw member name
     drawTextAt(member.name, x + 16, y, fonts, font_size * 0.9, theme.mermaid_node_text);
-    _ = w;
 }
 
 fn drawRelationship(edge: *const graph_mod.GraphEdge, rel: ?*const cm.ClassRelationship, origin_x: f32, origin_y: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {

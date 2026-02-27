@@ -19,11 +19,9 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceModel {
         .allocator = allocator,
         .source = source,
         .model = SequenceModel.init(allocator),
+        .lines = std.ArrayList([]const u8).init(allocator),
     };
     errdefer parser.model.deinit();
-
-    // Split source into lines
-    parser.lines = std.ArrayList([]const u8).init(allocator);
     defer parser.lines.deinit();
 
     var start: usize = 0;
@@ -63,7 +61,7 @@ const Parser = struct {
     allocator: Allocator,
     source: []const u8,
     model: SequenceModel,
-    lines: std.ArrayList([]const u8) = undefined,
+    lines: std.ArrayList([]const u8),
     line_idx: usize = 0,
 
     const ParseError = Allocator.Error;

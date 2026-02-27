@@ -166,15 +166,10 @@ fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, col
     if (field_idx < fields.items.len) {
         const f = fields.items[field_idx];
         if (startsWith(f, "after ")) {
-            // Store the "after" reference in start_day as a sentinel
-            // We'll resolve it in a second pass
-            const ref_id = strip(f["after ".len..]);
-            task.start_day = -1; // sentinel for "after"
-            // Store reference id - we'll use the name field for now via a lookup
-            _ = ref_id; // resolved in resolveAfterReferences using the field text
-            task.id = if (task.id.len > 0) task.id else name;
-            // Store the raw "after X" reference for resolution
+            // Mark as needing resolution in resolveAfterReferences.
+            // The current resolver uses sequential placement (previous task's end_day).
             task.start_day = AFTER_SENTINEL;
+            if (task.id.len == 0) task.id = name;
         } else if (gm.parseDate(f)) |date| {
             task.start_day = date.toDayNumber();
         }

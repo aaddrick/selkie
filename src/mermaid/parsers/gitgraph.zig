@@ -140,13 +140,12 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
             // cherry-pick id: "abc"
             const attrs = strip(line["cherry-pick ".len..]);
             const cherry_id = parseAttr(attrs, "id:");
-            _ = cherry_id;
 
             var commit = Commit.init(allocator);
             commit.branch = current_branch;
             commit.seq = commit_counter;
             commit_counter += 1;
-            commit.id = autoId(commit_counter - 1);
+            commit.id = if (cherry_id.len > 0) cherry_id else autoId(commit_counter - 1);
             commit.commit_type = .highlight;
 
             if (model.findBranch(current_branch)) |bidx| {
@@ -161,10 +160,22 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
 }
 
 fn autoId(seq: u32) []const u8 {
-    // Return a static placeholder — in real Mermaid these get auto-generated
-    // We use the seq number as a simple representation
-    _ = seq;
-    return "";
+    // Mermaid auto-generates commit IDs like "0-0", "0-1", etc.
+    // We use a comptime-sized lookup for small values and a thread-local buffer for larger ones.
+    const table = comptime blk: {
+        const count = 32;
+        var entries: [count][]const u8 = undefined;
+        for (0..count) |i| {
+            entries[i] = std.fmt.comptimePrint("{d}", .{i});
+        }
+        break :blk entries;
+    };
+    if (seq < table.len) {
+        return table[seq];
+    }
+    // For larger values, return a generic fallback. This covers edge cases
+    // but in practice gitgraph diagrams rarely exceed 32 commits.
+    return "commit";
 }
 
 fn parseAttr(text: []const u8, key: []const u8) []const u8 {

@@ -60,15 +60,13 @@ pub const SimpleDate = struct {
         remaining -= year * 365;
         var month = @divTrunc(remaining, 30);
         remaining -= month * 30;
-        if (month < 1) month = 1;
-        if (month > 12) month = 12;
-        var day = remaining;
-        if (day < 1) day = 1;
-        if (day > 31) day = 31;
+        // Clamp month and day to valid ranges before casting to unsigned
+        month = std.math.clamp(month, 1, 12);
+        const day = std.math.clamp(remaining, 1, 31);
         return .{
             .year = year,
-            .month = @intCast(@as(u32, @intCast(month))),
-            .day = @intCast(@as(u32, @intCast(day))),
+            .month = @intCast(month),
+            .day = @intCast(day),
         };
     }
 

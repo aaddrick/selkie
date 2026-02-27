@@ -41,7 +41,7 @@ pub const PieModel = struct {
         for (self.slices.items) |s| {
             total += s.value;
         }
-        if (total == 0) return;
+        if (total <= 0) return;
 
         const palette = [_]rl.Color{
             rl.Color{ .r = 76, .g = 114, .b = 176, .a = 255 }, // blue

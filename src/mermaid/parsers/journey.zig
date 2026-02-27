@@ -90,7 +90,7 @@ fn parseTask(allocator: Allocator, line: []const u8) ?JourneyTask {
 
     // Second part is score
     const score_str = strip(parts.items[1]);
-    task.score = @as(u8, @intCast(std.fmt.parseInt(u32, score_str, 10) catch return null));
+    task.score = std.fmt.parseInt(u8, score_str, 10) catch return null;
     if (task.score < 1) task.score = 1;
     if (task.score > 5) task.score = 5;
 
@@ -103,14 +103,20 @@ fn parseTask(allocator: Allocator, line: []const u8) ?JourneyTask {
             if (ch == ',') {
                 const actor = strip(actors_str[actor_start..i]);
                 if (actor.len > 0) {
-                    task.actors.append(actor) catch {};
+                    task.actors.append(actor) catch |err| {
+                        std.log.err("journey: failed to append actor: {}", .{err});
+                        return null;
+                    };
                 }
                 actor_start = i + 1;
             }
         }
         const last_actor = strip(actors_str[actor_start..]);
         if (last_actor.len > 0) {
-            task.actors.append(last_actor) catch {};
+            task.actors.append(last_actor) catch |err| {
+                std.log.err("journey: failed to append actor: {}", .{err});
+                return null;
+            };
         }
     }
 

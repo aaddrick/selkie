@@ -28,7 +28,6 @@ const LangDef = struct {
     string_chars: []const u8, // quote chars that delimit strings
     has_single_quote_strings: bool,
     has_backtick_strings: bool,
-    hash_comments: bool,
 };
 
 // --- Language definitions ---
@@ -65,7 +64,6 @@ const zig_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = true, // char literals
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const python_keywords = [_][]const u8{
@@ -89,7 +87,6 @@ const python_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = true,
 };
 
 const js_keywords = [_][]const u8{
@@ -116,7 +113,6 @@ const js_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = true,
-    .hash_comments = false,
 };
 
 const ts_keywords = [_][]const u8{
@@ -145,7 +141,6 @@ const ts_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = true,
-    .hash_comments = false,
 };
 
 const c_keywords = [_][]const u8{
@@ -171,7 +166,6 @@ const c_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = true, // char literals
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const rust_keywords = [_][]const u8{
@@ -200,7 +194,6 @@ const rust_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = true, // char literals
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const go_keywords = [_][]const u8{
@@ -227,7 +220,6 @@ const go_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = false,
     .has_backtick_strings = true,
-    .hash_comments = false,
 };
 
 const java_keywords = [_][]const u8{
@@ -256,7 +248,6 @@ const java_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = true, // char literals
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const shell_keywords = [_][]const u8{
@@ -276,7 +267,6 @@ const shell_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = true,
-    .hash_comments = true,
 };
 
 const json_keywords = [_][]const u8{ "true", "false", "null" };
@@ -290,7 +280,6 @@ const json_def = LangDef{
     .string_chars = "\"",
     .has_single_quote_strings = false,
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const toml_keywords = [_][]const u8{ "true", "false" };
@@ -304,7 +293,6 @@ const toml_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = true,
 };
 
 const yaml_keywords = [_][]const u8{ "true", "false", "null", "yes", "no", "on", "off" };
@@ -318,7 +306,6 @@ const yaml_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = true,
 };
 
 const html_keywords = [_][]const u8{
@@ -339,7 +326,6 @@ const html_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const css_keywords = [_][]const u8{
@@ -359,7 +345,6 @@ const css_def = LangDef{
     .string_chars = "\"'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 const sql_keywords = [_][]const u8{
@@ -397,7 +382,6 @@ const sql_def = LangDef{
     .string_chars = "'",
     .has_single_quote_strings = true,
     .has_backtick_strings = false,
-    .hash_comments = false,
 };
 
 /// Look up a language definition from a fence_info string.
@@ -476,17 +460,6 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8, lang_def: *con
         // Line comments
         if (lang_def.line_comment) |lc| {
             if (i + lc.len <= source.len and std.mem.eql(u8, source[i..][0..lc.len], lc)) {
-                const start = i;
-                while (i < source.len and source[i] != '\n') : (i += 1) {}
-                try tokens.append(.{ .start = start, .end = i, .kind = .comment });
-                continue;
-            }
-        }
-
-        // Hash comments (for Python, Shell, YAML, TOML)
-        if (lang_def.hash_comments and ch == '#') {
-            // Already handled by line_comment = "#" above, but as a safety net
-            if (lang_def.line_comment == null) {
                 const start = i;
                 while (i < source.len and source[i] != '\n') : (i += 1) {}
                 try tokens.append(.{ .start = start, .end = i, .kind = .comment });
