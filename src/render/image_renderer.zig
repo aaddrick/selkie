@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
 const slice_utils = @import("../utils/slice_utils.zig");
+const Rect = @import("../layout/layout_types.zig").Rect;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
 const log = std.log.scoped(.image_renderer);
@@ -70,7 +71,7 @@ pub const ImageRenderer = struct {
     }
 
     /// Draw a texture scaled to fit within a rectangle.
-    pub fn drawImage(texture: rl.Texture2D, rect: @import("../layout/layout_types.zig").Rect, scroll_y: f32) void {
+    pub fn drawImage(texture: rl.Texture2D, rect: Rect, scroll_y: f32) void {
         const draw_y = rect.y - scroll_y;
         rl.drawTexturePro(
             texture,
@@ -85,7 +86,7 @@ pub const ImageRenderer = struct {
     }
 
     /// Draw a placeholder rectangle with alt text for missing images.
-    pub fn drawPlaceholder(rect: @import("../layout/layout_types.zig").Rect, alt_text: ?[]const u8, fonts: *const Fonts, scroll_y: f32) void {
+    pub fn drawPlaceholder(rect: Rect, alt_text: ?[]const u8, fonts: *const Fonts, scroll_y: f32) void {
         const draw_y = rect.y - scroll_y;
         const placeholder_color = rl.Color{ .r = 200, .g = 200, .b = 200, .a = 255 };
         const border_color = rl.Color{ .r = 160, .g = 160, .b = 160, .a = 255 };

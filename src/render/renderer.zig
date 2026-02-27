@@ -1,5 +1,5 @@
 const rl = @import("raylib");
-const layout_types = @import("../layout/layout_types.zig");
+const LayoutTree = @import("../layout/layout_types.zig").LayoutTree;
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const block_renderer = @import("block_renderer.zig");
@@ -17,7 +17,7 @@ const gitgraph_renderer = @import("../mermaid/renderers/gitgraph_renderer.zig");
 const journey_renderer = @import("../mermaid/renderers/journey_renderer.zig");
 const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
 
-pub fn render(tree: *const layout_types.LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
     const view_top = scroll_y;
     const view_bottom = scroll_y + screen_h;

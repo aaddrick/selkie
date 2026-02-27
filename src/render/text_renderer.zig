@@ -1,5 +1,5 @@
 const rl = @import("raylib");
-const layout_types = @import("../layout/layout_types.zig");
+const TextRun = @import("../layout/layout_types.zig").TextRun;
 const slice_utils = @import("../utils/slice_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
@@ -10,7 +10,7 @@ fn drawTextSlice(font: rl.Font, text: []const u8, pos: rl.Vector2, font_size: f3
     rl.drawTextEx(font, z, pos, font_size, spacing, color);
 }
 
-pub fn drawTextRun(run: *const layout_types.TextRun, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32) void {
     const draw_y = run.rect.y - scroll_y;
 
     // Skip if off screen
