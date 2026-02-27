@@ -181,3 +181,27 @@ test "nullTerminate truncates long input" {
     try testing.expectEqualStrings("hel", result);
     try testing.expectEqual(@as(u8, 0), buf[3]);
 }
+
+test "functions handle multi-byte UTF-8 input" {
+    const allocator = testing.allocator;
+
+    // strip preserves interior multi-byte characters
+    try testing.expectEqualStrings("caf\xc3\xa9", strip("  caf\xc3\xa9  "));
+
+    // splitLines splits correctly around multi-byte characters
+    var lines = try splitLines(allocator, "\xc3\xa9\n\xc3\xbc\xc3\x9f");
+    defer lines.deinit();
+    try testing.expectEqual(@as(usize, 2), lines.items.len);
+    try testing.expectEqualStrings("\xc3\xa9", lines.items[0]);
+    try testing.expectEqualStrings("\xc3\xbc\xc3\x9f", lines.items[1]);
+
+    // indexOfChar finds ASCII byte within multi-byte surroundings
+    try testing.expectEqual(@as(?usize, 5), indexOfChar("caf\xc3\xa9:ok", ':'));
+
+    // containsStr finds ASCII substring in multi-byte context
+    try testing.expect(containsStr("hello \xe4\xb8\x96\xe7\x95\x8c world", "world"));
+
+    // startsWith/endsWith work with multi-byte prefixes/suffixes
+    try testing.expect(startsWith("\xc3\xa9tape", "\xc3\xa9"));
+    try testing.expect(endsWith("caf\xc3\xa9", "\xc3\xa9"));
+}

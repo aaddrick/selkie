@@ -259,7 +259,7 @@ test "state parse state declaration with description" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    const wait = model.findStateMut("Wait") orelse unreachable;
+    const wait = model.findStateMut("Wait") orelse return error.TestUnexpectedResult;
     try testing.expectEqualStrings("Waiting for input", wait.label);
 }
 
@@ -273,9 +273,9 @@ test "state parse fork and join" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    const fork = model.findStateMut("fork_state") orelse unreachable;
+    const fork = model.findStateMut("fork_state") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(sm.StateType.fork, fork.state_type);
-    const join = model.findStateMut("join_state") orelse unreachable;
+    const join = model.findStateMut("join_state") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(sm.StateType.join, join.state_type);
 }
 
@@ -297,6 +297,6 @@ test "state parse nested states" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    const outer = model.findStateMut("Outer") orelse unreachable;
+    const outer = model.findStateMut("Outer") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(sm.StateType.composite, outer.state_type);
 }

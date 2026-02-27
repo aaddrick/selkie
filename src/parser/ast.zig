@@ -91,6 +91,32 @@ pub const Node = struct {
     }
 };
 
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "Node.deinit frees all optional fields" {
+    const allocator = testing.allocator;
+    var node = Node.init(allocator, .code_block);
+
+    // Populate all 5 optional heap-owned fields
+    node.literal = try allocator.dupe(u8, "some literal");
+    node.url = try allocator.dupe(u8, "https://example.com");
+    node.title = try allocator.dupe(u8, "a title");
+    node.fence_info = try allocator.dupe(u8, "zig");
+    node.table_alignments = try allocator.dupe(Alignment, &[_]Alignment{ .left, .center, .right });
+
+    // Add a child to exercise recursive deinit
+    var child = Node.init(allocator, .text);
+    child.literal = try allocator.dupe(u8, "child text");
+    try node.children.append(child);
+
+    // deinit should free everything; testing.allocator will detect leaks
+    node.deinit(allocator);
+}
+
 pub const Document = struct {
     root: Node,
     allocator: Allocator,

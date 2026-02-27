@@ -191,7 +191,7 @@ test "SimpleDate.format produces YYYY-MM-DD" {
 }
 
 test "parseDate valid date" {
-    const date = parseDate("2024-06-15") orelse unreachable;
+    const date = parseDate("2024-06-15") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(i32, 2024), date.year);
     try testing.expectEqual(@as(u8, 6), date.month);
     try testing.expectEqual(@as(u8, 15), date.day);
@@ -229,4 +229,43 @@ test "GanttModel computeDateRange" {
     model.computeDateRange();
     try testing.expectEqual(@as(i32, 10), model.min_day);
     try testing.expectEqual(@as(i32, 20), model.max_day);
+}
+
+test "GanttModel findTaskById returns matching index" {
+    const allocator = testing.allocator;
+    var model = GanttModel.init(allocator);
+    defer model.deinit();
+
+    try model.tasks.append(.{
+        .id = "task_a",
+        .name = "Task A",
+        .tags = std.ArrayList(TaskTag).init(allocator),
+        .start_day = 0,
+        .end_day = 5,
+    });
+    try model.tasks.append(.{
+        .id = "task_b",
+        .name = "Task B",
+        .tags = std.ArrayList(TaskTag).init(allocator),
+        .start_day = 5,
+        .end_day = 10,
+    });
+
+    const idx = model.findTaskById("task_b") orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(usize, 1), idx);
+    try testing.expectEqualStrings("Task B", model.tasks.items[idx].name);
+}
+
+test "GanttModel findTaskById returns null for missing id" {
+    const allocator = testing.allocator;
+    var model = GanttModel.init(allocator);
+    defer model.deinit();
+
+    try model.tasks.append(.{
+        .id = "task_a",
+        .name = "Task A",
+        .tags = std.ArrayList(TaskTag).init(allocator),
+    });
+
+    try testing.expect(model.findTaskById("nonexistent") == null);
 }

@@ -138,15 +138,21 @@ test "journey parse tasks and scores" {
 
 test "journey parse score clamping" {
     const allocator = testing.allocator;
+    // Score 0 should be clamped up to 1, score 9 should be clamped down to 5
     const source =
         \\journey
         \\    section Test
-        \\    Task: 3: Actor
+        \\    Low task: 0: Actor
+        \\    High task: 9: Actor
     ;
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    try testing.expectEqual(@as(u8, 3), model.sections.items[0].tasks.items[0].score);
+    try testing.expectEqual(@as(usize, 2), model.sections.items[0].tasks.items.len);
+    // Score 0 clamped to 1
+    try testing.expectEqual(@as(u8, 1), model.sections.items[0].tasks.items[0].score);
+    // Score 9 clamped to 5
+    try testing.expectEqual(@as(u8, 5), model.sections.items[0].tasks.items[1].score);
 }
 
 test "journey parse empty input" {

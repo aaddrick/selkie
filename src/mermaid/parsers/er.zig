@@ -253,7 +253,7 @@ test "er parse entity with attributes" {
     defer model.deinit();
 
     try testing.expectEqual(@as(usize, 1), model.entities.items.len);
-    const entity = model.findEntityMut("CUSTOMER") orelse unreachable;
+    const entity = model.findEntityMut("CUSTOMER") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(usize, 2), entity.attributes.items.len);
     try testing.expectEqualStrings("string", entity.attributes.items[0].attr_type);
     try testing.expectEqualStrings("name", entity.attributes.items[0].name);

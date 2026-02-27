@@ -403,7 +403,7 @@ test "flowchart parse node with label" {
     var model = try parse(allocator, tokens);
     defer model.deinit();
 
-    const node = model.graph.nodes.get("A") orelse unreachable;
+    const node = model.graph.nodes.get("A") orelse return error.TestUnexpectedResult;
     try testing.expectEqualStrings("Hello", node.label);
     try testing.expectEqual(NodeShape.rectangle, node.shape);
 }
@@ -416,7 +416,7 @@ test "flowchart parse round brackets as rounded shape" {
     var model = try parse(allocator, tokens);
     defer model.deinit();
 
-    const node = model.graph.nodes.get("A") orelse unreachable;
+    const node = model.graph.nodes.get("A") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(NodeShape.rounded, node.shape);
 }
 

@@ -254,7 +254,7 @@ test "class diagram parse members via colon syntax" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    const cls = model.findClass("Animal") orelse unreachable;
+    const cls = model.findClass("Animal") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(usize, 2), cls.members.items.len);
     try testing.expectEqual(cm.Visibility.public, cls.members.items[0].visibility);
     try testing.expect(!cls.members.items[0].is_method);
@@ -273,7 +273,7 @@ test "class diagram parse class block" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    const cls = model.findClass("Duck") orelse unreachable;
+    const cls = model.findClass("Duck") orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(usize, 2), cls.members.items.len);
     try testing.expectEqual(cm.Visibility.public, cls.members.items[0].visibility);
     try testing.expectEqual(cm.Visibility.private, cls.members.items[1].visibility);
