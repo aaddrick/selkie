@@ -22,4 +22,4 @@ Thumbs.db
 .idea/
 
 # Claude Code
-.claude/
+.claude/memory/
