@@ -33,26 +33,26 @@ const LangDef = struct {
 // --- Language definitions ---
 
 const zig_keywords = [_][]const u8{
-    "const",     "var",       "fn",        "pub",       "return",   "if",
-    "else",      "while",     "for",       "switch",    "break",    "continue",
-    "defer",     "errdefer",  "try",       "catch",     "orelse",   "and",
-    "or",        "not",       "struct",    "enum",      "union",    "error",
-    "test",      "comptime",  "inline",    "export",    "extern",   "align",
-    "volatile",  "allowzero", "threadlocal", "linksection", "unreachable",
-    "undefined", "null",      "true",      "false",     "async",    "await",
-    "suspend",   "resume",    "nosuspend", "anytype",   "opaque",   "usingnamespace",
+    "const",    "var",       "fn",          "pub",         "return",         "if",
+    "else",     "while",     "for",         "switch",      "break",          "continue",
+    "defer",    "errdefer",  "try",         "catch",       "orelse",         "and",
+    "or",       "not",       "struct",      "enum",        "union",          "error",
+    "test",     "comptime",  "inline",      "export",      "extern",         "align",
+    "volatile", "allowzero", "threadlocal", "linksection", "unreachable",    "undefined",
+    "null",     "true",      "false",       "async",       "await",          "suspend",
+    "resume",   "nosuspend", "anytype",     "opaque",      "usingnamespace",
 };
 const zig_types = [_][]const u8{
-    "u8",    "u16",   "u32",    "u64",   "u128",  "usize",
-    "i8",    "i16",   "i32",    "i64",   "i128",  "isize",
-    "f16",   "f32",   "f64",    "f128",  "bool",  "void",
-    "type",  "noreturn", "anyerror", "anyframe", "comptime_int", "comptime_float",
+    "u8",   "u16",      "u32",      "u64",      "u128",         "usize",
+    "i8",   "i16",      "i32",      "i64",      "i128",         "isize",
+    "f16",  "f32",      "f64",      "f128",     "bool",         "void",
+    "type", "noreturn", "anyerror", "anyframe", "comptime_int", "comptime_float",
 };
 const zig_builtins = [_][]const u8{
-    "@import", "@as",       "@intCast", "@floatCast", "@ptrCast",  "@alignCast",
-    "@min",    "@max",      "@memcpy",  "@memset",    "@intFromFloat",
-    "@floatFromInt", "@intFromEnum", "@enumFromInt", "@bitCast", "@truncate",
-    "@TypeOf", "@typeInfo", "@field",   "@This",      "@Vector",
+    "@import",      "@as",          "@intCast", "@floatCast", "@ptrCast",      "@alignCast",
+    "@min",         "@max",         "@memcpy",  "@memset",    "@intFromFloat", "@floatFromInt",
+    "@intFromEnum", "@enumFromInt", "@bitCast", "@truncate",  "@TypeOf",       "@typeInfo",
+    "@field",       "@This",        "@Vector",
 };
 const zig_def = LangDef{
     .keywords = &zig_keywords,
@@ -67,12 +67,12 @@ const zig_def = LangDef{
 };
 
 const python_keywords = [_][]const u8{
-    "def",     "class",  "return",  "if",      "elif",    "else",
-    "for",     "while",  "break",   "continue", "pass",    "import",
-    "from",    "as",     "try",     "except",  "finally", "raise",
-    "with",    "yield",  "lambda",  "and",     "or",      "not",
-    "in",      "is",     "global",  "nonlocal", "assert",  "del",
-    "True",    "False",  "None",    "async",   "await",
+    "def",  "class", "return", "if",       "elif",    "else",
+    "for",  "while", "break",  "continue", "pass",    "import",
+    "from", "as",    "try",    "except",   "finally", "raise",
+    "with", "yield", "lambda", "and",      "or",      "not",
+    "in",   "is",    "global", "nonlocal", "assert",  "del",
+    "True", "False", "None",   "async",    "await",
 };
 const python_types = [_][]const u8{
     "int", "float", "str", "bool", "list", "dict", "tuple", "set", "bytes", "object", "type",
@@ -90,18 +90,18 @@ const python_def = LangDef{
 };
 
 const js_keywords = [_][]const u8{
-    "function", "const",  "let",     "var",     "return",  "if",
-    "else",     "for",    "while",   "do",      "switch",  "case",
-    "break",    "continue", "new",   "delete",  "typeof",  "instanceof",
-    "in",       "of",     "class",   "extends", "super",   "this",
-    "import",   "export", "default", "from",    "async",   "await",
-    "try",      "catch",  "finally", "throw",   "yield",   "true",
-    "false",    "null",   "undefined", "void",  "with",
+    "function", "const",    "let",       "var",     "return", "if",
+    "else",     "for",      "while",     "do",      "switch", "case",
+    "break",    "continue", "new",       "delete",  "typeof", "instanceof",
+    "in",       "of",       "class",     "extends", "super",  "this",
+    "import",   "export",   "default",   "from",    "async",  "await",
+    "try",      "catch",    "finally",   "throw",   "yield",  "true",
+    "false",    "null",     "undefined", "void",    "with",
 };
 const js_types = [_][]const u8{
-    "Array",   "Object",  "String",  "Number",  "Boolean", "Function",
-    "Promise", "Map",     "Set",     "Date",    "RegExp",  "Error",
-    "Symbol",  "BigInt",  "WeakMap", "WeakSet",
+    "Array",   "Object", "String",  "Number",  "Boolean", "Function",
+    "Promise", "Map",    "Set",     "Date",    "RegExp",  "Error",
+    "Symbol",  "BigInt", "WeakMap", "WeakSet",
 };
 const js_def = LangDef{
     .keywords = &js_keywords,
@@ -116,20 +116,20 @@ const js_def = LangDef{
 };
 
 const ts_keywords = [_][]const u8{
-    "function", "const",    "let",       "var",       "return",  "if",
-    "else",     "for",      "while",     "do",        "switch",  "case",
-    "break",    "continue", "new",       "delete",    "typeof",  "instanceof",
-    "in",       "of",       "class",     "extends",   "super",   "this",
-    "import",   "export",   "default",   "from",      "async",   "await",
-    "try",      "catch",    "finally",   "throw",     "yield",   "true",
-    "false",    "null",     "undefined", "void",      "with",
-    "interface", "type",    "enum",      "namespace", "declare", "implements",
-    "abstract", "readonly", "as",        "is",        "keyof",   "infer",
+    "function", "const",    "let",       "var",     "return",     "if",
+    "else",     "for",      "while",     "do",      "switch",     "case",
+    "break",    "continue", "new",       "delete",  "typeof",     "instanceof",
+    "in",       "of",       "class",     "extends", "super",      "this",
+    "import",   "export",   "default",   "from",    "async",      "await",
+    "try",      "catch",    "finally",   "throw",   "yield",      "true",
+    "false",    "null",     "undefined", "void",    "with",       "interface",
+    "type",     "enum",     "namespace", "declare", "implements", "abstract",
+    "readonly", "as",       "is",        "keyof",   "infer",
 };
 const ts_types = [_][]const u8{
-    "string",  "number",  "boolean", "any",     "unknown", "never",
-    "void",    "object",  "Array",   "Promise", "Record",  "Partial",
-    "Required", "Readonly", "Pick",  "Omit",    "Exclude", "Extract",
+    "string",   "number",   "boolean", "any",     "unknown", "never",
+    "void",     "object",   "Array",   "Promise", "Record",  "Partial",
+    "Required", "Readonly", "Pick",    "Omit",    "Exclude", "Extract",
 };
 const ts_def = LangDef{
     .keywords = &ts_keywords,
@@ -144,17 +144,17 @@ const ts_def = LangDef{
 };
 
 const c_keywords = [_][]const u8{
-    "auto",     "break",   "case",     "const",    "continue", "default",
-    "do",       "else",    "enum",     "extern",   "for",      "goto",
-    "if",       "inline",  "register", "restrict", "return",   "sizeof",
-    "static",   "struct",  "switch",   "typedef",  "union",    "volatile",
-    "while",    "NULL",    "true",     "false",
+    "auto",   "break",  "case",     "const",    "continue", "default",
+    "do",     "else",   "enum",     "extern",   "for",      "goto",
+    "if",     "inline", "register", "restrict", "return",   "sizeof",
+    "static", "struct", "switch",   "typedef",  "union",    "volatile",
+    "while",  "NULL",   "true",     "false",
 };
 const c_types = [_][]const u8{
-    "void",    "char",    "short",   "int",     "long",    "float",
-    "double",  "signed",  "unsigned", "size_t",  "ssize_t", "int8_t",
-    "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t",
-    "uint64_t", "bool",   "FILE",    "ptrdiff_t",
+    "void",     "char",    "short",    "int",       "long",     "float",
+    "double",   "signed",  "unsigned", "size_t",    "ssize_t",  "int8_t",
+    "int16_t",  "int32_t", "int64_t",  "uint8_t",   "uint16_t", "uint32_t",
+    "uint64_t", "bool",    "FILE",     "ptrdiff_t",
 };
 const c_def = LangDef{
     .keywords = &c_keywords,
@@ -169,19 +169,19 @@ const c_def = LangDef{
 };
 
 const rust_keywords = [_][]const u8{
-    "fn",      "let",     "mut",     "const",   "pub",     "return",
-    "if",      "else",    "match",   "for",     "while",   "loop",
-    "break",   "continue", "struct", "enum",    "impl",    "trait",
-    "type",    "use",     "mod",     "crate",   "self",    "super",
-    "as",      "in",      "ref",     "move",    "async",   "await",
-    "where",   "unsafe",  "extern",  "dyn",     "true",    "false",
-    "Some",    "None",    "Ok",      "Err",
+    "fn",    "let",      "mut",    "const", "pub",   "return",
+    "if",    "else",     "match",  "for",   "while", "loop",
+    "break", "continue", "struct", "enum",  "impl",  "trait",
+    "type",  "use",      "mod",    "crate", "self",  "super",
+    "as",    "in",       "ref",    "move",  "async", "await",
+    "where", "unsafe",   "extern", "dyn",   "true",  "false",
+    "Some",  "None",     "Ok",     "Err",
 };
 const rust_types = [_][]const u8{
-    "u8",     "u16",    "u32",    "u64",    "u128",   "usize",
-    "i8",     "i16",    "i32",    "i64",    "i128",   "isize",
-    "f32",    "f64",    "bool",   "char",   "str",    "String",
-    "Vec",    "Option", "Result", "Box",    "Rc",     "Arc",
+    "u8",      "u16",     "u32",    "u64",  "u128", "usize",
+    "i8",      "i16",     "i32",    "i64",  "i128", "isize",
+    "f32",     "f64",     "bool",   "char", "str",  "String",
+    "Vec",     "Option",  "Result", "Box",  "Rc",   "Arc",
     "HashMap", "HashSet", "Self",
 };
 const rust_def = LangDef{
@@ -197,18 +197,18 @@ const rust_def = LangDef{
 };
 
 const go_keywords = [_][]const u8{
-    "func",      "var",     "const",   "type",    "return",  "if",
-    "else",      "for",     "range",   "switch",  "case",    "break",
-    "continue",  "default", "package", "import",  "struct",  "interface",
-    "map",       "chan",     "go",      "defer",   "select",  "fallthrough",
-    "goto",      "true",    "false",   "nil",
+    "func",     "var",     "const",   "type",   "return", "if",
+    "else",     "for",     "range",   "switch", "case",   "break",
+    "continue", "default", "package", "import", "struct", "interface",
+    "map",      "chan",    "go",      "defer",  "select", "fallthrough",
+    "goto",     "true",    "false",   "nil",
 };
 const go_types = [_][]const u8{
-    "int",    "int8",   "int16",  "int32",   "int64",
-    "uint",   "uint8",  "uint16", "uint32",  "uint64",
-    "float32", "float64", "complex64", "complex128",
-    "bool",   "string", "byte",   "rune",    "error",
-    "uintptr", "any",
+    "int",     "int8",    "int16",     "int32",      "int64",
+    "uint",    "uint8",   "uint16",    "uint32",     "uint64",
+    "float32", "float64", "complex64", "complex128", "bool",
+    "string",  "byte",    "rune",      "error",      "uintptr",
+    "any",
 };
 const go_def = LangDef{
     .keywords = &go_keywords,
@@ -223,19 +223,19 @@ const go_def = LangDef{
 };
 
 const java_keywords = [_][]const u8{
-    "abstract",  "assert",     "break",     "case",      "catch",    "class",
-    "const",     "continue",   "default",   "do",        "else",     "enum",
-    "extends",   "final",      "finally",   "for",       "goto",     "if",
-    "implements", "import",    "instanceof", "interface", "native",   "new",
-    "package",   "private",   "protected",  "public",    "return",   "static",
-    "strictfp",  "super",     "switch",     "synchronized", "this",  "throw",
-    "throws",    "transient", "try",        "void",      "volatile", "while",
-    "true",      "false",     "null",
+    "abstract",   "assert",    "break",      "case",         "catch",    "class",
+    "const",      "continue",  "default",    "do",           "else",     "enum",
+    "extends",    "final",     "finally",    "for",          "goto",     "if",
+    "implements", "import",    "instanceof", "interface",    "native",   "new",
+    "package",    "private",   "protected",  "public",       "return",   "static",
+    "strictfp",   "super",     "switch",     "synchronized", "this",     "throw",
+    "throws",     "transient", "try",        "void",         "volatile", "while",
+    "true",       "false",     "null",
 };
 const java_types = [_][]const u8{
-    "byte",    "short",   "int",     "long",    "float",   "double",
-    "boolean", "char",    "String",  "Object",  "Integer", "Long",
-    "Double",  "Float",   "Boolean", "List",    "Map",     "Set",
+    "byte",      "short",   "int",     "long",   "float",   "double",
+    "boolean",   "char",    "String",  "Object", "Integer", "Long",
+    "Double",    "Float",   "Boolean", "List",   "Map",     "Set",
     "ArrayList", "HashMap",
 };
 const java_def = LangDef{
@@ -251,11 +251,11 @@ const java_def = LangDef{
 };
 
 const shell_keywords = [_][]const u8{
-    "if",     "then",   "else",   "elif",   "fi",     "for",
-    "while",  "do",     "done",   "case",   "esac",   "in",
+    "if",       "then",   "else",  "elif",   "fi",     "for",
+    "while",    "do",     "done",  "case",   "esac",   "in",
     "function", "return", "local", "export", "source", "exit",
-    "echo",   "read",   "set",    "unset",  "shift",  "trap",
-    "eval",   "exec",   "true",   "false",
+    "echo",     "read",   "set",   "unset",  "shift",  "trap",
+    "eval",     "exec",   "true",  "false",
 };
 const shell_def = LangDef{
     .keywords = &shell_keywords,
@@ -309,12 +309,12 @@ const yaml_def = LangDef{
 };
 
 const html_keywords = [_][]const u8{
-    "html",  "head",   "body",   "div",    "span",   "p",
-    "a",     "img",    "ul",     "ol",     "li",     "table",
-    "tr",    "td",     "th",     "form",   "input",  "button",
-    "script", "style", "link",   "meta",   "title",  "h1",
-    "h2",    "h3",     "h4",     "h5",     "h6",     "section",
-    "nav",   "header", "footer", "main",   "article", "aside",
+    "html",   "head",   "body",   "div",  "span",    "p",
+    "a",      "img",    "ul",     "ol",   "li",      "table",
+    "tr",     "td",     "th",     "form", "input",   "button",
+    "script", "style",  "link",   "meta", "title",   "h1",
+    "h2",     "h3",     "h4",     "h5",   "h6",      "section",
+    "nav",    "header", "footer", "main", "article", "aside",
 };
 const html_def = LangDef{
     .keywords = &html_keywords,
@@ -329,11 +329,11 @@ const html_def = LangDef{
 };
 
 const css_keywords = [_][]const u8{
-    "color",      "background", "border",    "margin",   "padding",   "display",
-    "position",   "width",      "height",    "font",     "text",      "flex",
-    "grid",       "align",      "justify",   "overflow", "transform", "transition",
-    "animation",  "opacity",    "z-index",   "important", "none",     "auto",
-    "inherit",    "initial",    "unset",
+    "color",     "background", "border",  "margin",    "padding",   "display",
+    "position",  "width",      "height",  "font",      "text",      "flex",
+    "grid",      "align",      "justify", "overflow",  "transform", "transition",
+    "animation", "opacity",    "z-index", "important", "none",      "auto",
+    "inherit",   "initial",    "unset",
 };
 const css_def = LangDef{
     .keywords = &css_keywords,
@@ -348,28 +348,29 @@ const css_def = LangDef{
 };
 
 const sql_keywords = [_][]const u8{
-    "SELECT",  "FROM",    "WHERE",   "INSERT",  "INTO",    "UPDATE",
-    "DELETE",  "CREATE",  "DROP",    "ALTER",   "TABLE",   "INDEX",
-    "JOIN",    "LEFT",    "RIGHT",   "INNER",   "OUTER",   "ON",
-    "AND",     "OR",      "NOT",     "IN",      "IS",      "NULL",
-    "AS",      "ORDER",   "BY",      "GROUP",   "HAVING",  "LIMIT",
-    "OFFSET",  "UNION",   "ALL",     "DISTINCT", "SET",    "VALUES",
-    "BEGIN",   "COMMIT",  "ROLLBACK", "TRANSACTION", "PRIMARY", "KEY",
-    "FOREIGN", "REFERENCES", "CASCADE", "DEFAULT", "CONSTRAINT",
+    "SELECT",     "FROM",       "WHERE",       "INSERT",      "INTO",       "UPDATE",
+    "DELETE",     "CREATE",     "DROP",        "ALTER",       "TABLE",      "INDEX",
+    "JOIN",       "LEFT",       "RIGHT",       "INNER",       "OUTER",      "ON",
+    "AND",        "OR",         "NOT",         "IN",          "IS",         "NULL",
+    "AS",         "ORDER",      "BY",          "GROUP",       "HAVING",     "LIMIT",
+    "OFFSET",     "UNION",      "ALL",         "DISTINCT",    "SET",        "VALUES",
+    "BEGIN",      "COMMIT",     "ROLLBACK",    "TRANSACTION", "PRIMARY",    "KEY",
+    "FOREIGN",    "REFERENCES", "CASCADE",     "DEFAULT",     "CONSTRAINT",
     // lowercase variants
-    "select",  "from",    "where",   "insert",  "into",    "update",
-    "delete",  "create",  "drop",    "alter",   "table",   "index",
-    "join",    "left",    "right",   "inner",   "outer",   "on",
-    "and",     "or",      "not",     "in",      "is",      "null",
-    "as",      "order",   "by",      "group",   "having",  "limit",
-    "offset",  "union",   "all",     "distinct", "set",    "values",
-    "begin",   "commit",  "rollback", "transaction", "primary", "key",
-    "foreign", "references", "cascade", "default", "constraint",
+    "select",
+    "from",       "where",      "insert",      "into",        "update",     "delete",
+    "create",     "drop",       "alter",       "table",       "index",      "join",
+    "left",       "right",      "inner",       "outer",       "on",         "and",
+    "or",         "not",        "in",          "is",          "null",       "as",
+    "order",      "by",         "group",       "having",      "limit",      "offset",
+    "union",      "all",        "distinct",    "set",         "values",     "begin",
+    "commit",     "rollback",   "transaction", "primary",     "key",        "foreign",
+    "references", "cascade",    "default",     "constraint",
 };
 const sql_types = [_][]const u8{
-    "INT",      "INTEGER",  "BIGINT",   "SMALLINT", "TINYINT",
-    "VARCHAR",  "CHAR",     "TEXT",     "BOOLEAN",  "BOOL",
-    "FLOAT",    "DOUBLE",   "DECIMAL",  "NUMERIC",  "DATE",
+    "INT",       "INTEGER",  "BIGINT",  "SMALLINT", "TINYINT",
+    "VARCHAR",   "CHAR",     "TEXT",    "BOOLEAN",  "BOOL",
+    "FLOAT",     "DOUBLE",   "DECIMAL", "NUMERIC",  "DATE",
     "TIMESTAMP", "DATETIME", "SERIAL",  "UUID",
 };
 const sql_def = LangDef{
@@ -688,16 +689,10 @@ test "tokenize Zig string literal" {
     const tokens = try tokenize(testing.allocator, source, lang);
     defer testing.allocator.free(tokens);
 
-    // Find a string token
-    var found_string = false;
-    for (tokens) |tok| {
-        if (tok.kind == .string) {
-            try testing.expectEqualStrings("\"hello\"", source[tok.start..tok.end]);
-            found_string = true;
-            break;
-        }
-    }
-    try testing.expect(found_string);
+    const string_tok = for (tokens) |tok| {
+        if (tok.kind == .string) break tok;
+    } else return error.TestUnexpectedResult;
+    try testing.expectEqualStrings("\"hello\"", source[string_tok.start..string_tok.end]);
 }
 
 test "tokenize Zig line comment" {
@@ -730,15 +725,10 @@ test "tokenize Zig type names" {
     const tokens = try tokenize(testing.allocator, source, lang);
     defer testing.allocator.free(tokens);
 
-    var found_type = false;
-    for (tokens) |tok| {
-        if (tok.kind == .type_name) {
-            try testing.expectEqualStrings("u32", source[tok.start..tok.end]);
-            found_type = true;
-            break;
-        }
-    }
-    try testing.expect(found_type);
+    const type_tok = for (tokens) |tok| {
+        if (tok.kind == .type_name) break tok;
+    } else return error.TestUnexpectedResult;
+    try testing.expectEqualStrings("u32", source[type_tok.start..type_tok.end]);
 }
 
 test "tokenize Zig builtin function" {
@@ -762,15 +752,10 @@ test "tokenize Python basics" {
     try testing.expectEqual(TokenKind.keyword, tokens[0].kind);
     try testing.expectEqualStrings("def", source[tokens[0].start..tokens[0].end]);
 
-    // Find "return" keyword
-    var found_return = false;
-    for (tokens) |tok| {
-        if (tok.kind == .keyword and std.mem.eql(u8, source[tok.start..tok.end], "return")) {
-            found_return = true;
-            break;
-        }
-    }
-    try testing.expect(found_return);
+    const has_return = for (tokens) |tok| {
+        if (tok.kind == .keyword and std.mem.eql(u8, source[tok.start..tok.end], "return")) break true;
+    } else false;
+    try testing.expect(has_return);
 }
 
 test "tokenize Python comment" {
@@ -805,14 +790,14 @@ test "tokenize operators and punctuation" {
     const tokens = try tokenize(testing.allocator, source, lang);
     defer testing.allocator.free(tokens);
 
-    var found_operator = false;
-    var found_punctuation = false;
-    for (tokens) |tok| {
-        if (tok.kind == .operator) found_operator = true;
-        if (tok.kind == .punctuation) found_punctuation = true;
-    }
-    try testing.expect(found_operator);
-    try testing.expect(found_punctuation);
+    const has_operator = for (tokens) |tok| {
+        if (tok.kind == .operator) break true;
+    } else false;
+    const has_punctuation = for (tokens) |tok| {
+        if (tok.kind == .punctuation) break true;
+    } else false;
+    try testing.expect(has_operator);
+    try testing.expect(has_punctuation);
 }
 
 test "tokenize function call heuristic" {

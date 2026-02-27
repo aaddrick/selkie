@@ -103,8 +103,7 @@ test "getTableInfo with no header row" {
 
     const info = getTableInfo(&table).?;
     try testing.expectEqual(null, info.header_row);
-    // With no header found, body_start stays 0, so all rows are "body"
-    // Actually, the loop doesn't find a header, so body_start is 0
+    // With no header found, all rows are treated as body rows
     try testing.expectEqual(@as(usize, 1), info.body_rows.len);
 }
 

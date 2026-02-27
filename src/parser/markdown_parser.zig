@@ -184,10 +184,10 @@ test "dupeString returns null for empty string" {
 
 test "dupeString duplicates a valid string" {
     const c_str: [*:0]const u8 = "hello world";
-    const result = try dupeString(testing.allocator, c_str);
-    defer if (result) |r| testing.allocator.free(r);
-    try testing.expect(result != null);
-    try testing.expectEqualStrings("hello world", result.?);
+    const result = try dupeString(testing.allocator, c_str) orelse
+        return error.TestUnexpectedResult;
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("hello world", result);
 }
 
 test "mapNodeType maps known cmark types" {
@@ -291,14 +291,10 @@ test "parse GFM strikethrough" {
     try testing.expectEqual(ast.NodeType.paragraph, para.node_type);
 
     // Should contain a strikethrough child
-    var found_strike = false;
-    for (para.children.items) |*child| {
-        if (child.node_type == .strikethrough) {
-            found_strike = true;
-            break;
-        }
-    }
-    try testing.expect(found_strike);
+    const has_strike = for (para.children.items) |*child| {
+        if (child.node_type == .strikethrough) break true;
+    } else false;
+    try testing.expect(has_strike);
 }
 
 test "parse GFM tasklist" {
