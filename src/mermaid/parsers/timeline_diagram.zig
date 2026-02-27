@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const tm = @import("../models/timeline_model.zig");
 const TimelineModel = tm.TimelineModel;
 const TimelineSection = tm.TimelineSection;
@@ -27,11 +28,11 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
     var past_header = false;
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
-        if (line.len == 0 or isComment(line)) continue;
+        const line = pu.strip(raw_line);
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
-            if (std.mem.eql(u8, line, "timeline") or startsWith(line, "timeline ")) {
+            if (std.mem.eql(u8, line, "timeline") or pu.startsWith(line, "timeline ")) {
                 past_header = true;
                 continue;
             }
@@ -40,15 +41,15 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
         }
 
         // title
-        if (startsWith(line, "title ")) {
-            model.title = strip(line["title ".len..]);
+        if (pu.startsWith(line, "title ")) {
+            model.title = pu.strip(line["title ".len..]);
             continue;
         }
 
         // section
-        if (startsWith(line, "section ")) {
+        if (pu.startsWith(line, "section ")) {
             var section = TimelineSection.init(allocator);
-            section.name = strip(line["section ".len..]);
+            section.name = pu.strip(line["section ".len..]);
             try model.sections.append(section);
             continue;
         }
@@ -72,11 +73,11 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
 
             if (parts.items.len >= 1) {
                 var period = TimelinePeriod.init(allocator);
-                period.label = strip(parts.items[0]);
+                period.label = pu.strip(parts.items[0]);
 
                 // Events are the remaining parts
                 for (parts.items[1..]) |part| {
-                    const event_text = strip(part);
+                    const event_text = pu.strip(part);
                     if (event_text.len > 0) {
                         try period.events.append(.{ .text = event_text });
                     }
@@ -109,18 +110,3 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
     return model;
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}

@@ -5,6 +5,7 @@ const GanttModel = gm.GanttModel;
 const GanttTask = gm.GanttTask;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 const ROW_HEIGHT: f32 = 32;
 const ROW_PADDING: f32 = 4;
@@ -36,7 +37,7 @@ pub fn drawGanttChart(
     // 2. Title
     var y_offset: f32 = 0;
     if (model.title.len > 0) {
-        drawText(
+        ru.drawText(
             model.title,
             origin_x + diagram_width / 2,
             origin_y + 10,
@@ -82,7 +83,7 @@ pub fn drawGanttChart(
                 .height = SECTION_HEADER_HEIGHT,
             }, header_bg);
 
-            drawText(
+            ru.drawText(
                 section.name,
                 origin_x + 10,
                 row_y + SECTION_HEADER_HEIGHT / 2,
@@ -99,7 +100,7 @@ pub fn drawGanttChart(
                 if (task.section_idx == sec_idx) {
                     drawTaskBar(model, &task, chart_x, row_y, chart_w, day_range, theme, fonts, scroll_y);
                     // Task name on the left
-                    drawText(
+                    ru.drawText(
                         task.name,
                         origin_x + 10,
                         row_y + ROW_HEIGHT / 2,
@@ -117,7 +118,7 @@ pub fn drawGanttChart(
         // No sections, just draw all tasks
         for (model.tasks.items) |task| {
             drawTaskBar(model, &task, chart_x, row_y, chart_w, day_range, theme, fonts, scroll_y);
-            drawText(
+            ru.drawText(
                 task.name,
                 origin_x + 10,
                 row_y + ROW_HEIGHT / 2,
@@ -252,7 +253,7 @@ fn drawTimeAxis(
         var buf: [32]u8 = undefined;
         const label = date.format(&buf);
         if (label.len > 0) {
-            drawText(
+            ru.drawText(
                 label,
                 x,
                 axis_y + TIME_AXIS_HEIGHT / 2,
@@ -307,32 +308,4 @@ fn drawGridLines(
             grid_color,
         );
     }
-}
-
-fn drawText(
-    text: []const u8,
-    x: f32,
-    y: f32,
-    fonts: *const Fonts,
-    font_size: f32,
-    color: rl.Color,
-    scroll_y: f32,
-    center: bool,
-) void {
-    if (text.len == 0) return;
-
-    var buf: [256]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    const measured = rl.measureTextEx(font, z, font_size, spacing);
-
-    const tx = if (center) x - measured.x / 2 else x;
-    const ty = y - scroll_y - measured.y / 2;
-
-    rl.drawTextEx(font, z, .{ .x = tx, .y = ty }, font_size, spacing, color);
 }

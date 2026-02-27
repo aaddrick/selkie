@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const mm = @import("../models/mindmap_model.zig");
 const MindMapModel = mm.MindMapModel;
 const MindMapNode = mm.MindMapNode;
@@ -31,11 +32,11 @@ pub fn parse(allocator: Allocator, source: []const u8) !MindMapModel {
 
     for (lines.items) |raw_line| {
         // Skip empty lines and comments
-        const trimmed = strip(raw_line);
-        if (trimmed.len == 0 or isComment(trimmed)) continue;
+        const trimmed = pu.strip(raw_line);
+        if (trimmed.len == 0 or pu.isComment(trimmed)) continue;
 
         if (!past_header) {
-            if (std.mem.eql(u8, trimmed, "mindmap") or startsWith(trimmed, "mindmap ")) {
+            if (std.mem.eql(u8, trimmed, "mindmap") or pu.startsWith(trimmed, "mindmap ")) {
                 past_header = true;
                 continue;
             }
@@ -45,7 +46,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !MindMapModel {
 
         // Determine indentation level (count leading spaces/tabs)
         const indent = countIndent(raw_line);
-        const content = strip(raw_line);
+        const content = pu.strip(raw_line);
         if (content.len == 0) continue;
 
         // Parse node shape and label
@@ -130,18 +131,3 @@ fn countIndent(line: []const u8) usize {
     return count;
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}

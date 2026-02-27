@@ -9,6 +9,7 @@ const graph_mod = @import("../models/graph.zig");
 const Point = graph_mod.Point;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 pub fn drawClassDiagram(model: *const ClassModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     // Background
@@ -49,12 +50,12 @@ fn drawClassBox(cls: *const ClassNode, nx: f32, ny: f32, nw: f32, nh: f32, origi
 
     // Annotation (<<interface>> etc.)
     if (cls.annotation) |ann| {
-        drawTextCenteredDirect(ann, x, cur_y, nw, fonts, font_size * 0.85, theme.mermaid_node_text);
+        ru.drawTextCenteredDirect(ann, x, cur_y, nw, fonts, font_size * 0.85, theme.mermaid_node_text);
         cur_y += line_h;
     }
 
     // Class name (centered)
-    drawTextCenteredDirect(cls.label, x, cur_y, nw, fonts, font_size, theme.mermaid_node_text);
+    ru.drawTextCenteredDirect(cls.label, x, cur_y, nw, fonts, font_size, theme.mermaid_node_text);
     cur_y += line_h + section_pad;
 
     // Divider after header
@@ -98,10 +99,10 @@ fn drawMember(member: cm.ClassMember, x: f32, y: f32, fonts: *const Fonts, font_
     };
 
     // Draw visibility symbol
-    drawTextAt(vis_char, x + 4, y, fonts, font_size, theme.mermaid_node_text);
+    ru.drawTextAt(vis_char, x + 4, y, fonts, font_size, theme.mermaid_node_text);
 
     // Draw member name
-    drawTextAt(member.name, x + 16, y, fonts, font_size * 0.9, theme.mermaid_node_text);
+    ru.drawTextAt(member.name, x + 16, y, fonts, font_size * 0.9, theme.mermaid_node_text);
 }
 
 fn drawRelationship(edge: *const graph_mod.GraphEdge, rel: ?*const cm.ClassRelationship, origin_x: f32, origin_y: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
@@ -121,7 +122,7 @@ fn drawRelationship(edge: *const graph_mod.GraphEdge, rel: ?*const cm.ClassRelat
         const p1 = edge.waypoints.items[i];
         const p2 = edge.waypoints.items[i + 1];
         if (is_dashed) {
-            drawDashedLine(
+            ru.drawDashedLine(
                 origin_x + p1.x,
                 origin_y + p1.y - scroll_y,
                 origin_x + p2.x,
@@ -173,7 +174,7 @@ fn drawRelationship(edge: *const graph_mod.GraphEdge, rel: ?*const cm.ClassRelat
                 .width = measured.x + 6,
                 .height = measured.y + 4,
             }, theme.mermaid_label_bg);
-            drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.75, theme.mermaid_edge_text);
+            ru.drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.75, theme.mermaid_edge_text);
         }
     }
 }
@@ -248,44 +249,3 @@ fn drawHollowDiamond(tip_x: f32, tip_y: f32, from_x: f32, from_y: f32, border: r
     rl.drawLineEx(p2, tip, 2, border);
 }
 
-fn drawDashedLine(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: rl.Color) void {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const total_len = @sqrt(dx * dx + dy * dy);
-    if (total_len == 0) return;
-    const dash_len: f32 = 6;
-    const gap_len: f32 = 4;
-    const segment = dash_len + gap_len;
-    const nx = dx / total_len;
-    const ny = dy / total_len;
-    var pos: f32 = 0;
-    while (pos < total_len) {
-        const end = @min(pos + dash_len, total_len);
-        rl.drawLineEx(
-            .{ .x = x1 + nx * pos, .y = y1 + ny * pos },
-            .{ .x = x1 + nx * end, .y = y1 + ny * end },
-            width,
-            color,
-        );
-        pos += segment;
-    }
-}
-
-fn drawTextAt(text: []const u8, x: f32, y: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    var buf: [512]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-    rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, color);
-}
-
-fn drawTextCenteredDirect(text: []const u8, x: f32, y: f32, w: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const measured = fonts.measure(text, font_size, false, false, false);
-    const tx = x + (w - measured.x) / 2;
-    drawTextAt(text, tx, y, fonts, font_size, color);
-}

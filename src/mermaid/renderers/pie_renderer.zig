@@ -4,6 +4,7 @@ const pm = @import("../models/pie_model.zig");
 const PieModel = pm.PieModel;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 const LEGEND_SWATCH_SIZE: f32 = 14;
 const LEGEND_LINE_HEIGHT: f32 = 22;
@@ -29,7 +30,7 @@ pub fn drawPieChart(
 
     // 2. Title
     if (model.title.len > 0) {
-        drawTextAt(
+        ru.drawText(
             model.title,
             origin_x + diagram_width / 2,
             origin_y + 15,
@@ -87,7 +88,7 @@ pub fn drawPieChart(
         var buf: [32]u8 = undefined;
         const pct_int: u32 = @intFromFloat(@round(slice.percentage));
         const pct_str = std.fmt.bufPrint(&buf, "{d}%", .{pct_int}) catch continue;
-        drawTextAt(
+        ru.drawText(
             pct_str,
             lx,
             ly,
@@ -145,32 +146,4 @@ pub fn drawPieChart(
 
         legend_y += LEGEND_LINE_HEIGHT;
     }
-}
-
-fn drawTextAt(
-    text: []const u8,
-    x: f32,
-    y: f32,
-    fonts: *const Fonts,
-    font_size: f32,
-    color: rl.Color,
-    scroll_y: f32,
-    center: bool,
-) void {
-    if (text.len == 0) return;
-
-    var buf: [256]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    const measured = rl.measureTextEx(font, z, font_size, spacing);
-
-    const tx = if (center) x - measured.x / 2 else x;
-    const ty = y - scroll_y - measured.y / 2;
-
-    rl.drawTextEx(font, z, .{ .x = tx, .y = ty }, font_size, spacing, color);
 }

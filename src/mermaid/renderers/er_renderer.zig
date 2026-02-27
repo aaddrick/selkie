@@ -7,6 +7,7 @@ const Cardinality = em.Cardinality;
 const graph_mod = @import("../models/graph.zig");
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 const shapes = @import("shapes.zig");
 
 pub fn drawERDiagram(model: *const ERModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
@@ -46,7 +47,7 @@ fn drawEntityBox(entity: *const EREntity, nx: f32, ny: f32, nw: f32, nh: f32, or
 
     // Header with entity name
     rl.drawRectangleRec(.{ .x = x, .y = sy, .width = nw, .height = header_h }, theme.mermaid_node_border);
-    drawTextCenteredDirect(entity.name, x, sy + 3, nw, fonts, font_size, theme.mermaid_node_fill);
+    ru.drawTextCenteredDirect(entity.name, x, sy + 3, nw, fonts, font_size, theme.mermaid_node_fill);
 
     // Divider
     rl.drawLineEx(.{ .x = x, .y = sy + header_h }, .{ .x = x + nw, .y = sy + header_h }, 1, theme.mermaid_node_border);
@@ -56,15 +57,15 @@ fn drawEntityBox(entity: *const EREntity, nx: f32, ny: f32, nw: f32, nh: f32, or
     for (entity.attributes.items) |attr| {
         // Key type badge
         if (attr.key_type) |kt| {
-            drawTextAt(kt, x + 4, cur_y + 1, fonts, font_size * 0.75, theme.mermaid_edge_text);
+            ru.drawTextAt(kt, x + 4, cur_y + 1, fonts, font_size * 0.75, theme.mermaid_edge_text);
         }
 
         // Type + name
         const type_x: f32 = x + 30;
-        drawTextAt(attr.attr_type, type_x, cur_y + 1, fonts, font_size * 0.8, theme.mermaid_node_text);
+        ru.drawTextAt(attr.attr_type, type_x, cur_y + 1, fonts, font_size * 0.8, theme.mermaid_node_text);
 
         const type_measured = fonts.measure(attr.attr_type, font_size * 0.8, false, false, false);
-        drawTextAt(attr.name, type_x + type_measured.x + 6, cur_y + 1, fonts, font_size * 0.8, theme.mermaid_node_text);
+        ru.drawTextAt(attr.name, type_x + type_measured.x + 6, cur_y + 1, fonts, font_size * 0.8, theme.mermaid_node_text);
 
         cur_y += row_h;
     }
@@ -133,7 +134,7 @@ fn drawRelationship(edge: *const graph_mod.GraphEdge, rel: ?*const em.ERRelation
                 .width = measured.x + 6,
                 .height = measured.y + 4,
             }, theme.mermaid_label_bg);
-            drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.75, theme.mermaid_edge_text);
+            ru.drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.75, theme.mermaid_edge_text);
         }
     }
 }
@@ -207,21 +208,3 @@ fn drawCrowsFoot(card: Cardinality, tip_x: f32, tip_y: f32, from_x: f32, from_y:
     }
 }
 
-fn drawTextAt(text: []const u8, x: f32, y: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    var buf: [512]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-    rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, color);
-}
-
-fn drawTextCenteredDirect(text: []const u8, x: f32, y: f32, w: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const measured = fonts.measure(text, font_size, false, false, false);
-    const tx = x + (w - measured.x) / 2;
-    drawTextAt(text, tx, y, fonts, font_size, color);
-}

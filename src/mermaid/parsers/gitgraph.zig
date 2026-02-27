@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const gg = @import("../models/gitgraph_model.zig");
 const GitGraphModel = gg.GitGraphModel;
 const Commit = gg.Commit;
@@ -31,15 +32,15 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
     _ = try model.ensureBranch("main");
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
-        if (line.len == 0 or isComment(line)) continue;
+        const line = pu.strip(raw_line);
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
-            if (std.mem.eql(u8, line, "gitGraph") or startsWith(line, "gitGraph ")) {
+            if (std.mem.eql(u8, line, "gitGraph") or pu.startsWith(line, "gitGraph ")) {
                 past_header = true;
                 // Check for orientation: gitGraph TB or gitGraph LR
                 if (line.len > "gitGraph ".len) {
-                    const rest = strip(line["gitGraph ".len..]);
+                    const rest = pu.strip(line["gitGraph ".len..]);
                     if (std.mem.eql(u8, rest, "TB") or std.mem.eql(u8, rest, "BT")) {
                         model.orientation = .tb;
                     }
@@ -51,7 +52,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
         }
 
         // Parse commands
-        if (std.mem.eql(u8, line, "commit") or startsWith(line, "commit ")) {
+        if (std.mem.eql(u8, line, "commit") or pu.startsWith(line, "commit ")) {
             var commit = Commit.init(allocator);
             commit.branch = current_branch;
             commit.seq = commit_counter;
@@ -64,7 +65,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
 
             // Parse optional attributes: id: "abc" msg: "message" tag: "v1.0" type: HIGHLIGHT
             if (line.len > "commit".len) {
-                const attrs = strip(line["commit".len..]);
+                const attrs = pu.strip(line["commit".len..]);
                 commit.id = parseAttr(attrs, "id:");
                 commit.message = parseAttr(attrs, "msg:");
                 commit.tag = parseAttr(attrs, "tag:");
@@ -84,15 +85,15 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
             }
 
             try model.commits.append(commit);
-        } else if (startsWith(line, "branch ")) {
-            const branch_name = strip(line["branch ".len..]);
+        } else if (pu.startsWith(line, "branch ")) {
+            const branch_name = pu.strip(line["branch ".len..]);
             _ = try model.ensureBranch(branch_name);
             current_branch = branch_name;
-        } else if (startsWith(line, "checkout ") or startsWith(line, "switch ")) {
-            const prefix_len: usize = if (startsWith(line, "checkout ")) "checkout ".len else "switch ".len;
-            current_branch = strip(line[prefix_len..]);
-        } else if (startsWith(line, "merge ")) {
-            const merge_branch = strip(line["merge ".len..]);
+        } else if (pu.startsWith(line, "checkout ") or pu.startsWith(line, "switch ")) {
+            const prefix_len: usize = if (pu.startsWith(line, "checkout ")) "checkout ".len else "switch ".len;
+            current_branch = pu.strip(line[prefix_len..]);
+        } else if (pu.startsWith(line, "merge ")) {
+            const merge_branch = pu.strip(line["merge ".len..]);
             // Get just the branch name (may have tag: or other attrs after)
             const branch_name = firstWord(merge_branch);
 
@@ -136,9 +137,9 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
                     .to_branch = current_branch,
                 });
             }
-        } else if (startsWith(line, "cherry-pick ")) {
+        } else if (pu.startsWith(line, "cherry-pick ")) {
             // cherry-pick id: "abc"
-            const attrs = strip(line["cherry-pick ".len..]);
+            const attrs = pu.strip(line["cherry-pick ".len..]);
             const cherry_id = parseAttr(attrs, "id:");
 
             var commit = Commit.init(allocator);
@@ -179,7 +180,7 @@ fn autoId(seq: u32) []const u8 {
 
 fn parseAttr(text: []const u8, key: []const u8) []const u8 {
     const idx = std.mem.indexOf(u8, text, key) orelse return "";
-    const after = strip(text[idx + key.len ..]);
+    const after = pu.strip(text[idx + key.len ..]);
     if (after.len == 0) return "";
 
     // Value may be quoted
@@ -194,23 +195,8 @@ fn parseAttr(text: []const u8, key: []const u8) []const u8 {
 }
 
 fn firstWord(s: []const u8) []const u8 {
-    const trimmed = strip(s);
+    const trimmed = pu.strip(s);
     const end = std.mem.indexOfAny(u8, trimmed, " \t") orelse trimmed.len;
     return trimmed[0..end];
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}

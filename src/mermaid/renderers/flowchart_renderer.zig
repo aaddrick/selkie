@@ -7,6 +7,7 @@ const ArrowHead = graph_mod.ArrowHead;
 const Point = graph_mod.Point;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 const shapes = @import("shapes.zig");
 
 pub fn drawFlowchart(model: *const FlowchartModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
@@ -107,7 +108,7 @@ fn drawEdge(edge: *const graph_mod.GraphEdge, origin_x: f32, origin_y: f32, them
         while (i < edge.waypoints.items.len - 1) : (i += 1) {
             const p1 = edge.waypoints.items[i];
             const p2 = edge.waypoints.items[i + 1];
-            drawDashedLine(
+            ru.drawDashedLine(
                 origin_x + p1.x,
                 origin_y + p1.y - scroll_y,
                 origin_x + p2.x,
@@ -229,27 +230,3 @@ fn drawArrowHead(head: ArrowHead, tip_x: f32, tip_y: f32, from_x: f32, from_y: f
     }
 }
 
-fn drawDashedLine(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: rl.Color) void {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const total_len = @sqrt(dx * dx + dy * dy);
-    if (total_len == 0) return;
-
-    const dash_len: f32 = 6;
-    const gap_len: f32 = 4;
-    const segment = dash_len + gap_len;
-    const nx = dx / total_len;
-    const ny = dy / total_len;
-
-    var pos: f32 = 0;
-    while (pos < total_len) {
-        const end = @min(pos + dash_len, total_len);
-        rl.drawLineEx(
-            .{ .x = x1 + nx * pos, .y = y1 + ny * pos },
-            .{ .x = x1 + nx * end, .y = y1 + ny * end },
-            width,
-            color,
-        );
-        pos += segment;
-    }
-}

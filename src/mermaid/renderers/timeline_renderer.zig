@@ -4,6 +4,7 @@ const tm = @import("../models/timeline_model.zig");
 const TimelineModel = tm.TimelineModel;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 const PERIOD_WIDTH: f32 = 120;
 const PERIOD_SPACING: f32 = 30;
@@ -44,7 +45,7 @@ pub fn drawTimeline(
 
     // Title
     if (model.title.len > 0) {
-        drawText(
+        ru.drawText(
             model.title,
             origin_x + diagram_width / 2,
             origin_y + DIAGRAM_PADDING,
@@ -94,7 +95,7 @@ pub fn drawTimeline(
             }, sec_color);
 
             // Section label at top
-            drawText(
+            ru.drawText(
                 section.name,
                 section_start_x + section_width / 2,
                 origin_y + DIAGRAM_PADDING + title_offset + 10,
@@ -119,7 +120,7 @@ pub fn drawTimeline(
             );
 
             // Period label below axis
-            drawText(
+            ru.drawText(
                 period.label,
                 cx,
                 axis_y + MARKER_RADIUS + 10,
@@ -150,16 +151,16 @@ pub fn drawTimeline(
                     .y = event_y - scroll_y,
                     .width = event_w,
                     .height = EVENT_HEIGHT,
-                }, 0.3, 6, withAlpha(theme.mermaid_node_border, 30));
+                }, 0.3, 6, ru.withAlpha(theme.mermaid_node_border, 30));
                 rl.drawRectangleRoundedLinesEx(.{
                     .x = event_x,
                     .y = event_y - scroll_y,
                     .width = event_w,
                     .height = EVENT_HEIGHT,
-                }, 0.3, 6, 1, withAlpha(theme.mermaid_node_border, 120));
+                }, 0.3, 6, 1, ru.withAlpha(theme.mermaid_node_border, 120));
 
                 // Event text
-                drawText(
+                ru.drawText(
                     event.text,
                     cx,
                     event_y + EVENT_HEIGHT / 2,
@@ -177,7 +178,7 @@ pub fn drawTimeline(
                     .{ .x = cx, .y = line_start_y - scroll_y },
                     .{ .x = cx, .y = line_end_y - scroll_y },
                     1,
-                    withAlpha(theme.mermaid_node_border, 100),
+                    ru.withAlpha(theme.mermaid_node_border, 100),
                 );
             }
 
@@ -186,36 +187,4 @@ pub fn drawTimeline(
 
         period_x += SECTION_GAP;
     }
-}
-
-fn drawText(
-    text: []const u8,
-    x: f32,
-    y: f32,
-    fonts: *const Fonts,
-    font_size: f32,
-    color: rl.Color,
-    scroll_y: f32,
-    center: bool,
-) void {
-    if (text.len == 0) return;
-
-    var buf: [256]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    const measured = rl.measureTextEx(font, z, font_size, spacing);
-
-    const tx = if (center) x - measured.x / 2 else x;
-    const ty = y - scroll_y - measured.y / 2;
-
-    rl.drawTextEx(font, z, .{ .x = tx, .y = ty }, font_size, spacing, color);
-}
-
-fn withAlpha(c: rl.Color, a: u8) rl.Color {
-    return .{ .r = c.r, .g = c.g, .b = c.b, .a = a };
 }

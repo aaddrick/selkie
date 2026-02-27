@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const sm = @import("../models/state_model.zig");
 const StateModel = sm.StateModel;
 const State = sm.State;
@@ -27,15 +28,15 @@ pub fn parse(allocator: Allocator, source: []const u8) !StateModel {
     var past_header = false;
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
+        const line = pu.strip(raw_line);
 
-        if (line.len == 0 or isComment(line)) continue;
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
             if (std.mem.eql(u8, line, "stateDiagram-v2") or
                 std.mem.eql(u8, line, "stateDiagram") or
-                startsWith(line, "stateDiagram-v2 ") or
-                startsWith(line, "stateDiagram "))
+                pu.startsWith(line, "stateDiagram-v2 ") or
+                pu.startsWith(line, "stateDiagram "))
             {
                 past_header = true;
                 continue;
@@ -45,7 +46,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !StateModel {
         }
 
         // State declaration: "state "Description" as StateId"
-        if (startsWith(line, "state ")) {
+        if (pu.startsWith(line, "state ")) {
             try parseStateDeclaration(line, &model);
             continue;
         }
@@ -54,8 +55,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !StateModel {
         if (try tryParseTransition(line, &model)) continue;
 
         // Note: "note right of StateA" etc. - skip for now
-        if (startsWith(line, "note ")) continue;
-        if (startsWith(line, "end note")) continue;
+        if (pu.startsWith(line, "note ")) continue;
+        if (pu.startsWith(line, "end note")) continue;
     }
 
     // Handle [*] states: determine if start or end based on usage
@@ -130,15 +131,15 @@ fn buildGraph(model: *StateModel) !void {
 const graph_mod = @import("../models/graph.zig");
 
 fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
-    const rest = strip(line["state ".len..]);
+    const rest = pu.strip(line["state ".len..]);
 
     // "state "Description" as StateId"
     if (rest.len > 0 and rest[0] == '"') {
-        if (indexOfCharFrom(rest, '"', 1)) |close_quote| {
+        if (pu.indexOfCharFrom(rest, '"', 1)) |close_quote| {
             const desc = rest[1..close_quote];
-            const after = strip(rest[close_quote + 1 ..]);
-            if (startsWith(after, "as ")) {
-                const state_id = strip(after["as ".len..]);
+            const after = pu.strip(rest[close_quote + 1 ..]);
+            if (pu.startsWith(after, "as ")) {
+                const state_id = pu.strip(after["as ".len..]);
                 if (state_id.len > 0) {
                     var state = try model.ensureState(state_id);
                     state.label = desc;
@@ -151,8 +152,8 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
 
     // "state StateId" - just declaration
     // Check for "state StateId {" (composite - we skip body for now)
-    if (endsWith(rest, "{")) {
-        const state_id = strip(rest[0 .. rest.len - 1]);
+    if (pu.endsWith(rest, "{")) {
+        const state_id = pu.strip(rest[0 .. rest.len - 1]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .composite;
@@ -161,24 +162,24 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
     }
 
     // "state fork_state <<fork>>"
-    if (indexOfStr(rest, "<<fork>>")) |_| {
-        const state_id = strip(rest[0 .. indexOfStr(rest, "<<").?]);
+    if (pu.indexOfStr(rest, "<<fork>>")) |_| {
+        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .fork;
         }
         return;
     }
-    if (indexOfStr(rest, "<<join>>")) |_| {
-        const state_id = strip(rest[0 .. indexOfStr(rest, "<<").?]);
+    if (pu.indexOfStr(rest, "<<join>>")) |_| {
+        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .join;
         }
         return;
     }
-    if (indexOfStr(rest, "<<choice>>")) |_| {
-        const state_id = strip(rest[0 .. indexOfStr(rest, "<<").?]);
+    if (pu.indexOfStr(rest, "<<choice>>")) |_| {
+        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .choice;
@@ -193,19 +194,19 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
 }
 
 fn tryParseTransition(line: []const u8, model: *StateModel) !bool {
-    const arrow_pos = indexOfStr(line, "-->") orelse return false;
+    const arrow_pos = pu.indexOfStr(line, "-->") orelse return false;
 
-    const from = strip(line[0..arrow_pos]);
-    const after_arrow = strip(line[arrow_pos + 3 ..]);
+    const from = pu.strip(line[0..arrow_pos]);
+    const after_arrow = pu.strip(line[arrow_pos + 3 ..]);
 
     if (from.len == 0 or after_arrow.len == 0) return false;
 
     var to = after_arrow;
     var label: ?[]const u8 = null;
 
-    if (indexOfStr(after_arrow, " : ")) |colon| {
-        to = strip(after_arrow[0..colon]);
-        label = strip(after_arrow[colon + 3 ..]);
+    if (pu.indexOfStr(after_arrow, " : ")) |colon| {
+        to = pu.strip(after_arrow[0..colon]);
+        label = pu.strip(after_arrow[colon + 3 ..]);
     }
 
     if (to.len == 0) return false;
@@ -222,33 +223,3 @@ fn tryParseTransition(line: []const u8, model: *StateModel) !bool {
     return true;
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn endsWith(s: []const u8, suffix: []const u8) bool {
-    return s.len >= suffix.len and std.mem.eql(u8, s[s.len - suffix.len ..], suffix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}
-
-fn indexOfStr(haystack: []const u8, needle: []const u8) ?usize {
-    return std.mem.indexOf(u8, haystack, needle);
-}
-
-fn indexOfCharFrom(haystack: []const u8, needle: u8, from: usize) ?usize {
-    if (from >= haystack.len) return null;
-    const result = std.mem.indexOfScalar(u8, haystack[from..], needle);
-    if (result) |r| return r + from;
-    return null;
-}

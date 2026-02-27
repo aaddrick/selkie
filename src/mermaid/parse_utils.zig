@@ -37,6 +37,39 @@ pub fn splitLines(allocator: Allocator, source: []const u8) !std.ArrayList([]con
     return lines;
 }
 
+/// Check if a string starts with a prefix.
+pub fn startsWith(s: []const u8, prefix: []const u8) bool {
+    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
+}
+
+/// Check if a string ends with a suffix.
+pub fn endsWith(s: []const u8, suffix: []const u8) bool {
+    return s.len >= suffix.len and std.mem.eql(u8, s[s.len - suffix.len ..], suffix);
+}
+
+/// Find the first occurrence of a scalar value in a slice.
+pub fn indexOfChar(haystack: []const u8, needle: u8) ?usize {
+    return std.mem.indexOfScalar(u8, haystack, needle);
+}
+
+/// Find the first occurrence of a scalar value starting from an offset.
+pub fn indexOfCharFrom(haystack: []const u8, needle: u8, from: usize) ?usize {
+    if (from >= haystack.len) return null;
+    const result = std.mem.indexOfScalar(u8, haystack[from..], needle);
+    if (result) |r| return r + from;
+    return null;
+}
+
+/// Find the first occurrence of a substring in a string.
+pub fn indexOfStr(haystack: []const u8, needle: []const u8) ?usize {
+    return std.mem.indexOf(u8, haystack, needle);
+}
+
+/// Check if a string contains a substring.
+pub fn containsStr(haystack: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, haystack, needle) != null;
+}
+
 /// Null-terminate a string slice into a stack buffer for raylib.
 /// Returns the sentinel-terminated slice, truncated if necessary.
 pub fn nullTerminate(text: []const u8, buf: []u8) [:0]const u8 {

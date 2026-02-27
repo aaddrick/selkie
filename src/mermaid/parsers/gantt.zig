@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const gm = @import("../models/gantt_model.zig");
 const GanttModel = gm.GanttModel;
 const GanttTask = gm.GanttTask;
@@ -31,9 +32,9 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
     // So we do resolution after parsing all tasks
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
+        const line = pu.strip(raw_line);
 
-        if (line.len == 0 or isComment(line)) continue;
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
             if (std.mem.eql(u8, line, "gantt")) {
@@ -45,20 +46,20 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
         }
 
         // title
-        if (startsWith(line, "title ")) {
-            model.title = strip(line["title ".len..]);
+        if (pu.startsWith(line, "title ")) {
+            model.title = pu.strip(line["title ".len..]);
             continue;
         }
 
         // dateFormat
-        if (startsWith(line, "dateFormat ")) {
-            model.date_format = strip(line["dateFormat ".len..]);
+        if (pu.startsWith(line, "dateFormat ")) {
+            model.date_format = pu.strip(line["dateFormat ".len..]);
             continue;
         }
 
         // excludes
-        if (startsWith(line, "excludes ")) {
-            const exc = strip(line["excludes ".len..]);
+        if (pu.startsWith(line, "excludes ")) {
+            const exc = pu.strip(line["excludes ".len..]);
             if (std.mem.eql(u8, exc, "weekends")) {
                 model.excludes_weekends = true;
             }
@@ -66,8 +67,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
         }
 
         // todayMarker
-        if (startsWith(line, "todayMarker ")) {
-            const val = strip(line["todayMarker ".len..]);
+        if (pu.startsWith(line, "todayMarker ")) {
+            const val = pu.strip(line["todayMarker ".len..]);
             if (std.mem.eql(u8, val, "off")) {
                 model.today_marker = false;
             }
@@ -75,8 +76,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
         }
 
         // section
-        if (startsWith(line, "section ")) {
-            const section_name = strip(line["section ".len..]);
+        if (pu.startsWith(line, "section ")) {
+            const section_name = pu.strip(line["section ".len..]);
             try model.sections.append(.{
                 .name = section_name,
                 .task_indices = std.ArrayList(usize).init(allocator),
@@ -86,7 +87,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
         }
 
         // Task line: "Task Name :tag1, tag2, id, start, duration"
-        if (indexOfChar(line, ':')) |colon_pos| {
+        if (pu.indexOfChar(line, ':')) |colon_pos| {
             try parseTaskLine(allocator, &model, line, colon_pos, current_section_idx);
             continue;
         }
@@ -100,8 +101,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
 }
 
 fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, colon_pos: usize, section_idx: ?usize) !void {
-    const name = strip(line[0..colon_pos]);
-    const spec = strip(line[colon_pos + 1 ..]);
+    const name = pu.strip(line[0..colon_pos]);
+    const spec = pu.strip(line[colon_pos + 1 ..]);
 
     // Parse comma-separated fields
     var fields = std.ArrayList([]const u8).init(allocator);
@@ -110,12 +111,12 @@ fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, col
     var fstart: usize = 0;
     for (spec, 0..) |ch, i| {
         if (ch == ',') {
-            const field = strip(spec[fstart..i]);
+            const field = pu.strip(spec[fstart..i]);
             if (field.len > 0) try fields.append(field);
             fstart = i + 1;
         }
     }
-    const last_field = strip(spec[fstart..]);
+    const last_field = pu.strip(spec[fstart..]);
     if (last_field.len > 0) try fields.append(last_field);
 
     var task = GanttTask{
@@ -151,7 +152,7 @@ fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, col
     // Next field might be id (not a date, not "after", not a duration)
     if (field_idx < fields.items.len) {
         const f = fields.items[field_idx];
-        if (!isDateLike(f) and !startsWith(f, "after ") and gm.parseDuration(f) == null) {
+        if (!isDateLike(f) and !pu.startsWith(f, "after ") and gm.parseDuration(f) == null) {
             task.id = f;
             field_idx += 1;
         }
@@ -165,7 +166,7 @@ fn parseTaskLine(allocator: Allocator, model: *GanttModel, line: []const u8, col
     // Start: date literal or "after ref_id"
     if (field_idx < fields.items.len) {
         const f = fields.items[field_idx];
-        if (startsWith(f, "after ")) {
+        if (pu.startsWith(f, "after ")) {
             // Mark as needing resolution in resolveAfterReferences.
             // The current resolver uses sequential placement (previous task's end_day).
             task.start_day = AFTER_SENTINEL;
@@ -241,22 +242,3 @@ fn isDateLike(s: []const u8) bool {
     return false;
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}
-
-fn indexOfChar(haystack: []const u8, needle: u8) ?usize {
-    return std.mem.indexOfScalar(u8, haystack, needle);
-}

@@ -7,6 +7,7 @@ const StateType = sm.StateType;
 const graph_mod = @import("../models/graph.zig");
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 const shapes = @import("shapes.zig");
 
 pub fn drawStateDiagram(model: *const StateModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
@@ -124,7 +125,7 @@ fn drawTransition(edge: *const graph_mod.GraphEdge, origin_x: f32, origin_y: f32
                 .width = measured.x + 6,
                 .height = measured.y + 4,
             }, theme.mermaid_label_bg);
-            drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.8, theme.mermaid_edge_text);
+            ru.drawTextCenteredDirect(label, mx - measured.x / 2, my - measured.y / 2, measured.x, fonts, theme.body_font_size * 0.8, theme.mermaid_edge_text);
         }
     }
 }
@@ -143,50 +144,9 @@ fn drawArrowHead(tip_x: f32, tip_y: f32, from_x: f32, from_y: f32, color: rl.Col
 }
 
 fn drawDashedRect(x: f32, y: f32, w: f32, h: f32, color: rl.Color) void {
-    drawDashedLine(x, y, x + w, y, 2, color);
-    drawDashedLine(x + w, y, x + w, y + h, 2, color);
-    drawDashedLine(x + w, y + h, x, y + h, 2, color);
-    drawDashedLine(x, y + h, x, y, 2, color);
+    ru.drawDashedLine(x, y, x + w, y, 2, color);
+    ru.drawDashedLine(x + w, y, x + w, y + h, 2, color);
+    ru.drawDashedLine(x + w, y + h, x, y + h, 2, color);
+    ru.drawDashedLine(x, y + h, x, y, 2, color);
 }
 
-fn drawDashedLine(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: rl.Color) void {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const total_len = @sqrt(dx * dx + dy * dy);
-    if (total_len == 0) return;
-    const dash_len: f32 = 6;
-    const gap_len: f32 = 4;
-    const segment = dash_len + gap_len;
-    const nx = dx / total_len;
-    const ny = dy / total_len;
-    var pos: f32 = 0;
-    while (pos < total_len) {
-        const end = @min(pos + dash_len, total_len);
-        rl.drawLineEx(
-            .{ .x = x1 + nx * pos, .y = y1 + ny * pos },
-            .{ .x = x1 + nx * end, .y = y1 + ny * end },
-            width,
-            color,
-        );
-        pos += segment;
-    }
-}
-
-fn drawTextAt(text: []const u8, x: f32, y: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    var buf: [512]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-    rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, color);
-}
-
-fn drawTextCenteredDirect(text: []const u8, x: f32, y: f32, w: f32, fonts: *const Fonts, font_size: f32, color: rl.Color) void {
-    if (text.len == 0) return;
-    const measured = fonts.measure(text, font_size, false, false, false);
-    const tx = x + (w - measured.x) / 2;
-    drawTextAt(text, tx, y, fonts, font_size, color);
-}

@@ -1,5 +1,6 @@
 const rl = @import("raylib");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
+const nullTerminate = @import("parse_utils.zig").nullTerminate;
 
 /// Draw a dashed line between two points.
 pub fn drawDashedLine(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: rl.Color) void {
@@ -87,10 +88,3 @@ pub fn withAlpha(c: rl.Color, a: u8) rl.Color {
     return .{ .r = c.r, .g = c.g, .b = c.b, .a = a };
 }
 
-/// Null-terminate a string slice into a stack buffer for raylib.
-pub fn nullTerminate(text: []const u8, buf: []u8) [:0]const u8 {
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    return buf[0..len :0];
-}

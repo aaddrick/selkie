@@ -7,6 +7,7 @@ const Event = sm.Event;
 const BlockSection = sm.BlockSection;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 const shapes = @import("shapes.zig");
 
 pub fn drawSequenceDiagram(
@@ -42,7 +43,7 @@ pub fn drawSequenceDiagram(
     const lifeline_bottom = origin_y + model.lifeline_end_y;
 
     for (model.participants.items) |p| {
-        drawDashedLine(
+        ru.drawDashedLine(
             origin_x + p.center_x,
             lifeline_top - scroll_y,
             origin_x + p.center_x,
@@ -186,9 +187,9 @@ fn drawMessages(model: *const SequenceModel, events: *const std.ArrayList(Event)
                     const color = theme.mermaid_edge;
 
                     if (is_dotted) {
-                        drawDashedLine(from_x, y, from_x + loop_w, y, 1.5, color);
-                        drawDashedLine(from_x + loop_w, y, from_x + loop_w, y + loop_h, 1.5, color);
-                        drawDashedLine(from_x + loop_w, y + loop_h, from_x, y + loop_h, 1.5, color);
+                        ru.drawDashedLine(from_x, y, from_x + loop_w, y, 1.5, color);
+                        ru.drawDashedLine(from_x + loop_w, y, from_x + loop_w, y + loop_h, 1.5, color);
+                        ru.drawDashedLine(from_x + loop_w, y + loop_h, from_x, y + loop_h, 1.5, color);
                     } else {
                         rl.drawLineEx(.{ .x = from_x, .y = y }, .{ .x = from_x + loop_w, .y = y }, 1.5, color);
                         rl.drawLineEx(.{ .x = from_x + loop_w, .y = y }, .{ .x = from_x + loop_w, .y = y + loop_h }, 1.5, color);
@@ -208,7 +209,7 @@ fn drawMessages(model: *const SequenceModel, events: *const std.ArrayList(Event)
                     const color = theme.mermaid_edge;
 
                     if (is_dotted) {
-                        drawDashedLine(from_x, y, to_x, y, 1.5, color);
+                        ru.drawDashedLine(from_x, y, to_x, y, 1.5, color);
                     } else {
                         rl.drawLineEx(.{ .x = from_x, .y = y }, .{ .x = to_x, .y = y }, 1.5, color);
                     }
@@ -420,7 +421,7 @@ fn drawBlockBackgrounds(model: *const SequenceModel, events: *const std.ArrayLis
                         }
 
                         // Dashed horizontal divider
-                        drawDashedLine(
+                        ru.drawDashedLine(
                             bx,
                             section_y - scroll_y,
                             bx + blk.width,
@@ -546,31 +547,6 @@ fn drawArrowHead(arrow_type: ArrowType, tip_x: f32, tip_y: f32, from_x: f32, fro
             const tip = rl.Vector2{ .x = tip_x, .y = tip_y };
             rl.drawTriangle(tip, p2, p1, color);
         },
-    }
-}
-
-fn drawDashedLine(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: rl.Color) void {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const total_len = @sqrt(dx * dx + dy * dy);
-    if (total_len == 0) return;
-
-    const dash_len: f32 = 6;
-    const gap_len: f32 = 4;
-    const segment = dash_len + gap_len;
-    const nx = dx / total_len;
-    const ny = dy / total_len;
-
-    var pos: f32 = 0;
-    while (pos < total_len) {
-        const end = @min(pos + dash_len, total_len);
-        rl.drawLineEx(
-            .{ .x = x1 + nx * pos, .y = y1 + ny * pos },
-            .{ .x = x1 + nx * end, .y = y1 + ny * end },
-            width,
-            color,
-        );
-        pos += segment;
     }
 }
 

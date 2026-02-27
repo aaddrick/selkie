@@ -5,6 +5,7 @@ const GitGraphModel = gg.GitGraphModel;
 const CommitType = gg.CommitType;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 const LANE_SPACING: f32 = 30;
 const COMMIT_SPACING: f32 = 50;
@@ -46,20 +47,20 @@ pub fn drawGitGraph(
                 .{ .x = start_x, .y = ly - scroll_y },
                 .{ .x = origin_x + diagram_width - DIAGRAM_PADDING, .y = ly - scroll_y },
                 2,
-                withAlpha(branch.color, 80),
+                ru.withAlpha(branch.color, 80),
             );
             // Branch label
-            drawText(branch.name, origin_x + DIAGRAM_PADDING, ly, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, false);
+            ru.drawText(branch.name, origin_x + DIAGRAM_PADDING, ly, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, false);
         } else {
             const lx = start_x + lane_f * LANE_SPACING;
             rl.drawLineEx(
                 .{ .x = lx, .y = start_y - scroll_y },
                 .{ .x = lx, .y = origin_y + diagram_height - DIAGRAM_PADDING - scroll_y },
                 2,
-                withAlpha(branch.color, 80),
+                ru.withAlpha(branch.color, 80),
             );
             // Branch label
-            drawText(branch.name, lx, origin_y + DIAGRAM_PADDING, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, true);
+            ru.drawText(branch.name, lx, origin_y + DIAGRAM_PADDING, fonts, theme.body_font_size * 0.8, branch.color, scroll_y, true);
         }
     }
 
@@ -90,7 +91,7 @@ pub fn drawGitGraph(
         // Determine merge line color from the source branch
         var merge_color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = 200 };
         if (model.findBranch(merge.from_branch)) |bidx| {
-            merge_color = withAlpha(model.branches.items[bidx].color, 200);
+            merge_color = ru.withAlpha(model.branches.items[bidx].color, 200);
         }
 
         rl.drawLineEx(
@@ -126,15 +127,15 @@ pub fn drawGitGraph(
         switch (commit.commit_type) {
             .normal => {
                 rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, commit_color);
-                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, darken(commit_color));
+                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, ru.darken(commit_color));
             },
             .highlight => {
                 rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS + 2, commit_color);
                 rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS - 2, theme.mermaid_subgraph_bg);
-                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS + 2, darken(commit_color));
+                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS + 2, ru.darken(commit_color));
             },
             .reverse => {
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, darken(commit_color));
+                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, ru.darken(commit_color));
                 // Cross pattern
                 const r: f32 = COMMIT_RADIUS * 0.5;
                 rl.drawLineEx(
@@ -163,9 +164,9 @@ pub fn drawGitGraph(
         const label = if (commit.message.len > 0) commit.message else commit.id;
         if (label.len > 0) {
             if (is_lr) {
-                drawText(label, cx - 15, cy + COMMIT_RADIUS + 4, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
+                ru.drawText(label, cx - 15, cy + COMMIT_RADIUS + 4, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
             } else {
-                drawText(label, cx + COMMIT_RADIUS + 4, cy, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
+                ru.drawText(label, cx + COMMIT_RADIUS + 4, cy, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
             }
         }
     }
@@ -195,45 +196,4 @@ fn drawTagLabel(text: []const u8, x: f32, y: f32, fonts: *const Fonts, theme: *c
     }, 0.3, 4, rl.Color{ .r = 255, .g = 215, .b = 0, .a = 200 });
 
     rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 255 });
-}
-
-fn drawText(
-    text: []const u8,
-    x: f32,
-    y: f32,
-    fonts: *const Fonts,
-    font_size: f32,
-    color: rl.Color,
-    scroll_y: f32,
-    center: bool,
-) void {
-    if (text.len == 0) return;
-
-    var buf: [256]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
-
-    const font = fonts.selectFont(.{});
-    const spacing = font_size / 10.0;
-    const measured = rl.measureTextEx(font, z, font_size, spacing);
-
-    const tx = if (center) x - measured.x / 2 else x;
-    const ty = y - scroll_y - measured.y / 2;
-
-    rl.drawTextEx(font, z, .{ .x = tx, .y = ty }, font_size, spacing, color);
-}
-
-fn darken(c: rl.Color) rl.Color {
-    return .{
-        .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.r)) * 0.7)),
-        .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.g)) * 0.7)),
-        .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.b)) * 0.7)),
-        .a = c.a,
-    };
-}
-
-fn withAlpha(c: rl.Color, a: u8) rl.Color {
-    return .{ .r = c.r, .g = c.g, .b = c.b, .a = a };
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const sm = @import("../models/sequence_model.zig");
 const SequenceModel = sm.SequenceModel;
 const Participant = sm.Participant;
@@ -39,8 +40,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceModel {
 
     // Skip sequenceDiagram header
     while (parser.line_idx < parser.lines.items.len) {
-        const line = strip(parser.lines.items[parser.line_idx]);
-        if (line.len == 0 or isComment(line)) {
+        const line = pu.strip(parser.lines.items[parser.line_idx]);
+        if (line.len == 0 or pu.isComment(line)) {
             parser.line_idx += 1;
             continue;
         }
@@ -69,9 +70,9 @@ const Parser = struct {
     fn parseEvents(self: *Parser, events: *std.ArrayList(Event)) ParseError!void {
         while (self.line_idx < self.lines.items.len) {
             const raw_line = self.lines.items[self.line_idx];
-            const line = strip(raw_line);
+            const line = pu.strip(raw_line);
 
-            if (line.len == 0 or isComment(line)) {
+            if (line.len == 0 or pu.isComment(line)) {
                 self.line_idx += 1;
                 continue;
             }
@@ -80,7 +81,7 @@ const Parser = struct {
             if (std.mem.eql(u8, line, "end")) {
                 return; // caller handles advancing past 'end'
             }
-            if (startsWith(line, "else") or startsWith(line, "and")) {
+            if (pu.startsWith(line, "else") or pu.startsWith(line, "and")) {
                 return; // section separator — caller handles
             }
 
@@ -92,29 +93,29 @@ const Parser = struct {
             }
 
             // participant / actor
-            if (startsWith(line, "participant ") or startsWith(line, "actor ")) {
+            if (pu.startsWith(line, "participant ") or pu.startsWith(line, "actor ")) {
                 try self.parseParticipant(line);
                 self.line_idx += 1;
                 continue;
             }
 
             // Note
-            if (startsWith(line, "Note ") or startsWith(line, "note ")) {
+            if (pu.startsWith(line, "Note ") or pu.startsWith(line, "note ")) {
                 try self.parseNote(line, events);
                 self.line_idx += 1;
                 continue;
             }
 
             // activate / deactivate
-            if (startsWith(line, "activate ")) {
-                const id = strip(line["activate ".len..]);
+            if (pu.startsWith(line, "activate ")) {
+                const id = pu.strip(line["activate ".len..]);
                 _ = try self.model.ensureParticipant(id);
                 try events.append(.{ .activation = .{ .participant_id = id, .activate = true } });
                 self.line_idx += 1;
                 continue;
             }
-            if (startsWith(line, "deactivate ")) {
-                const id = strip(line["deactivate ".len..]);
+            if (pu.startsWith(line, "deactivate ")) {
+                const id = pu.strip(line["deactivate ".len..]);
                 try events.append(.{ .activation = .{ .participant_id = id, .activate = false } });
                 self.line_idx += 1;
                 continue;
@@ -139,23 +140,23 @@ const Parser = struct {
     }
 
     fn parseParticipant(self: *Parser, line: []const u8) ParseError!void {
-        const is_actor = startsWith(line, "actor ");
+        const is_actor = pu.startsWith(line, "actor ");
         const kind: ParticipantKind = if (is_actor) .actor else .participant;
         const prefix_len: usize = if (is_actor) "actor ".len else "participant ".len;
-        const rest = strip(line[prefix_len..]);
+        const rest = pu.strip(line[prefix_len..]);
 
         // Check for "as" alias: "participant A as Alice"
         var id: []const u8 = rest;
         var alias: []const u8 = rest;
 
-        if (indexOf(rest, " as ")) |as_pos| {
-            id = strip(rest[0..as_pos]);
-            alias = strip(rest[as_pos + " as ".len ..]);
+        if (pu.indexOfStr(rest, " as ")) |as_pos| {
+            id = pu.strip(rest[0..as_pos]);
+            alias = pu.strip(rest[as_pos + " as ".len ..]);
         }
 
         // Remove surrounding quotes from alias if present
-        alias = stripQuotes(alias);
-        id = stripQuotes(id);
+        alias = pu.stripQuotes(alias);
+        id = pu.stripQuotes(id);
 
         // Check if already exists
         for (self.model.participants.items) |*p| {
@@ -175,32 +176,32 @@ const Parser = struct {
 
     fn parseNote(self: *Parser, line: []const u8, events: *std.ArrayList(Event)) ParseError!void {
         // "Note left of A: text" / "Note right of B: text" / "Note over A,B: text"
-        const after_note = strip(line[if (line[0] == 'N') @as(usize, 5) else 5..]);
+        const after_note = pu.strip(line[if (line[0] == 'N') @as(usize, 5) else 5..]);
 
         var position: NotePosition = .over;
         var participants_str: []const u8 = "";
         var text: []const u8 = "";
 
-        if (startsWith(after_note, "left of ")) {
+        if (pu.startsWith(after_note, "left of ")) {
             position = .left_of;
             const rest = after_note["left of ".len..];
-            if (indexOfChar(rest, ':')) |colon| {
-                participants_str = strip(rest[0..colon]);
-                text = strip(rest[colon + 1 ..]);
+            if (pu.indexOfChar(rest, ':')) |colon| {
+                participants_str = pu.strip(rest[0..colon]);
+                text = pu.strip(rest[colon + 1 ..]);
             }
-        } else if (startsWith(after_note, "right of ")) {
+        } else if (pu.startsWith(after_note, "right of ")) {
             position = .right_of;
             const rest = after_note["right of ".len..];
-            if (indexOfChar(rest, ':')) |colon| {
-                participants_str = strip(rest[0..colon]);
-                text = strip(rest[colon + 1 ..]);
+            if (pu.indexOfChar(rest, ':')) |colon| {
+                participants_str = pu.strip(rest[0..colon]);
+                text = pu.strip(rest[colon + 1 ..]);
             }
-        } else if (startsWith(after_note, "over ")) {
+        } else if (pu.startsWith(after_note, "over ")) {
             position = .over;
             const rest = after_note["over ".len..];
-            if (indexOfChar(rest, ':')) |colon| {
-                participants_str = strip(rest[0..colon]);
-                text = strip(rest[colon + 1 ..]);
+            if (pu.indexOfChar(rest, ':')) |colon| {
+                participants_str = pu.strip(rest[0..colon]);
+                text = pu.strip(rest[colon + 1 ..]);
             }
         }
 
@@ -209,7 +210,7 @@ const Parser = struct {
         var pstart: usize = 0;
         for (participants_str, 0..) |ch, i| {
             if (ch == ',') {
-                const p = strip(participants_str[pstart..i]);
+                const p = pu.strip(participants_str[pstart..i]);
                 if (p.len > 0) {
                     _ = try self.model.ensureParticipant(p);
                     try over_parts.append(p);
@@ -217,7 +218,7 @@ const Parser = struct {
                 pstart = i + 1;
             }
         }
-        const last_p = strip(participants_str[pstart..]);
+        const last_p = pu.strip(participants_str[pstart..]);
         if (last_p.len > 0) {
             _ = try self.model.ensureParticipant(last_p);
             try over_parts.append(last_p);
@@ -233,13 +234,13 @@ const Parser = struct {
     }
 
     fn tryParseBlockStart(_: *Parser, line: []const u8) ?BlockType {
-        if (startsWith(line, "loop ")) return .loop_block;
-        if (startsWith(line, "alt ")) return .alt;
-        if (startsWith(line, "opt ")) return .opt;
-        if (startsWith(line, "par ")) return .par;
-        if (startsWith(line, "critical ")) return .critical;
-        if (startsWith(line, "break ")) return .break_block;
-        if (startsWith(line, "rect ")) return .rect;
+        if (pu.startsWith(line, "loop ")) return .loop_block;
+        if (pu.startsWith(line, "alt ")) return .alt;
+        if (pu.startsWith(line, "opt ")) return .opt;
+        if (pu.startsWith(line, "par ")) return .par;
+        if (pu.startsWith(line, "critical ")) return .critical;
+        if (pu.startsWith(line, "break ")) return .break_block;
+        if (pu.startsWith(line, "rect ")) return .rect;
         // Also handle keyword-only (no label)
         if (std.mem.eql(u8, line, "loop")) return .loop_block;
         if (std.mem.eql(u8, line, "alt")) return .alt;
@@ -254,7 +255,7 @@ const Parser = struct {
     fn parseBlock(self: *Parser, block_type: BlockType, line: []const u8, events: *std.ArrayList(Event)) ParseError!void {
         // Extract label after keyword
         const keyword_len = blockKeywordLen(block_type);
-        const label = if (line.len > keyword_len) strip(line[keyword_len..]) else "";
+        const label = if (line.len > keyword_len) pu.strip(line[keyword_len..]) else "";
 
         var block = Block{
             .block_type = block_type,
@@ -274,13 +275,13 @@ const Parser = struct {
 
         // Handle else/and sections
         while (self.line_idx < self.lines.items.len) {
-            const next_line = strip(self.lines.items[self.line_idx]);
-            if (startsWith(next_line, "else") or startsWith(next_line, "and")) {
+            const next_line = pu.strip(self.lines.items[self.line_idx]);
+            if (pu.startsWith(next_line, "else") or pu.startsWith(next_line, "and")) {
                 const sep_label = blk: {
                     // "else condition" or "and description"
-                    const keyword = if (startsWith(next_line, "else")) "else" else "and";
+                    const keyword = if (pu.startsWith(next_line, "else")) "else" else "and";
                     if (next_line.len > keyword.len) {
-                        const after = strip(next_line[keyword.len..]);
+                        const after = pu.strip(next_line[keyword.len..]);
                         break :blk after;
                     }
                     break :blk @as([]const u8, "");
@@ -301,7 +302,7 @@ const Parser = struct {
 
         // Expect 'end'
         if (self.line_idx < self.lines.items.len) {
-            const end_line = strip(self.lines.items[self.line_idx]);
+            const end_line = pu.strip(self.lines.items[self.line_idx]);
             if (std.mem.eql(u8, end_line, "end")) {
                 self.line_idx += 1;
             }
@@ -332,14 +333,14 @@ const Parser = struct {
         }
 
         if (best_start) |arrow_start| {
-            var from_str = strip(line[0..arrow_start]);
+            var from_str = pu.strip(line[0..arrow_start]);
             const after_arrow = line[best_end..];
 
             // Check for +/- prefix on from
             var deactivate_source = false;
             if (from_str.len > 0 and from_str[from_str.len - 1] == '-') {
                 deactivate_source = true;
-                from_str = strip(from_str[0 .. from_str.len - 1]);
+                from_str = pu.strip(from_str[0 .. from_str.len - 1]);
             }
 
             // Parse "to: text" part
@@ -347,28 +348,28 @@ const Parser = struct {
             var msg_text: []const u8 = "";
             var activate_target = false;
 
-            if (indexOfChar(after_arrow, ':')) |colon| {
-                to_str = strip(after_arrow[0..colon]);
-                msg_text = strip(after_arrow[colon + 1 ..]);
+            if (pu.indexOfChar(after_arrow, ':')) |colon| {
+                to_str = pu.strip(after_arrow[0..colon]);
+                msg_text = pu.strip(after_arrow[colon + 1 ..]);
             } else {
-                to_str = strip(after_arrow);
+                to_str = pu.strip(after_arrow);
             }
 
             // Check for +/- suffix on to
             if (to_str.len > 0 and to_str[0] == '+') {
                 activate_target = true;
-                to_str = strip(to_str[1..]);
+                to_str = pu.strip(to_str[1..]);
             } else if (to_str.len > 0 and to_str[0] == '-') {
                 deactivate_source = true;
-                to_str = strip(to_str[1..]);
+                to_str = pu.strip(to_str[1..]);
             }
             // Also check trailing +/-
             if (to_str.len > 0 and to_str[to_str.len - 1] == '+') {
                 activate_target = true;
-                to_str = strip(to_str[0 .. to_str.len - 1]);
+                to_str = pu.strip(to_str[0 .. to_str.len - 1]);
             } else if (to_str.len > 0 and to_str[to_str.len - 1] == '-') {
                 deactivate_source = true;
-                to_str = strip(to_str[0 .. to_str.len - 1]);
+                to_str = pu.strip(to_str[0 .. to_str.len - 1]);
             }
 
             if (from_str.len == 0 or to_str.len == 0) return null;
@@ -463,36 +464,6 @@ fn blockKeywordLen(block_type: BlockType) usize {
     };
 }
 
-fn strip(s: []const u8) []const u8 {
-    var start: usize = 0;
-    while (start < s.len and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r')) : (start += 1) {}
-    var end = s.len;
-    while (end > start and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[start..end];
-}
-
-fn stripQuotes(s: []const u8) []const u8 {
-    if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') {
-        return s[1 .. s.len - 1];
-    }
-    return s;
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn indexOf(haystack: []const u8, needle: []const u8) ?usize {
-    return std.mem.indexOf(u8, haystack, needle);
-}
-
-fn indexOfChar(haystack: []const u8, needle: u8) ?usize {
-    return std.mem.indexOfScalar(u8, haystack, needle);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}
 
 fn isIdentChar(ch: u8) bool {
     return (ch >= 'a' and ch <= 'z') or

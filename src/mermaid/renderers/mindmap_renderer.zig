@@ -6,6 +6,7 @@ const MindMapNode = mm.MindMapNode;
 const NodeShape = mm.NodeShape;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
+const ru = @import("../render_utils.zig");
 
 pub fn drawMindMap(
     model: *const MindMapModel,
@@ -49,7 +50,7 @@ fn drawConnections(node: *const MindMapNode, ox: f32, oy: f32, scroll_y: f32) vo
         const mid_x = (start_x + end_x) / 2;
 
         // Simple curved line: start → mid → end
-        const line_color = withAlpha(child.color, 180);
+        const line_color = ru.withAlpha(child.color, 180);
         rl.drawLineEx(
             .{ .x = start_x, .y = start_y },
             .{ .x = mid_x, .y = (start_y + end_y) / 2 },
@@ -78,18 +79,18 @@ fn drawNode(node: *const MindMapNode, ox: f32, oy: f32, theme: *const Theme, fon
     switch (node.shape) {
         .rounded, .default_shape => {
             rl.drawRectangleRounded(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.3, 8, node.color);
-            rl.drawRectangleRoundedLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.3, 8, 2, darken(node.color));
+            rl.drawRectangleRoundedLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.3, 8, 2, ru.darken(node.color));
         },
         .square => {
             rl.drawRectangleRec(.{ .x = nx, .y = ny, .width = w, .height = h }, node.color);
-            rl.drawRectangleLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 2, darken(node.color));
+            rl.drawRectangleLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 2, ru.darken(node.color));
         },
         .circle => {
             const r = @max(w, h) / 2;
             const cx = nx + w / 2;
             const cy = ny + h / 2;
             rl.drawCircleV(.{ .x = cx, .y = cy }, r, node.color);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, r, darken(node.color));
+            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, r, ru.darken(node.color));
         },
         .hexagon => {
             // Draw hexagon as rectangle with pointed ends
@@ -113,7 +114,7 @@ fn drawNode(node: *const MindMapNode, ox: f32, oy: f32, theme: *const Theme, fon
         .cloud => {
             // Approximate cloud as a rounded rectangle with extra roundness
             rl.drawRectangleRounded(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.5, 12, node.color);
-            rl.drawRectangleRoundedLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.5, 12, 2, darken(node.color));
+            rl.drawRectangleRoundedLinesEx(.{ .x = nx, .y = ny, .width = w, .height = h }, 0.5, 12, 2, ru.darken(node.color));
         },
     }
 
@@ -156,15 +157,3 @@ fn drawTextCentered(
     rl.drawTextEx(font, z, .{ .x = tx, .y = ty }, font_size, spacing, color);
 }
 
-fn darken(c: rl.Color) rl.Color {
-    return .{
-        .r = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.r)) * 0.7)),
-        .g = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.g)) * 0.7)),
-        .b = @as(u8, @intFromFloat(@as(f32, @floatFromInt(c.b)) * 0.7)),
-        .a = c.a,
-    };
-}
-
-fn withAlpha(c: rl.Color, a: u8) rl.Color {
-    return .{ .r = c.r, .g = c.g, .b = c.b, .a = a };
-}

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const em = @import("../models/er_model.zig");
 const ERModel = em.ERModel;
 const ERAttribute = em.ERAttribute;
@@ -29,12 +30,12 @@ pub fn parse(allocator: Allocator, source: []const u8) !ERModel {
     var brace_depth: u32 = 0;
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
+        const line = pu.strip(raw_line);
 
-        if (line.len == 0 or isComment(line)) continue;
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
-            if (std.mem.eql(u8, line, "erDiagram") or startsWith(line, "erDiagram ")) {
+            if (std.mem.eql(u8, line, "erDiagram") or pu.startsWith(line, "erDiagram ")) {
                 past_header = true;
                 continue;
             }
@@ -43,8 +44,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !ERModel {
         }
 
         // Entity block: "ENTITY_NAME {"
-        if (endsWith(line, "{")) {
-            const entity_name = strip(line[0 .. line.len - 1]);
+        if (pu.endsWith(line, "{")) {
+            const entity_name = pu.strip(line[0 .. line.len - 1]);
             if (entity_name.len > 0) {
                 _ = try model.ensureEntity(entity_name);
                 current_entity = entity_name;
@@ -105,11 +106,11 @@ fn parseAttribute(line: []const u8) ERAttribute {
         if (std.mem.eql(u8, third, "PK") or std.mem.eql(u8, third, "FK") or std.mem.eql(u8, third, "UK")) {
             attr.key_type = third;
         } else {
-            attr.comment = stripQuotes(third);
+            attr.comment = pu.stripQuotes(third);
         }
     }
     if (parts.len >= 4) {
-        attr.comment = stripQuotes(parts.items[3]);
+        attr.comment = pu.stripQuotes(parts.items[3]);
     }
 
     parts.deinit();
@@ -160,7 +161,7 @@ fn tryParseRelationship(line: []const u8, model: *ERModel) !bool {
     // Relationship patterns: ||--||, ||--o{, }o--||, etc.
     // We look for "--" as the separator between left and right cardinality markers
 
-    const dash_pos = indexOfStr(line, "--") orelse return false;
+    const dash_pos = pu.indexOfStr(line, "--") orelse return false;
 
     // Find space before the relationship marker
     var rel_start: usize = dash_pos;
@@ -172,18 +173,18 @@ fn tryParseRelationship(line: []const u8, model: *ERModel) !bool {
 
     if (rel_start == 0 or rel_end >= line.len) return false;
 
-    const entity1 = strip(line[0..rel_start]);
+    const entity1 = pu.strip(line[0..rel_start]);
     const rel_marker = line[rel_start..rel_end];
-    const after_rel = strip(line[rel_end..]);
+    const after_rel = pu.strip(line[rel_end..]);
 
     if (entity1.len == 0 or after_rel.len == 0) return false;
 
     // Parse entity2 and label: "ENTITY2 : label"
     var entity2 = after_rel;
     var label: []const u8 = "";
-    if (indexOfStr(after_rel, " : ")) |colon| {
-        entity2 = strip(after_rel[0..colon]);
-        label = stripQuotes(strip(after_rel[colon + 3 ..]));
+    if (pu.indexOfStr(after_rel, " : ")) |colon| {
+        entity2 = pu.strip(after_rel[0..colon]);
+        label = pu.stripQuotes(pu.strip(after_rel[colon + 3 ..]));
     }
 
     if (entity2.len == 0) return false;
@@ -222,41 +223,9 @@ fn parseRightCardinality(marker: []const u8, dash_offset: usize) Cardinality {
 
 fn parseCardinalityStr(s: []const u8) Cardinality {
     if (s.len == 0) return .exactly_one;
-    if (containsStr(s, "}o") or containsStr(s, "o{")) return .zero_or_more;
-    if (containsStr(s, "}|") or containsStr(s, "|{")) return .one_or_more;
-    if (containsStr(s, "|o") or containsStr(s, "o|")) return .zero_or_one;
+    if (pu.containsStr(s, "}o") or pu.containsStr(s, "o{")) return .zero_or_more;
+    if (pu.containsStr(s, "}|") or pu.containsStr(s, "|{")) return .one_or_more;
+    if (pu.containsStr(s, "|o") or pu.containsStr(s, "o|")) return .zero_or_one;
     return .exactly_one; // || or other
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn stripQuotes(s: []const u8) []const u8 {
-    if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') return s[1 .. s.len - 1];
-    return s;
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn endsWith(s: []const u8, suffix: []const u8) bool {
-    return s.len >= suffix.len and std.mem.eql(u8, s[s.len - suffix.len ..], suffix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}
-
-fn indexOfStr(haystack: []const u8, needle: []const u8) ?usize {
-    return std.mem.indexOf(u8, haystack, needle);
-}
-
-fn containsStr(haystack: []const u8, needle: []const u8) bool {
-    return std.mem.indexOf(u8, haystack, needle) != null;
-}

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const pu = @import("../parse_utils.zig");
 const cm = @import("../models/class_model.zig");
 const ClassModel = cm.ClassModel;
 const ClassMember = cm.ClassMember;
@@ -30,12 +31,12 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
     var brace_depth: u32 = 0;
 
     for (lines.items) |raw_line| {
-        const line = strip(raw_line);
+        const line = pu.strip(raw_line);
 
-        if (line.len == 0 or isComment(line)) continue;
+        if (line.len == 0 or pu.isComment(line)) continue;
 
         if (!past_header) {
-            if (std.mem.eql(u8, line, "classDiagram") or startsWith(line, "classDiagram ")) {
+            if (std.mem.eql(u8, line, "classDiagram") or pu.startsWith(line, "classDiagram ")) {
                 past_header = true;
                 continue;
             }
@@ -44,10 +45,10 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
         }
 
         // Check for class block opening: "class ClassName {"
-        if (startsWith(line, "class ")) {
-            const rest = strip(line["class ".len..]);
-            if (endsWith(rest, "{")) {
-                const class_name = strip(rest[0 .. rest.len - 1]);
+        if (pu.startsWith(line, "class ")) {
+            const rest = pu.strip(line["class ".len..]);
+            if (pu.endsWith(rest, "{")) {
+                const class_name = pu.strip(rest[0 .. rest.len - 1]);
                 _ = try model.ensureClass(class_name);
                 current_class = class_name;
                 brace_depth = 1;
@@ -56,7 +57,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
             // "class ClassName" without brace - just declare
             const class_name = rest;
             // Check for generic: "class ClassName~GenericType~"
-            if (indexOfChar(class_name, '~')) |tilde| {
+            if (pu.indexOfChar(class_name, '~')) |tilde| {
                 const base_name = class_name[0..tilde];
                 _ = try model.ensureClass(base_name);
             } else {
@@ -82,10 +83,10 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
         }
 
         // Annotation: <<interface>> ClassName
-        if (startsWith(line, "<<")) {
-            if (indexOfStr(line, ">>")) |close| {
+        if (pu.startsWith(line, "<<")) {
+            if (pu.indexOfStr(line, ">>")) |close| {
                 const annotation = line[0 .. close + 2];
-                const class_name = strip(line[close + 2 ..]);
+                const class_name = pu.strip(line[close + 2 ..]);
                 if (class_name.len > 0) {
                     var cls = try model.ensureClass(class_name);
                     cls.annotation = annotation;
@@ -98,9 +99,9 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
         if (try tryParseRelationship(line, &model)) continue;
 
         // Member addition: "ClassName : +method()" or "ClassName : -field"
-        if (indexOfStr(line, " : ")) |colon_pos| {
-            const class_name = strip(line[0..colon_pos]);
-            const member_str = strip(line[colon_pos + 3 ..]);
+        if (pu.indexOfStr(line, " : ")) |colon_pos| {
+            const class_name = pu.strip(line[0..colon_pos]);
+            const member_str = pu.strip(line[colon_pos + 3 ..]);
             if (class_name.len > 0 and member_str.len > 0) {
                 var cls = try model.ensureClass(class_name);
                 try cls.members.append(parseMember(member_str));
@@ -149,23 +150,23 @@ fn tryParseRelationship(line: []const u8, model: *ClassModel) !bool {
     };
 
     for (arrows) |arr| {
-        if (indexOfStr(line, arr.pattern)) |pos| {
-            const left_part = strip(line[0..pos]);
-            const right_part = strip(line[pos + arr.pattern.len ..]);
+        if (pu.indexOfStr(line, arr.pattern)) |pos| {
+            const left_part = pu.strip(line[0..pos]);
+            const right_part = pu.strip(line[pos + arr.pattern.len ..]);
 
             if (left_part.len == 0 or right_part.len == 0) continue;
 
             // Check for label after " : "
             var to_class: []const u8 = right_part;
             var label: ?[]const u8 = null;
-            if (indexOfStr(right_part, " : ")) |colon| {
-                to_class = strip(right_part[0..colon]);
-                label = strip(right_part[colon + 3 ..]);
+            if (pu.indexOfStr(right_part, " : ")) |colon| {
+                to_class = pu.strip(right_part[0..colon]);
+                label = pu.strip(right_part[colon + 3 ..]);
             }
 
             // Check for cardinality in quotes: "1" -- "*"
-            const from_class = stripQuotes(left_part);
-            to_class = stripQuotes(to_class);
+            const from_class = pu.stripQuotes(left_part);
+            to_class = pu.stripQuotes(to_class);
 
             if (from_class.len == 0 or to_class.len == 0) continue;
 
@@ -221,7 +222,7 @@ fn parseMember(line: []const u8) ClassMember {
     }
 
     // If it contains parentheses, it's a method
-    if (indexOfChar(text, '(') != null) {
+    if (pu.indexOfChar(text, '(') != null) {
         is_method = true;
     }
 
@@ -232,37 +233,3 @@ fn parseMember(line: []const u8) ClassMember {
     };
 }
 
-fn strip(s: []const u8) []const u8 {
-    var st: usize = 0;
-    while (st < s.len and (s[st] == ' ' or s[st] == '\t' or s[st] == '\r')) : (st += 1) {}
-    var end = s.len;
-    while (end > st and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) : (end -= 1) {}
-    return s[st..end];
-}
-
-fn stripQuotes(s: []const u8) []const u8 {
-    if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') {
-        return s[1 .. s.len - 1];
-    }
-    return s;
-}
-
-fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
-}
-
-fn endsWith(s: []const u8, suffix: []const u8) bool {
-    return s.len >= suffix.len and std.mem.eql(u8, s[s.len - suffix.len ..], suffix);
-}
-
-fn isComment(line: []const u8) bool {
-    return line.len >= 2 and line[0] == '%' and line[1] == '%';
-}
-
-fn indexOfChar(haystack: []const u8, needle: u8) ?usize {
-    return std.mem.indexOfScalar(u8, haystack, needle);
-}
-
-fn indexOfStr(haystack: []const u8, needle: []const u8) ?usize {
-    return std.mem.indexOf(u8, haystack, needle);
-}
