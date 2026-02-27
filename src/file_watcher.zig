@@ -264,3 +264,211 @@ pub const FileWatcher = struct {
         }
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+/// Helper: create a temp file with content and return its absolute path (caller frees).
+fn createTempFile(allocator: std.mem.Allocator, tmp_dir: *std.testing.TmpDir, content: []const u8) ![]const u8 {
+    const sub_path = "test_watched_file.md";
+    const file = try tmp_dir.dir.createFile(sub_path, .{});
+    defer file.close();
+    try file.writeAll(content);
+
+    return try tmp_dir.dir.realpathAlloc(allocator, sub_path);
+}
+
+test "getFileMtime returns valid mtime for existing file" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("exists.txt", .{});
+    file.close();
+
+    const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "exists.txt");
+    defer testing.allocator.free(path);
+
+    const result = FileWatcher.getFileMtime(path);
+    switch (result) {
+        .mtime => |m| try testing.expect(m > 0),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "getFileMtime returns not_found for missing file" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(path);
+
+    // Build a path to a file that does not exist within the temp dir
+    const missing = try std.fmt.allocPrint(testing.allocator, "{s}/no_such_file.txt", .{path});
+    defer testing.allocator.free(missing);
+
+    const result = FileWatcher.getFileMtime(missing);
+    try testing.expectEqual(.not_found, result);
+}
+
+test "getFileMtime returns access_error for unreadable file" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("noperm.txt", .{});
+    file.close();
+
+    const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "noperm.txt");
+    defer testing.allocator.free(path);
+
+    // Remove all permissions so open fails with AccessDenied
+    const sub_path: [:0]const u8 = "noperm.txt";
+    try std.posix.fchmodat(tmp_dir.dir.fd, sub_path, @as(std.posix.mode_t, 0), 0);
+
+    const result = FileWatcher.getFileMtime(path);
+    switch (result) {
+        .access_error => {},
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "initialMtime returns 0 for missing file" {
+    const mtime = FileWatcher.initialMtime("/tmp/__selkie_nonexistent_test_file__");
+    try testing.expectEqual(@as(i128, 0), mtime);
+}
+
+test "initialMtime returns nonzero for existing file" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("mtime_test.txt", .{});
+    file.close();
+
+    const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "mtime_test.txt");
+    defer testing.allocator.free(path);
+
+    const mtime = FileWatcher.initialMtime(path);
+    try testing.expect(mtime > 0);
+}
+
+test "consumePendingChange with no pending returns no_change" {
+    var watcher = FileWatcher{
+        .file_path = "/tmp/__selkie_test__",
+        .dir_path = "/tmp",
+        .file_name = "__selkie_test__",
+        .mode = .polling,
+        .last_mtime = 0,
+        .last_poll_ms = 0,
+        .last_event_ms = 0,
+        .pending_change = false,
+    };
+    try testing.expectEqual(.no_change, watcher.consumePendingChange());
+}
+
+test "polling mode returns no_change when file unchanged" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try createTempFile(testing.allocator, &tmp_dir, "hello");
+    defer testing.allocator.free(path);
+
+    var watcher = FileWatcher.initPolling(
+        path,
+        std.fs.path.dirname(path) orelse ".",
+        std.fs.path.basename(path),
+    );
+    defer watcher.deinit();
+
+    // Reset poll timer so checkPolling actually polls
+    watcher.last_poll_ms = 0;
+
+    const result = watcher.checkPolling();
+    try testing.expectEqual(.no_change, result);
+}
+
+test "polling mode detects file change" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try createTempFile(testing.allocator, &tmp_dir, "original");
+    defer testing.allocator.free(path);
+
+    var watcher = FileWatcher.initPolling(
+        path,
+        std.fs.path.dirname(path) orelse ".",
+        std.fs.path.basename(path),
+    );
+    defer watcher.deinit();
+
+    // Modify the file — write different content to change mtime
+    const file = try tmp_dir.dir.createFile("test_watched_file.md", .{ .truncate = true });
+    defer file.close();
+    try file.writeAll("modified content");
+
+    // Force poll to fire by resetting timer
+    watcher.last_poll_ms = 0;
+    // Force mtime to differ (set to 0 so any real mtime triggers change)
+    watcher.last_mtime = 0;
+
+    // First poll should detect change and set pending
+    _ = watcher.checkPolling();
+    try testing.expect(watcher.pending_change);
+
+    // Simulate time past debounce window by backdating last_event_ms
+    watcher.last_event_ms = std.time.milliTimestamp() - (FileWatcher.debounce_ms + 100);
+
+    // Now consumePendingChange should return file_changed
+    const result = watcher.consumePendingChange();
+    try testing.expectEqual(.file_changed, result);
+}
+
+test "polling mode detects file deletion" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try createTempFile(testing.allocator, &tmp_dir, "to be deleted");
+    defer testing.allocator.free(path);
+
+    var watcher = FileWatcher.initPolling(
+        path,
+        std.fs.path.dirname(path) orelse ".",
+        std.fs.path.basename(path),
+    );
+    defer watcher.deinit();
+
+    // Delete the file
+    try tmp_dir.dir.deleteFile("test_watched_file.md");
+
+    // Force poll to fire
+    watcher.last_poll_ms = 0;
+
+    const result = watcher.checkPolling();
+    try testing.expectEqual(.file_deleted, result);
+}
+
+test "debounce suppresses rapid changes" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try createTempFile(testing.allocator, &tmp_dir, "initial");
+    defer testing.allocator.free(path);
+
+    var watcher = FileWatcher.initPolling(
+        path,
+        std.fs.path.dirname(path) orelse ".",
+        std.fs.path.basename(path),
+    );
+    defer watcher.deinit();
+
+    // Simulate a pending change that just happened (within debounce window)
+    watcher.pending_change = true;
+    watcher.last_event_ms = std.time.milliTimestamp();
+
+    // Should return no_change because we're within the 300ms debounce window
+    const result = watcher.consumePendingChange();
+    try testing.expectEqual(.no_change, result);
+    // pending_change should still be true (not consumed)
+    try testing.expect(watcher.pending_change);
+}

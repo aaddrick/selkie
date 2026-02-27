@@ -16,6 +16,7 @@ test {
     _ = @import("viewport/scroll.zig");
     _ = @import("render/syntax_highlight.zig");
     _ = @import("utils/slice_utils.zig");
+    _ = @import("file_watcher.zig");
     // Mermaid subsystem tests
     _ = @import("mermaid/parse_utils.zig");
     _ = @import("mermaid/tokenizer.zig");
