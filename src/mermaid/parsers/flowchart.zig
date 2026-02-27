@@ -28,7 +28,7 @@ pub fn parse(allocator: Allocator, tokens: std.ArrayList(Token)) !FlowchartModel
         (!std.mem.eql(u8, first.text, "graph") and !std.mem.eql(u8, first.text, "flowchart")))
     {
         // Not a valid flowchart, return empty model
-        return FlowchartModel.init(allocator, .TD);
+        return FlowchartModel.init(allocator, .td);
     }
     parser.advance();
 
@@ -81,22 +81,22 @@ const Parser = struct {
         if (tok.type == .keyword or tok.type == .identifier) {
             if (std.mem.eql(u8, tok.text, "TD") or std.mem.eql(u8, tok.text, "TB")) {
                 self.advance();
-                return .TD;
+                return .td;
             }
             if (std.mem.eql(u8, tok.text, "BT")) {
                 self.advance();
-                return .BT;
+                return .bt;
             }
             if (std.mem.eql(u8, tok.text, "LR")) {
                 self.advance();
-                return .LR;
+                return .lr;
             }
             if (std.mem.eql(u8, tok.text, "RL")) {
                 self.advance();
-                return .RL;
+                return .rl;
             }
         }
-        return .TD; // default
+        return .td; // default
     }
 
     const ParseError = Allocator.Error;

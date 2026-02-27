@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const rl = @import("raylib");
 
 const ast = @import("../parser/ast.zig");
-const lt = @import("layout_types.zig");
+const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 
@@ -71,7 +71,7 @@ fn measureInlineWidth(
 pub fn layoutTable(
     allocator: Allocator,
     table_node: *const ast.Node,
-    tree: *lt.LayoutTree,
+    tree: *layout_types.LayoutTree,
     theme: *const Theme,
     fonts: *const Fonts,
     content_x: f32,
@@ -140,7 +140,7 @@ pub fn layoutTable(
             null;
 
         if (row_bg_color) |bg_color| {
-            var bg_node = lt.LayoutNode.init(allocator, .{ .table_row_bg = .{ .bg_color = bg_color } });
+            var bg_node = layout_types.LayoutNode.init(allocator, .{ .table_row_bg = .{ .bg_color = bg_color } });
             errdefer bg_node.deinit();
             bg_node.rect = .{
                 .x = content_x,
@@ -160,7 +160,7 @@ pub fn layoutTable(
             const alignment: ast.Alignment = if (col_idx < alignments.len) alignments[col_idx] else .none;
 
             // Create a text_block-like node for the cell
-            var cell_node = lt.LayoutNode.init(allocator, .table_cell);
+            var cell_node = layout_types.LayoutNode.init(allocator, .table_cell);
             errdefer cell_node.deinit();
 
             // Layout inline content within the cell
@@ -168,7 +168,7 @@ pub fn layoutTable(
             const text_y = row_y + cell_pad;
             const available_w = col_w - cell_pad * 2;
 
-            const style = lt.TextStyle{
+            const style = layout_types.TextStyle{
                 .font_size = font_size,
                 .color = theme.text,
                 .bold = is_header,
@@ -198,7 +198,7 @@ pub fn layoutTable(
         }
 
         // Horizontal border below row
-        var h_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
+        var h_border = layout_types.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
         errdefer h_border.deinit();
         h_border.rect = .{
             .x = content_x,
@@ -213,7 +213,7 @@ pub fn layoutTable(
     }
 
     // Top border
-    var top_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
+    var top_border = layout_types.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
     errdefer top_border.deinit();
     top_border.rect = .{
         .x = content_x,
@@ -226,7 +226,7 @@ pub fn layoutTable(
     // Vertical borders
     var vx = content_x;
     for (0..num_cols + 1) |i| {
-        var v_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
+        var v_border = layout_types.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
         errdefer v_border.deinit();
         v_border.rect = .{
             .x = vx,
@@ -245,8 +245,8 @@ pub fn layoutTable(
 fn layoutCellInlines(
     cell: *const ast.Node,
     fonts: *const Fonts,
-    layout_node: *lt.LayoutNode,
-    style: lt.TextStyle,
+    layout_node: *layout_types.LayoutNode,
+    style: layout_types.TextStyle,
     text_x: f32,
     text_y: f32,
     available_w: f32,
@@ -260,8 +260,8 @@ fn layoutCellInlines(
 fn layoutCellInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
-    layout_node: *lt.LayoutNode,
-    style: lt.TextStyle,
+    layout_node: *layout_types.LayoutNode,
+    style: layout_types.TextStyle,
     text_x: f32,
     text_y: f32,
     available_w: f32,
@@ -286,7 +286,7 @@ fn layoutCellInlineContent(
 fn measureInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
-    style: lt.TextStyle,
+    style: layout_types.TextStyle,
     total_w: *f32,
 ) !void {
     for (node.children.items) |*child| {
@@ -327,8 +327,8 @@ fn measureInlineRuns(
 fn placeInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
-    layout_node: *lt.LayoutNode,
-    style: lt.TextStyle,
+    layout_node: *layout_types.LayoutNode,
+    style: layout_types.TextStyle,
     cursor_x: *f32,
     text_y: f32,
 ) !void {

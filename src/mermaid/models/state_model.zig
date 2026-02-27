@@ -43,7 +43,7 @@ pub const StateModel = struct {
         return .{
             .states = std.ArrayList(State).init(allocator),
             .transitions = std.ArrayList(Transition).init(allocator),
-            .graph = Graph.init(allocator, .TD),
+            .graph = Graph.init(allocator, .td),
             .allocator = allocator,
         };
     }

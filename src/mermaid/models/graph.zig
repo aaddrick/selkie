@@ -2,10 +2,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const Direction = enum {
-    TD,
-    BT,
-    LR,
-    RL,
+    td,
+    bt,
+    lr,
+    rl,
 };
 
 pub const NodeShape = enum {

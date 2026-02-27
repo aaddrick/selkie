@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const lt = @import("../layout/layout_types.zig");
+const layout_types = @import("../layout/layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const detector = @import("detector.zig");
@@ -24,15 +24,15 @@ const tree_layout = @import("layout/tree_layout.zig");
 /// only the node's text_runs list is cleaned up here.
 fn appendDiagramNode(
     allocator: Allocator,
-    data: lt.NodeData,
+    data: layout_types.NodeData,
     x: f32,
     y: *f32,
     width: f32,
     height: f32,
-    tree: *lt.LayoutTree,
+    tree: *layout_types.LayoutTree,
     spacing: f32,
 ) !void {
-    var node = lt.LayoutNode.init(allocator, data);
+    var node = layout_types.LayoutNode.init(allocator, data);
     errdefer node.text_runs.deinit();
     node.rect = .{ .x = x, .y = y.*, .width = width, .height = height };
     try tree.nodes.append(node);
@@ -47,7 +47,7 @@ pub fn layoutMermaidBlock(
     content_x: f32,
     content_width: f32,
     cursor_y: *f32,
-    tree: *lt.LayoutTree,
+    tree: *layout_types.LayoutTree,
 ) !void {
     const src = source orelse "";
     if (src.len == 0) return;
@@ -371,7 +371,7 @@ pub fn layoutMermaidBlock(
         },
         .unsupported => {
             // Render placeholder text
-            var node = lt.LayoutNode.init(allocator, .text_block);
+            var node = layout_types.LayoutNode.init(allocator, .text_block);
             errdefer node.deinit();
 
             const placeholder = "Unsupported diagram type";

@@ -167,8 +167,7 @@ pub fn loadFromJson(allocator: Allocator, json_data: []const u8) !Theme {
 
         // Heading colors array
         if (c.heading) |headings| {
-            var i: usize = 0;
-            while (i < 6 and i < headings.len) : (i += 1) {
+            for (0..@min(6, headings.len)) |i| {
                 theme.heading[i] = parseHexColor(headings[i]) catch def.heading[i];
             }
         }
@@ -181,8 +180,7 @@ pub fn loadFromJson(allocator: Allocator, json_data: []const u8) !Theme {
         theme.line_height = try f64ToF32(s.line_height, def.line_height);
 
         if (s.heading_scale) |scales| {
-            var i: usize = 0;
-            while (i < 6 and i < scales.len) : (i += 1) {
+            for (0..@min(6, scales.len)) |i| {
                 theme.heading_scale[i] = try validateScale(scales[i]);
             }
         }

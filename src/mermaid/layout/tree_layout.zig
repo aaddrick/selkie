@@ -12,13 +12,13 @@ pub const LayoutResult = struct {
     height: f32,
 };
 
-const NODE_PADDING_H: f32 = 16;
-const NODE_PADDING_V: f32 = 8;
-const SIBLING_SPACING: f32 = 16;
-const LEVEL_SPACING: f32 = 60;
-const MIN_NODE_WIDTH: f32 = 50;
-const MIN_NODE_HEIGHT: f32 = 30;
-const DIAGRAM_PADDING: f32 = 20;
+const node_padding_h: f32 = 16;
+const node_padding_v: f32 = 8;
+const sibling_spacing: f32 = 16;
+const level_spacing: f32 = 60;
+const min_node_width: f32 = 50;
+const min_node_height: f32 = 30;
+const diagram_padding: f32 = 20;
 
 /// Color palette for depth levels
 const depth_palette = [_]rl.Color{
@@ -52,8 +52,8 @@ pub fn layout(
 
     // Step 3: Assign positions — root at left-center, children spread right
     const total_height = model.root.?.subtree_height;
-    const start_x = DIAGRAM_PADDING;
-    const start_y = DIAGRAM_PADDING;
+    const start_x = diagram_padding;
+    const start_y = diagram_padding;
 
     assignPositions(&model.root.?, start_x, start_y, total_height);
 
@@ -62,8 +62,8 @@ pub fn layout(
     var max_y: f32 = 0;
     computeBounds(&model.root.?, &max_x, &max_y);
 
-    const width = @min(max_x + DIAGRAM_PADDING, max_width);
-    const height = max_y + DIAGRAM_PADDING;
+    const width = @min(max_x + diagram_padding, max_width);
+    const height = max_y + diagram_padding;
 
     return .{ .width = width, .height = height };
 }
@@ -76,8 +76,8 @@ fn measureNode(node: *MindMapNode, fonts: *const Fonts, theme: *const Theme) voi
     };
 
     const measured = fonts.measure(node.label, font_size, node.depth == 0, false, false);
-    node.width = @max(MIN_NODE_WIDTH, measured.x + NODE_PADDING_H * 2);
-    node.height = @max(MIN_NODE_HEIGHT, measured.y + NODE_PADDING_V * 2);
+    node.width = @max(min_node_width, measured.x + node_padding_h * 2);
+    node.height = @max(min_node_height, measured.y + node_padding_v * 2);
     node.color = depth_palette[node.depth % depth_palette.len];
 
     for (node.children.items) |*child| {
@@ -97,7 +97,7 @@ fn computeSubtreeHeight(node: *MindMapNode) void {
         total += child.subtree_height;
     }
     // Add spacing between siblings
-    total += @as(f32, @floatFromInt(node.children.items.len -| 1)) * SIBLING_SPACING;
+    total += @as(f32, @floatFromInt(node.children.items.len -| 1)) * sibling_spacing;
 
     node.subtree_height = @max(node.height, total);
 }
@@ -110,21 +110,21 @@ fn assignPositions(node: *MindMapNode, x: f32, y: f32, available_height: f32) vo
     if (node.children.items.len == 0) return;
 
     // Children start to the right
-    const child_x = x + node.width + LEVEL_SPACING;
+    const child_x = x + node.width + level_spacing;
 
     // Total height needed by children
     var children_total: f32 = 0;
     for (node.children.items) |child| {
         children_total += child.subtree_height;
     }
-    children_total += @as(f32, @floatFromInt(node.children.items.len -| 1)) * SIBLING_SPACING;
+    children_total += @as(f32, @floatFromInt(node.children.items.len -| 1)) * sibling_spacing;
 
     // Center children vertically relative to this node's center
     var child_y = node.y + node.height / 2 - children_total / 2;
 
     for (node.children.items) |*child| {
         assignPositions(child, child_x, child_y, child.subtree_height);
-        child_y += child.subtree_height + SIBLING_SPACING;
+        child_y += child.subtree_height + sibling_spacing;
     }
 }
 

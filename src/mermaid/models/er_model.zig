@@ -46,7 +46,7 @@ pub const ERModel = struct {
         return .{
             .entities = std.ArrayList(EREntity).init(allocator),
             .relationships = std.ArrayList(ERRelationship).init(allocator),
-            .graph = Graph.init(allocator, .TD),
+            .graph = Graph.init(allocator, .td),
             .allocator = allocator,
         };
     }

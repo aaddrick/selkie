@@ -1,11 +1,11 @@
 const rl = @import("raylib");
-const lt = @import("../layout/layout_types.zig");
+const layout_types = @import("../layout/layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const text_renderer = @import("text_renderer.zig");
 
 /// Draw a table row background (header bg or alternating row bg).
-pub fn drawTableRowBg(node: *const lt.LayoutNode, scroll_y: f32) void {
+pub fn drawTableRowBg(node: *const layout_types.LayoutNode, scroll_y: f32) void {
     const bg = node.data.table_row_bg.bg_color;
     rl.drawRectangleRec(
         .{
@@ -19,7 +19,7 @@ pub fn drawTableRowBg(node: *const lt.LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw table grid lines (borders).
-pub fn drawTableBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
+pub fn drawTableBorder(node: *const layout_types.LayoutNode, scroll_y: f32) void {
     const color = node.data.table_border.color;
     rl.drawRectangleRec(
         .{
@@ -33,7 +33,7 @@ pub fn drawTableBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw text runs within a table cell.
-pub fn drawTableCell(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawTableCell(node: *const layout_types.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
     for (node.text_runs.items) |*run| {
         text_renderer.drawTextRun(run, fonts, scroll_y);
     }

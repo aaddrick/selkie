@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const rl = @import("raylib");
 
 const ast = @import("../parser/ast.zig");
-const lt = @import("layout_types.zig");
+const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const table_layout = @import("table_layout.zig");
@@ -19,7 +19,7 @@ pub const LayoutContext = struct {
     content_width: f32,
     content_x: f32,
     cursor_y: f32,
-    tree: *lt.LayoutTree,
+    tree: *layout_types.LayoutTree,
     // List context
     list_depth: u8 = 0,
     list_type: ast.ListType = .bullet,
@@ -37,7 +37,7 @@ pub const LayoutContext = struct {
         theme: *const Theme,
         fonts: *const Fonts,
         window_width: f32,
-        tree: *lt.LayoutTree,
+        tree: *layout_types.LayoutTree,
     ) LayoutContext {
         const content_width = @min(
             theme.max_content_width,
@@ -60,8 +60,8 @@ pub const LayoutContext = struct {
 fn layoutInlines(
     ctx: *LayoutContext,
     node: *const ast.Node,
-    style: lt.TextStyle,
-    layout_node: *lt.LayoutNode,
+    style: layout_types.TextStyle,
+    layout_node: *layout_types.LayoutNode,
     cursor_x: *f32,
     line_height: *f32,
 ) !void {
@@ -159,7 +159,7 @@ fn layoutInlines(
                 else
                     null;
 
-                var img_node = lt.LayoutNode.init(ctx.allocator, .{ .image = .{
+                var img_node = layout_types.LayoutNode.init(ctx.allocator, .{ .image = .{
                     .texture = texture,
                     .alt = alt_text,
                 } });
@@ -192,8 +192,8 @@ fn layoutInlines(
 fn layoutTextRun(
     ctx: *LayoutContext,
     text: []const u8,
-    style: lt.TextStyle,
-    layout_node: *lt.LayoutNode,
+    style: layout_types.TextStyle,
+    layout_node: *layout_types.LayoutNode,
     cursor_x: *f32,
     line_height: *f32,
 ) !void {
@@ -218,7 +218,7 @@ fn layoutTextRun(
             ctx.cursor_y += line_height.*;
         }
 
-        const run = lt.TextRun{
+        const run = layout_types.TextRun{
             .text = word,
             .style = style,
             .rect = .{
@@ -256,12 +256,12 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
         .heading => {
             ctx.cursor_y += ctx.theme.heading_spacing_above;
 
-            var layout_node = lt.LayoutNode.init(ctx.allocator, .{ .heading = .{ .level = node.heading_level } });
+            var layout_node = layout_types.LayoutNode.init(ctx.allocator, .{ .heading = .{ .level = node.heading_level } });
             errdefer layout_node.deinit();
 
             const font_size = ctx.theme.headingSize(node.heading_level);
             const color = ctx.theme.headingColor(node.heading_level);
-            const style = lt.TextStyle{
+            const style = layout_types.TextStyle{
                 .font_size = font_size,
                 .color = color,
                 .bold = true,
@@ -289,11 +289,11 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y += layout_node.rect.height + ctx.theme.heading_spacing_below;
         },
         .paragraph => {
-            var layout_node = lt.LayoutNode.init(ctx.allocator, .text_block);
+            var layout_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
 
             const text_color = if (ctx.dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
-            const style = lt.TextStyle{
+            const style = layout_types.TextStyle{
                 .font_size = ctx.theme.body_font_size,
                 .color = text_color,
                 .dimmed = ctx.dimmed,
@@ -344,7 +344,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
         },
         .thematic_break => {
-            var layout_node = lt.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
+            var layout_node = layout_types.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
             errdefer layout_node.deinit();
             layout_node.rect = .{
                 .x = ctx.content_x,
@@ -368,7 +368,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
 
             // Add border marker
-            var border_node = lt.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = ctx.theme.blockquote_border } });
+            var border_node = layout_types.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = ctx.theme.blockquote_border } });
             errdefer border_node.deinit();
             border_node.rect = .{
                 .x = saved_x,
@@ -418,12 +418,12 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_width -= ctx.theme.list_indent;
 
             // Add bullet/number/checkbox marker
-            var marker_node = lt.LayoutNode.init(ctx.allocator, .text_block);
+            var marker_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer marker_node.deinit();
 
             const is_dimmed = node.tasklist_checked orelse false;
             const marker_color = if (is_dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
-            const marker_style = lt.TextStyle{
+            const marker_style = layout_types.TextStyle{
                 .font_size = ctx.theme.body_font_size,
                 .color = marker_color,
             };
@@ -505,7 +505,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
                 ctx.cursor_y += ctx.theme.paragraph_spacing;
 
                 // Thin separator line
-                var sep_node = lt.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
+                var sep_node = layout_types.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
                 errdefer sep_node.deinit();
                 sep_node.rect = .{
                     .x = ctx.content_x,
@@ -518,11 +518,11 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
 
             // Render as a small paragraph with footnote number prefix
-            var layout_node = lt.LayoutNode.init(ctx.allocator, .text_block);
+            var layout_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
 
             const small_size = ctx.theme.body_font_size * 0.85;
-            const style = lt.TextStyle{
+            const style = layout_types.TextStyle{
                 .font_size = small_size,
                 .color = ctx.theme.text,
             };
@@ -575,8 +575,8 @@ pub fn layout(
     fonts: *const Fonts,
     window_width: f32,
     image_renderer: ?*ImageRenderer,
-) !lt.LayoutTree {
-    var tree = lt.LayoutTree.init(allocator);
+) !layout_types.LayoutTree {
+    var tree = layout_types.LayoutTree.init(allocator);
     errdefer tree.deinit();
     var ctx = LayoutContext.init(allocator, theme, fonts, window_width, &tree);
     ctx.image_renderer = image_renderer;

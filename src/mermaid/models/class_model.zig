@@ -60,7 +60,7 @@ pub const ClassModel = struct {
         return .{
             .classes = std.ArrayList(ClassNode).init(allocator),
             .relationships = std.ArrayList(ClassRelationship).init(allocator),
-            .graph = Graph.init(allocator, .TD),
+            .graph = Graph.init(allocator, .td),
             .allocator = allocator,
         };
     }

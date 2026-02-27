@@ -1,6 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
-const lt = @import("../layout/layout_types.zig");
+const layout_types = @import("../layout/layout_types.zig");
 const slice_utils = @import("../utils/slice_utils.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 
@@ -16,7 +16,7 @@ pub const LinkHandler = struct {
 
     /// Check if mouse is hovering over any link text runs in the tree.
     /// Uses frustum culling to skip nodes outside the visible region.
-    pub fn update(self: *LinkHandler, tree: *const lt.LayoutTree, scroll_y: f32, screen_h: f32) void {
+    pub fn update(self: *LinkHandler, tree: *const layout_types.LayoutTree, scroll_y: f32, screen_h: f32) void {
         const mouse_x: f32 = @floatFromInt(rl.getMouseX());
         const mouse_y: f32 = @floatFromInt(rl.getMouseY());
         self.hovered_url = null;

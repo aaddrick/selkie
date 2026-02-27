@@ -9,13 +9,13 @@ const Direction = graph_mod.Direction;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
 const Theme = @import("../../theme/theme.zig").Theme;
 
-const NODE_PADDING_H: f32 = 20;
-const NODE_PADDING_V: f32 = 10;
-const NODE_SPACING: f32 = 40;
-const LAYER_SPACING: f32 = 80;
-const MIN_NODE_WIDTH: f32 = 60;
-const MIN_NODE_HEIGHT: f32 = 40;
-const DIAGRAM_PADDING: f32 = 20;
+const node_padding_h: f32 = 20;
+const node_padding_v: f32 = 10;
+const node_spacing: f32 = 40;
+const layer_spacing: f32 = 80;
+const min_node_width: f32 = 60;
+const min_node_height: f32 = 40;
+const diagram_padding: f32 = 20;
 
 pub const LayoutResult = struct {
     width: f32,
@@ -47,7 +47,7 @@ pub fn layout(allocator: Allocator, graph: *Graph, fonts: *const Fonts, theme: *
     try minimizeCrossings(graph, &layers);
 
     // Step 4: Assign coordinates
-    const is_horizontal = (graph.direction == .LR or graph.direction == .RL);
+    const is_horizontal = (graph.direction == .lr or graph.direction == .rl);
     const result = assignCoordinates(graph, &layers, is_horizontal);
 
     // Step 5: Route edges
@@ -62,8 +62,8 @@ fn measureNodes(graph: *Graph, fonts: *const Fonts, theme: *const Theme) void {
         var node = entry.value_ptr;
         const font_size = theme.body_font_size;
         const measured = fonts.measure(node.label, font_size, false, false, false);
-        node.width = @max(MIN_NODE_WIDTH, measured.x + NODE_PADDING_H * 2);
-        node.height = @max(MIN_NODE_HEIGHT, measured.y + NODE_PADDING_V * 2);
+        node.width = @max(min_node_width, measured.x + node_padding_h * 2);
+        node.height = @max(min_node_height, measured.y + node_padding_v * 2);
 
         // Adjust dimensions for specific shapes
         switch (node.shape) {
@@ -252,16 +252,16 @@ fn assignCoordinates(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const
         for (layer.items) |node_id| {
             if (graph.nodes.get(node_id)) |node| {
                 if (is_horizontal) {
-                    layer_extent += node.height + NODE_SPACING;
+                    layer_extent += node.height + node_spacing;
                 } else {
-                    layer_extent += node.width + NODE_SPACING;
+                    layer_extent += node.width + node_spacing;
                 }
             }
         }
-        if (layer.items.len > 0) layer_extent -= NODE_SPACING;
+        if (layer.items.len > 0) layer_extent -= node_spacing;
 
         // Position nodes centered
-        var offset: f32 = DIAGRAM_PADDING;
+        var offset: f32 = diagram_padding;
         // Center the layer
         if (!is_horizontal) {
             // For vertical layout, center horizontally
@@ -271,13 +271,13 @@ fn assignCoordinates(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const
         for (layer.items) |node_id| {
             if (graph.nodes.getPtr(node_id)) |node| {
                 if (is_horizontal) {
-                    node.x = DIAGRAM_PADDING + @as(f32, @floatFromInt(layer_idx)) * (maxNodeWidth(graph, layers, true) + LAYER_SPACING);
+                    node.x = diagram_padding + @as(f32, @floatFromInt(layer_idx)) * (maxNodeWidth(graph, layers, true) + layer_spacing);
                     node.y = offset;
-                    offset += node.height + NODE_SPACING;
+                    offset += node.height + node_spacing;
                 } else {
                     node.x = offset;
-                    node.y = DIAGRAM_PADDING + @as(f32, @floatFromInt(layer_idx)) * (maxNodeHeight(graph, layers, false) + LAYER_SPACING);
-                    offset += node.width + NODE_SPACING;
+                    node.y = diagram_padding + @as(f32, @floatFromInt(layer_idx)) * (maxNodeHeight(graph, layers, false) + layer_spacing);
+                    offset += node.width + node_spacing;
                 }
             }
         }
@@ -292,26 +292,26 @@ fn assignCoordinates(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const
     // Compute final bounds
     if (is_horizontal) {
         if (layers.items.len > 0) {
-            total_width = DIAGRAM_PADDING * 2 + @as(f32, @floatFromInt(layers.items.len)) * (maxNodeWidth(graph, layers, true) + LAYER_SPACING) - LAYER_SPACING;
+            total_width = diagram_padding * 2 + @as(f32, @floatFromInt(layers.items.len)) * (maxNodeWidth(graph, layers, true) + layer_spacing) - layer_spacing;
         }
-        total_height += DIAGRAM_PADDING;
+        total_height += diagram_padding;
     } else {
         if (layers.items.len > 0) {
-            total_height = DIAGRAM_PADDING * 2 + @as(f32, @floatFromInt(layers.items.len)) * (maxNodeHeight(graph, layers, false) + LAYER_SPACING) - LAYER_SPACING;
+            total_height = diagram_padding * 2 + @as(f32, @floatFromInt(layers.items.len)) * (maxNodeHeight(graph, layers, false) + layer_spacing) - layer_spacing;
         }
-        total_width += DIAGRAM_PADDING;
+        total_width += diagram_padding;
     }
 
     // Center layers
     centerLayers(graph, layers, total_width, total_height, is_horizontal);
 
     // Handle RL/BT by mirroring
-    if (graph.direction == .RL) {
+    if (graph.direction == .rl) {
         var it = graph.nodes.iterator();
         while (it.next()) |entry| {
             entry.value_ptr.x = total_width - entry.value_ptr.x - entry.value_ptr.width;
         }
-    } else if (graph.direction == .BT) {
+    } else if (graph.direction == .bt) {
         var it = graph.nodes.iterator();
         while (it.next()) |entry| {
             entry.value_ptr.y = total_height - entry.value_ptr.y - entry.value_ptr.height;
@@ -322,7 +322,7 @@ fn assignCoordinates(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const
 }
 
 fn maxNodeWidth(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const u8)), _: bool) f32 {
-    var max_w: f32 = MIN_NODE_WIDTH;
+    var max_w: f32 = min_node_width;
     for (layers.items) |layer| {
         for (layer.items) |node_id| {
             if (graph.nodes.get(node_id)) |node| {
@@ -334,7 +334,7 @@ fn maxNodeWidth(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const u8))
 }
 
 fn maxNodeHeight(graph: *Graph, layers: *std.ArrayList(std.ArrayList([]const u8)), _: bool) f32 {
-    var max_h: f32 = MIN_NODE_HEIGHT;
+    var max_h: f32 = min_node_height;
     for (layers.items) |layer| {
         for (layer.items) |node_id| {
             if (graph.nodes.get(node_id)) |node| {

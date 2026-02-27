@@ -7,18 +7,18 @@ const BlockSection = sm.BlockSection;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
 const Theme = @import("../../theme/theme.zig").Theme;
 
-const PARTICIPANT_PADDING_H: f32 = 20;
-const PARTICIPANT_PADDING_V: f32 = 10;
-const PARTICIPANT_SPACING: f32 = 60;
-const MESSAGE_STEP: f32 = 40;
-const SELF_MESSAGE_EXTRA: f32 = 30;
-const NOTE_PADDING: f32 = 10;
-const BLOCK_PADDING: f32 = 10;
-const BLOCK_LABEL_HEIGHT: f32 = 24;
-const DIAGRAM_PADDING: f32 = 20;
-const ACTIVATION_WIDTH: f32 = 12;
-const MIN_PARTICIPANT_WIDTH: f32 = 80;
-const SECTION_DIVIDER_STEP: f32 = 10;
+const participant_padding_h: f32 = 20;
+const participant_padding_v: f32 = 10;
+const participant_spacing: f32 = 60;
+const message_step: f32 = 40;
+const self_message_extra: f32 = 30;
+const note_padding: f32 = 10;
+const block_padding: f32 = 10;
+const block_label_height: f32 = 24;
+const diagram_padding: f32 = 20;
+const activation_width: f32 = 12;
+const min_participant_width: f32 = 80;
+const section_divider_step: f32 = 10;
 
 pub const LayoutResult = struct {
     width: f32,
@@ -35,8 +35,8 @@ pub fn layout(allocator: Allocator, model: *SequenceModel, fonts: *const Fonts, 
     // Step 1: Measure participant box sizes
     for (model.participants.items) |*p| {
         const measured = fonts.measure(p.alias, theme.body_font_size, false, false, false);
-        p.box_width = @max(measured.x + PARTICIPANT_PADDING_H * 2, MIN_PARTICIPANT_WIDTH);
-        p.box_height = measured.y + PARTICIPANT_PADDING_V * 2;
+        p.box_width = @max(measured.x + participant_padding_h * 2, min_participant_width);
+        p.box_height = measured.y + participant_padding_v * 2;
         if (p.kind == .actor) {
             // Actors (stick figures) need more vertical space
             p.box_height = @max(p.box_height, 60);
@@ -44,12 +44,12 @@ pub fn layout(allocator: Allocator, model: *SequenceModel, fonts: *const Fonts, 
     }
 
     // Step 2: Space participants horizontally
-    var x_cursor: f32 = DIAGRAM_PADDING;
+    var x_cursor: f32 = diagram_padding;
     for (model.participants.items) |*p| {
         p.center_x = x_cursor + p.box_width / 2;
-        x_cursor += p.box_width + PARTICIPANT_SPACING;
+        x_cursor += p.box_width + participant_spacing;
     }
-    const total_width = x_cursor - PARTICIPANT_SPACING + DIAGRAM_PADDING;
+    const total_width = x_cursor - participant_spacing + diagram_padding;
 
     // Step 3: Walk events top-to-bottom
     const max_box_height = blk: {
@@ -60,7 +60,7 @@ pub fn layout(allocator: Allocator, model: *SequenceModel, fonts: *const Fonts, 
         break :blk max_h;
     };
 
-    var y_cursor: f32 = DIAGRAM_PADDING + max_box_height + 20;
+    var y_cursor: f32 = diagram_padding + max_box_height + 20;
 
     // Track activations per participant for depth
     var activation_stacks = std.StringHashMap(std.ArrayList(usize)).init(allocator);
@@ -78,7 +78,7 @@ pub fn layout(allocator: Allocator, model: *SequenceModel, fonts: *const Fonts, 
     model.lifeline_end_y = y_cursor;
 
     // Add space for bottom participant boxes
-    y_cursor += max_box_height + DIAGRAM_PADDING;
+    y_cursor += max_box_height + diagram_padding;
 
     return .{
         .width = total_width,
@@ -117,15 +117,15 @@ fn layoutEvents(
 
                 // Self-messages need extra space
                 if (std.mem.eql(u8, msg.from, msg.to)) {
-                    y_cursor.* += MESSAGE_STEP + SELF_MESSAGE_EXTRA;
+                    y_cursor.* += message_step + self_message_extra;
                 } else {
-                    y_cursor.* += MESSAGE_STEP;
+                    y_cursor.* += message_step;
                 }
             },
             .note => |*note| {
                 const measured = fonts.measure(note.text, theme.body_font_size * 0.85, false, false, false);
-                note.width = measured.x + NOTE_PADDING * 2;
-                note.height = measured.y + NOTE_PADDING * 2;
+                note.width = measured.x + note_padding * 2;
+                note.height = measured.y + note_padding * 2;
 
                 // Position based on participants
                 if (note.over_participants.items.len > 0) {
@@ -168,7 +168,7 @@ fn layoutEvents(
 
                 // Default to full diagram width if no participants found
                 if (left_x == std.math.inf(f32)) {
-                    left_x = DIAGRAM_PADDING;
+                    left_x = diagram_padding;
                     right_x = blk: {
                         if (model.participants.items.len > 0) {
                             const last_p = model.participants.items[model.participants.items.len - 1];
@@ -178,19 +178,19 @@ fn layoutEvents(
                     };
                 }
 
-                block.x = left_x - BLOCK_PADDING;
-                block.width = (right_x - left_x) + BLOCK_PADDING * 2;
+                block.x = left_x - block_padding;
+                block.width = (right_x - left_x) + block_padding * 2;
 
-                y_cursor.* += BLOCK_LABEL_HEIGHT;
+                y_cursor.* += block_label_height;
 
                 // Layout each section
                 for (block.sections.items) |*section| {
                     try layoutEvents(allocator, model, &section.events, y_cursor, activation_stacks, fonts, theme);
-                    y_cursor.* += SECTION_DIVIDER_STEP;
+                    y_cursor.* += section_divider_step;
                 }
 
-                block.height = y_cursor.* - block.y + BLOCK_PADDING;
-                y_cursor.* += BLOCK_PADDING;
+                block.height = y_cursor.* - block.y + block_padding;
+                y_cursor.* += block_padding;
             },
             .activation => |act| {
                 if (act.activate) {

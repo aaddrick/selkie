@@ -1,12 +1,12 @@
 const rl = @import("raylib");
-const lt = @import("../layout/layout_types.zig");
+const layout_types = @import("../layout/layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const text_renderer = @import("text_renderer.zig");
 const ImageRenderer = @import("image_renderer.zig").ImageRenderer;
 
 /// Draw a code block: rounded background rectangle, line number gutter, and syntax-highlighted text.
-pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawCodeBlock(node: *const layout_types.LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
     const code = node.data.code_block;
     const bg = code.bg_color orelse theme.code_background;
     const draw_y = node.rect.y - scroll_y;
@@ -43,7 +43,7 @@ pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *co
 }
 
 /// Draw a horizontal rule (thematic break).
-pub fn drawThematicBreak(node: *const lt.LayoutNode, scroll_y: f32) void {
+pub fn drawThematicBreak(node: *const layout_types.LayoutNode, scroll_y: f32) void {
     const color = node.data.thematic_break.color;
     rl.drawLineEx(
         .{ .x = node.rect.x, .y = node.rect.y - scroll_y },
@@ -54,7 +54,7 @@ pub fn drawThematicBreak(node: *const lt.LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw a blockquote left border bar.
-pub fn drawBlockQuoteBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
+pub fn drawBlockQuoteBorder(node: *const layout_types.LayoutNode, scroll_y: f32) void {
     const color = node.data.block_quote_border.color;
     rl.drawRectangleRec(
         .{
@@ -68,14 +68,14 @@ pub fn drawBlockQuoteBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw text runs for a text block or heading.
-pub fn drawTextBlock(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawTextBlock(node: *const layout_types.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
     for (node.text_runs.items) |*run| {
         text_renderer.drawTextRun(run, fonts, scroll_y);
     }
 }
 
 /// Draw an image or placeholder if texture is missing.
-pub fn drawImage(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawImage(node: *const layout_types.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
     const img = node.data.image;
     if (img.texture) |texture| {
         ImageRenderer.drawImage(texture, node.rect, scroll_y);

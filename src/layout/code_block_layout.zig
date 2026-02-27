@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const rl = @import("raylib");
 
-const lt = @import("layout_types.zig");
+const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const syntax = @import("../render/syntax_highlight.zig");
@@ -20,7 +20,7 @@ pub fn layoutCodeBlock(
     content_x: f32,
     content_width: f32,
     cursor_y: *f32,
-    tree: *lt.LayoutTree,
+    tree: *layout_types.LayoutTree,
 ) !void {
     const source = code_text orelse "";
     const padding = theme.code_block_padding;
@@ -49,7 +49,7 @@ pub fn layoutCodeBlock(
     const code_height = @as(f32, @floatFromInt(line_count)) * line_h;
     const total_height = code_height + padding * 2;
 
-    var layout_node = lt.LayoutNode.init(allocator, .{ .code_block = .{
+    var layout_node = layout_types.LayoutNode.init(allocator, .{ .code_block = .{
         .bg_color = theme.code_background,
         .lang = fence_info,
         .line_number_gutter_width = gutter_width,
@@ -143,7 +143,7 @@ pub fn layoutCodeBlock(
 
 /// Append a single code text run and return its measured width.
 fn appendCodeRun(
-    layout_node: *lt.LayoutNode,
+    layout_node: *layout_types.LayoutNode,
     fonts: *const Fonts,
     text: []const u8,
     color: rl.Color,

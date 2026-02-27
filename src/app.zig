@@ -7,7 +7,7 @@ const markdown_parser = @import("parser/markdown_parser.zig");
 const Theme = @import("theme/theme.zig").Theme;
 const defaults = @import("theme/defaults.zig");
 const Fonts = @import("layout/text_measurer.zig").Fonts;
-const lt = @import("layout/layout_types.zig");
+const layout_types = @import("layout/layout_types.zig");
 const document_layout = @import("layout/document_layout.zig");
 const renderer = @import("render/renderer.zig");
 const LinkHandler = @import("render/link_handler.zig").LinkHandler;
@@ -22,7 +22,7 @@ pub const App = struct {
 
     allocator: Allocator,
     document: ?ast.Document,
-    layout_tree: ?lt.LayoutTree,
+    layout_tree: ?layout_types.LayoutTree,
     theme: *const Theme,
     is_dark: bool,
     fonts: ?Fonts,
