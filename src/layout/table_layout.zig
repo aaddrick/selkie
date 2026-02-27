@@ -8,65 +8,6 @@ const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 
-/// Measure the natural width of all inline content within a cell node.
-fn measureCellContent(
-    node: *const ast.Node,
-    fonts: *const Fonts,
-    font_size: f32,
-    is_bold: bool,
-) f32 {
-    var width: f32 = 0;
-    for (node.children.items) |*child| {
-        if (child.node_type == .text) {
-            if (child.literal) |text| {
-                width += fonts.measure(text, font_size, is_bold, false, false).x;
-            }
-        } else {
-            width += measureInlineWidth(child, fonts, font_size, is_bold);
-        }
-    }
-    return width;
-}
-
-fn measureInlineWidth(
-    node: *const ast.Node,
-    fonts: *const Fonts,
-    font_size: f32,
-    is_bold: bool,
-) f32 {
-    var width: f32 = 0;
-    for (node.children.items) |*child| {
-        switch (child.node_type) {
-            .text => {
-                if (child.literal) |text| {
-                    const m = fonts.measure(text, font_size, is_bold, false, false);
-                    width += m.x;
-                }
-            },
-            .code => {
-                if (child.literal) |text| {
-                    const m = fonts.measure(text, font_size, false, false, true);
-                    width += m.x;
-                }
-            },
-            .strong => {
-                width += measureInlineWidth(child, fonts, font_size, true);
-            },
-            .emph, .strikethrough, .link => {
-                width += measureInlineWidth(child, fonts, font_size, is_bold);
-            },
-            .softbreak => {
-                const m = fonts.measure(" ", font_size, false, false, false);
-                width += m.x;
-            },
-            else => {
-                width += measureInlineWidth(child, fonts, font_size, is_bold);
-            },
-        }
-    }
-    return width;
-}
-
 /// Layout a table AST node into LayoutNodes appended to the tree.
 pub fn layoutTable(
     allocator: Allocator,
@@ -95,8 +36,14 @@ pub fn layoutTable(
         var col_idx: usize = 0;
         for (row.children.items) |*cell| {
             if (col_idx >= num_cols) break;
-            const is_header = row.is_header_row;
-            const w = measureCellContent(cell, fonts, font_size, is_header) + cell_pad * 2;
+            const measure_style = layout_types.TextStyle{
+                .font_size = font_size,
+                .color = theme.text,
+                .bold = row.is_header_row,
+            };
+            var content_w: f32 = 0;
+            try measureInlineRuns(cell, fonts, measure_style, &content_w);
+            const w = content_w + cell_pad * 2;
             col_widths[col_idx] = @max(col_widths[col_idx], w);
             col_idx += 1;
         }
@@ -174,7 +121,7 @@ pub fn layoutTable(
                 .bold = is_header,
             };
 
-            try layoutCellInlines(
+            try layoutCellInlineContent(
                 cell,
                 fonts,
                 &cell_node,
@@ -242,21 +189,8 @@ pub fn layoutTable(
     cursor_y.* = y + theme.paragraph_spacing;
 }
 
-fn layoutCellInlines(
-    cell: *const ast.Node,
-    fonts: *const Fonts,
-    layout_node: *layout_types.LayoutNode,
-    style: layout_types.TextStyle,
-    text_x: f32,
-    text_y: f32,
-    available_w: f32,
-    alignment: ast.Alignment,
-) !void {
-    for (cell.children.items) |*child| {
-        try layoutCellInlineContent(child, fonts, layout_node, style, text_x, text_y, available_w, alignment);
-    }
-}
-
+/// Layout inline content within a table cell using a two-pass approach:
+/// first measures total width for alignment, then places text runs.
 fn layoutCellInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
@@ -275,7 +209,7 @@ fn layoutCellInlineContent(
     const offset: f32 = switch (alignment) {
         .center => @max(0, (available_w - total_w) / 2.0),
         .right => @max(0, available_w - total_w),
-        else => 0,
+        .none, .left => 0,
     };
 
     // Second pass: place runs
@@ -283,6 +217,7 @@ fn layoutCellInlineContent(
     try placeInlineRuns(node, fonts, layout_node, style, &cursor_x, text_y);
 }
 
+/// Recursively measure the total width of inline content within a node.
 fn measureInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
@@ -317,6 +252,16 @@ fn measureInlineRuns(
                 s.italic = true;
                 try measureInlineRuns(child, fonts, s, total_w);
             },
+            .strikethrough => {
+                var s = style;
+                s.strikethrough = true;
+                try measureInlineRuns(child, fonts, s, total_w);
+            },
+            .link => {
+                var s = style;
+                s.underline = true;
+                try measureInlineRuns(child, fonts, s, total_w);
+            },
             else => {
                 try measureInlineRuns(child, fonts, style, total_w);
             },
@@ -324,6 +269,7 @@ fn measureInlineRuns(
     }
 }
 
+/// Recursively place inline content as text runs on a layout node.
 fn placeInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
