@@ -3,6 +3,7 @@ const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
 
 const asset_paths = @import("asset_paths.zig");
+const unicode_codepoints = @import("unicode_codepoints.zig");
 const ast = @import("parser/ast.zig");
 const Theme = @import("theme/theme.zig").Theme;
 const defaults = @import("theme/defaults.zig");
@@ -105,7 +106,9 @@ pub const App = struct {
             resolved[idx] = path;
             resolved_count = idx + 1;
 
-            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, null);
+            // Safety: raylib only reads from the codepoints array; @constCast needed
+            // because raylib-zig's loadFontEx signature takes ?[]i32 (mutable).
+            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, @constCast(&unicode_codepoints.codepoints));
             rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
             loaded_count += 1;
         }
