@@ -83,11 +83,6 @@ pub const FileWatcher = struct {
             return initPolling(file_path, dir_path, file_name);
         }
 
-        const initial_mtime = switch (getFileMtime(file_path)) {
-            .mtime => |m| m,
-            else => 0,
-        };
-
         var result = FileWatcher{
             .file_path = file_path,
             .dir_path = dir_path,
@@ -95,7 +90,7 @@ pub const FileWatcher = struct {
             .mode = .inotify,
             .inotify_fd = fd,
             .watch_fd = @intCast(wrc),
-            .last_mtime = initial_mtime,
+            .last_mtime = initialMtime(file_path),
             .last_event_ms = std.time.milliTimestamp(),
         };
         result.dir_path_z = dir_z;
@@ -103,17 +98,12 @@ pub const FileWatcher = struct {
     }
 
     fn initPolling(file_path: []const u8, dir_path: []const u8, file_name: []const u8) FileWatcher {
-        const initial_mtime = switch (getFileMtime(file_path)) {
-            .mtime => |m| m,
-            else => 0,
-        };
-
         return .{
             .file_path = file_path,
             .dir_path = dir_path,
             .file_name = file_name,
             .mode = .polling,
-            .last_mtime = initial_mtime,
+            .last_mtime = initialMtime(file_path),
             .last_poll_ms = std.time.milliTimestamp(),
             .last_event_ms = std.time.milliTimestamp(),
         };
@@ -137,35 +127,10 @@ pub const FileWatcher = struct {
         if (linux.E.init(poll_rc) != .SUCCESS) return self.checkFileExists();
 
         if (poll_rc > 0) {
-            // Drain all inotify events
             self.drainInotifyEvents();
         }
 
-        // If we have a pending change and the debounce window has elapsed, report it
-        if (self.pending_change) {
-            const now = std.time.milliTimestamp();
-            if (now - self.last_event_ms >= debounce_ms) {
-                self.pending_change = false;
-                // Verify file still exists and update mtime
-                return switch (getFileMtime(self.file_path)) {
-                    .mtime => |m| {
-                        self.last_mtime = m;
-                        return .file_changed;
-                    },
-                    .not_found => .file_deleted,
-                    .access_error => |err| {
-                        log.err("cannot access {s}: {}", .{ self.file_path, err });
-                        return .no_change;
-                    },
-                    .stat_error => |err| {
-                        log.err("cannot stat {s}: {}", .{ self.file_path, err });
-                        return .no_change;
-                    },
-                };
-            }
-        }
-
-        return .no_change;
+        return self.consumePendingChange();
     }
 
     fn drainInotifyEvents(self: *FileWatcher) void {
@@ -184,7 +149,6 @@ pub const FileWatcher = struct {
 
                 if (event.getName()) |event_name| {
                     if (std.mem.eql(u8, event_name, self.file_name)) {
-                        // Record the event time and set pending flag
                         self.last_event_ms = std.time.milliTimestamp();
                         self.pending_change = true;
                     }
@@ -196,40 +160,30 @@ pub const FileWatcher = struct {
     fn checkPolling(self: *FileWatcher) ChangeResult {
         const now = std.time.milliTimestamp();
         if (now - self.last_poll_ms < poll_interval_ms) {
-            // Even if not polling yet, check pending debounce
-            if (self.pending_change and now - self.last_event_ms >= debounce_ms) {
-                self.pending_change = false;
-                return .file_changed;
-            }
-            return .no_change;
+            return self.consumePendingChange();
         }
         self.last_poll_ms = now;
 
-        return switch (getFileMtime(self.file_path)) {
+        switch (getFileMtime(self.file_path)) {
             .mtime => |mtime| {
                 if (mtime != self.last_mtime) {
                     self.last_mtime = mtime;
-                    // Set pending and record time for debounce
                     self.last_event_ms = now;
                     self.pending_change = true;
                 }
-                // Check if debounce window has elapsed for any pending change
-                if (self.pending_change and now - self.last_event_ms >= debounce_ms) {
-                    self.pending_change = false;
-                    return .file_changed;
-                }
-                return .no_change;
             },
-            .not_found => .file_deleted,
+            .not_found => return .file_deleted,
             .access_error => |err| {
-                log.err("cannot access {s}: {}", .{ self.file_path, err });
+                logMtimeError(self.file_path, err);
                 return .no_change;
             },
             .stat_error => |err| {
-                log.err("cannot stat {s}: {}", .{ self.file_path, err });
+                logMtimeError(self.file_path, err);
                 return .no_change;
             },
-        };
+        }
+
+        return self.consumePendingChange();
     }
 
     fn checkFileExists(self: *FileWatcher) ChangeResult {
@@ -237,14 +191,52 @@ pub const FileWatcher = struct {
             .mtime => .no_change,
             .not_found => .file_deleted,
             .access_error => |err| {
-                log.err("cannot access {s}: {}", .{ self.file_path, err });
+                logMtimeError(self.file_path, err);
                 return .no_change;
             },
             .stat_error => |err| {
-                log.err("cannot stat {s}: {}", .{ self.file_path, err });
+                logMtimeError(self.file_path, err);
                 return .no_change;
             },
         };
+    }
+
+    /// Check if a pending change has passed the debounce window and report it.
+    /// On debounce expiry, verifies the file still exists before reporting .file_changed.
+    fn consumePendingChange(self: *FileWatcher) ChangeResult {
+        if (!self.pending_change) return .no_change;
+
+        const now = std.time.milliTimestamp();
+        if (now - self.last_event_ms < debounce_ms) return .no_change;
+
+        self.pending_change = false;
+        return switch (getFileMtime(self.file_path)) {
+            .mtime => |m| {
+                self.last_mtime = m;
+                return .file_changed;
+            },
+            .not_found => .file_deleted,
+            .access_error => |err| {
+                logMtimeError(self.file_path, err);
+                return .no_change;
+            },
+            .stat_error => |err| {
+                logMtimeError(self.file_path, err);
+                return .no_change;
+            },
+        };
+    }
+
+    /// Best-effort mtime for initialization; returns 0 if file is inaccessible.
+    fn initialMtime(path: []const u8) i128 {
+        return switch (getFileMtime(path)) {
+            .mtime => |m| m,
+            else => 0,
+        };
+    }
+
+    fn logMtimeError(path: []const u8, err: anytype) void {
+        log.err("cannot access {s}: {}", .{ path, err });
     }
 
     fn getFileMtime(path: []const u8) MtimeResult {

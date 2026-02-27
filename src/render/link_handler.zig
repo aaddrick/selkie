@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const rl = @import("raylib");
 const lt = @import("../layout/layout_types.zig");
 const slice_utils = @import("../utils/slice_utils.zig");
@@ -26,7 +25,6 @@ pub const LinkHandler = struct {
         const view_bottom = scroll_y + screen_h;
 
         for (tree.nodes.items) |*node| {
-            // Frustum culling — skip nodes outside visible region
             if (!node.rect.overlapsVertically(view_top, view_bottom)) continue;
 
             for (node.text_runs.items) |*run| {
