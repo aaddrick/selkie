@@ -605,7 +605,7 @@ pub const App = struct {
 
         if (self.activeTab()) |tab| {
             if (tab.layout_tree) |*tree| {
-                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset);
+                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url);
 
                 // Search highlights drawn over document content
                 search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);

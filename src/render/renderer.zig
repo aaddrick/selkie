@@ -4,6 +4,7 @@ const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const block_renderer = @import("block_renderer.zig");
 const table_renderer = @import("table_renderer.zig");
+const text_renderer = @import("text_renderer.zig");
 const image_renderer = @import("image_renderer.zig");
 const flowchart_renderer = @import("../mermaid/renderers/flowchart_renderer.zig");
 const sequence_renderer = @import("../mermaid/renderers/sequence_renderer.zig");
@@ -21,7 +22,7 @@ const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
 /// `content_top_y` offsets the scissor clip region so content does not
 /// draw over the menu bar or tab bar area.
 /// `left_offset` shifts the content area to the right (e.g., for a sidebar).
-pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, content_top_y: f32, left_offset: f32) void {
+pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, content_top_y: f32, left_offset: f32, hovered_url: ?[]const u8) void {
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
     const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
     const view_top = scroll_y;
@@ -36,18 +37,23 @@ pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts,
     );
     defer rl.endScissorMode();
 
+    const hover: ?text_renderer.LinkHoverState = if (hovered_url) |url|
+        .{ .hovered_url = url, .link_hover_color = theme.link_hover }
+    else
+        null;
+
     for (tree.nodes.items) |*node| {
         // Frustum culling
         if (!node.rect.overlapsVertically(view_top, view_bottom)) continue;
 
         switch (node.data) {
-            .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y),
+            .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y, hover),
             .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y),
             .thematic_break => block_renderer.drawThematicBreak(node, scroll_y),
             .block_quote_border => block_renderer.drawBlockQuoteBorder(node, scroll_y),
             .table_row_bg => table_renderer.drawTableRowBg(node, scroll_y),
             .table_border => table_renderer.drawTableBorder(node, scroll_y),
-            .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y),
+            .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y, hover),
             .image => block_renderer.drawImage(node, fonts, scroll_y),
             .mermaid_diagram => |mermaid| {
                 const r = node.rect;

@@ -90,7 +90,7 @@ pub fn exportPdf(
         // Render with menu_bar_height=0 (no menu bar in PDF) and adjusted scroll_y.
         // We call the renderer directly — it uses scissor mode based on screen
         // dimensions, but inside a RenderTexture that's the texture dimensions.
-        renderer.render(tree, theme, fonts, scroll_y, 0, 0);
+        renderer.render(tree, theme, fonts, scroll_y, 0, 0, null);
 
         rl.endTextureMode();
 

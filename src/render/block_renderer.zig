@@ -36,9 +36,9 @@ pub fn drawCodeBlock(node: *const LayoutNode, theme: *const Theme, fonts: *const
         );
     }
 
-    // Draw all text runs (line numbers + syntax-highlighted code)
+    // Code blocks don't contain links; skip hover
     for (node.text_runs.items) |*run| {
-        text_renderer.drawTextRun(run, fonts, scroll_y);
+        text_renderer.drawTextRun(run, fonts, scroll_y, null);
     }
 }
 
@@ -67,10 +67,10 @@ pub fn drawBlockQuoteBorder(node: *const LayoutNode, scroll_y: f32) void {
     );
 }
 
-/// Draw text runs for a text block or heading.
-pub fn drawTextBlock(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+/// Draw text runs for a text block or heading. Link runs matching the hover state use hover color.
+pub fn drawTextBlock(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32, hover: ?text_renderer.LinkHoverState) void {
     for (node.text_runs.items) |*run| {
-        text_renderer.drawTextRun(run, fonts, scroll_y);
+        text_renderer.drawTextRun(run, fonts, scroll_y, hover);
     }
 }
 
