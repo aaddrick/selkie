@@ -16,6 +16,7 @@ test {
     _ = @import("theme/theme_loader.zig");
     _ = @import("viewport/scroll.zig");
     _ = @import("render/syntax_highlight.zig");
+    _ = @import("render/scrollbar.zig");
     _ = @import("utils/slice_utils.zig");
     _ = @import("utils/text_utils.zig");
     _ = @import("file_watcher.zig");

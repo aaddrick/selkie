@@ -10,6 +10,7 @@ const defaults = @import("theme/defaults.zig");
 const Fonts = @import("layout/text_measurer.zig").Fonts;
 const LayoutTree = @import("layout/layout_types.zig").LayoutTree;
 const renderer = @import("render/renderer.zig");
+const scrollbar = @import("render/scrollbar.zig");
 const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
 const MenuBar = @import("menu_bar.zig").MenuBar;
@@ -525,9 +526,13 @@ pub const App = struct {
             }
         }
 
+        // Scrollbar interaction (takes priority over other scroll input)
+        const scrollbar_active = if (!menu_is_open) self.handleScrollbarInput(tab) else false;
+
         // Scroll/link input when menu is closed.
-        // Skip document scroll when mouse is over the ToC sidebar (it has its own scroll).
-        if (!menu_is_open) {
+        // Skip document scroll when mouse is over the ToC sidebar (it has its own scroll)
+        // or when the scrollbar is being dragged.
+        if (!menu_is_open and !scrollbar_active) {
             const mouse_over_sidebar = self.toc_sidebar.is_open and
                 @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
             if (!mouse_over_sidebar) {
@@ -568,14 +573,16 @@ pub const App = struct {
             }
         }
 
-        // Link handler
-        if (tab.layout_tree) |*tree| {
-            const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
-            tab.link_handler.update(tree, tab.scroll.y, screen_h);
-            const mouse_y: f32 = @floatFromInt(rl.getMouseY());
-            const mouse_x: f32 = @floatFromInt(rl.getMouseX());
-            if (!menu_is_open and mouse_y >= self.computeContentYOffset() and mouse_x >= self.toc_sidebar.effectiveWidth()) {
-                tab.link_handler.handleClick();
+        // Link handler (skip when scrollbar is active to avoid cursor conflict)
+        if (!scrollbar_active) {
+            if (tab.layout_tree) |*tree| {
+                const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                tab.link_handler.update(tree, tab.scroll.y, screen_h);
+                const mouse_y: f32 = @floatFromInt(rl.getMouseY());
+                const mouse_x: f32 = @floatFromInt(rl.getMouseX());
+                if (!menu_is_open and mouse_y >= self.computeContentYOffset() and mouse_x >= self.toc_sidebar.effectiveWidth()) {
+                    tab.link_handler.handleClick();
+                }
             }
         }
 
@@ -587,6 +594,65 @@ pub const App = struct {
             },
             .none => {},
         }
+    }
+
+    // =========================================================================
+    // Scrollbar interaction
+    // =========================================================================
+
+    /// Handle scrollbar drag, click-to-jump, and hover cursor. Returns true if
+    /// the scrollbar consumed mouse input this frame (suppresses normal scroll
+    /// and link handler).
+    fn handleScrollbarInput(self: *App, tab: *Tab) bool {
+        const tree = &(tab.layout_tree orelse return false);
+        const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+        const content_top_y = self.computeContentYOffset();
+        const geo = scrollbar.compute(tree.total_height, tab.scroll.y, screen_h, content_top_y);
+        if (!geo.visible) {
+            tab.scroll.scrollbar_dragging = false;
+            return false;
+        }
+
+        const mouse_x: f32 = @floatFromInt(rl.getMouseX());
+        const mouse_y: f32 = @floatFromInt(rl.getMouseY());
+
+        // Continue active drag
+        if (tab.scroll.scrollbar_dragging) {
+            if (rl.isMouseButtonDown(.left)) {
+                tab.scroll.y = geo.mouseYToScroll(mouse_y, tab.scroll.scrollbar_drag_offset);
+                tab.scroll.clamp();
+                rl.setMouseCursor(.resize_ns);
+                return true;
+            }
+            // Mouse released — stop dragging
+            tab.scroll.scrollbar_dragging = false;
+        }
+
+        // Hover cursor feedback
+        if (geo.trackContains(mouse_x, mouse_y)) {
+            rl.setMouseCursor(.resize_ns);
+
+            if (rl.isMouseButtonPressed(.left)) {
+                if (geo.thumbContains(mouse_x, mouse_y)) {
+                    // Start dragging — record grab offset within the thumb
+                    tab.scroll.scrollbar_dragging = true;
+                    tab.scroll.scrollbar_drag_offset = mouse_y - geo.thumb_y;
+                } else {
+                    // Click on track — jump so thumb centers on click point
+                    tab.scroll.y = geo.mouseYToScroll(mouse_y, geo.thumb_height / 2);
+                    tab.scroll.clamp();
+                }
+                return true;
+            }
+
+            return true; // Hovering over scrollbar — suppress other scroll input
+        }
+
+        // Mouse not over scrollbar — reset cursor to default so it doesn't
+        // persist from a previous frame's hover. The link handler may override
+        // this to pointing_hand when it runs afterward.
+        rl.setMouseCursor(.default);
+        return false;
     }
 
     // =========================================================================

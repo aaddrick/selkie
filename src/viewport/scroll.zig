@@ -15,6 +15,11 @@ pub const ScrollState = struct {
     /// Zero means no prefix has been entered.
     pending_count: u32 = 0,
 
+    /// True while the user is dragging the scrollbar thumb.
+    scrollbar_dragging: bool = false,
+    /// Offset from the top of the thumb where the user initially grabbed.
+    scrollbar_drag_offset: f32 = 0,
+
     /// Maximum digit accumulation threshold; values are clamped to this ceiling.
     const max_count: u32 = 9999;
 
@@ -239,6 +244,8 @@ test "ScrollState default initialization" {
     try testing.expectEqual(@as(f32, 40), scroll.scroll_speed);
     try testing.expectEqual(@as(?f64, null), scroll.g_press_time);
     try testing.expectEqual(@as(u32, 0), scroll.pending_count);
+    try testing.expect(!scroll.scrollbar_dragging);
+    try testing.expectEqual(@as(f32, 0), scroll.scrollbar_drag_offset);
 }
 
 test "scrollBy with half_page_fraction scrolls half viewport" {

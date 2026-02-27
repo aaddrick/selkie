@@ -2,6 +2,7 @@ const rl = @import("raylib");
 const LayoutTree = @import("../layout/layout_types.zig").LayoutTree;
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
+const scrollbar = @import("scrollbar.zig");
 const block_renderer = @import("block_renderer.zig");
 const table_renderer = @import("table_renderer.zig");
 const text_renderer = @import("text_renderer.zig");
@@ -79,28 +80,18 @@ pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts,
 }
 
 fn drawScrollbar(total_height: f32, scroll_y: f32, screen_h: f32, content_top_y: f32, theme: *const Theme) void {
-    const visible_h = screen_h - content_top_y;
-    if (total_height <= visible_h) return;
+    const geo = scrollbar.compute(total_height, scroll_y, screen_h, content_top_y);
+    if (!geo.visible) return;
 
-    const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
-    const bar_width: f32 = 8;
-    const bar_x = screen_w - bar_width - 4;
-
-    // Track (starts below chrome)
+    // Track
     rl.drawRectangleRec(
-        .{ .x = bar_x, .y = content_top_y, .width = bar_width, .height = visible_h },
+        .{ .x = geo.bar_x, .y = geo.track_y, .width = geo.bar_width, .height = geo.track_height },
         theme.scrollbar_track,
     );
 
     // Thumb
-    const visible_ratio = visible_h / total_height;
-    const thumb_height = @max(20, visible_h * visible_ratio);
-    const max_scroll = total_height - visible_h;
-    const scroll_ratio = if (max_scroll > 0) scroll_y / max_scroll else 0;
-    const thumb_y = content_top_y + scroll_ratio * (visible_h - thumb_height);
-
     rl.drawRectangleRounded(
-        .{ .x = bar_x, .y = thumb_y, .width = bar_width, .height = thumb_height },
+        .{ .x = geo.bar_x, .y = geo.thumb_y, .width = geo.bar_width, .height = geo.thumb_height },
         0.5,
         4,
         theme.scrollbar,
