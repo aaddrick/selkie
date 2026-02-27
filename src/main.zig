@@ -20,6 +20,9 @@ test {
     _ = @import("mermaid/parse_utils.zig");
     _ = @import("mermaid/tokenizer.zig");
     _ = @import("mermaid/detector.zig");
+    _ = @import("mermaid/models/pie_model.zig");
+    _ = @import("mermaid/models/gantt_model.zig");
+    _ = @import("mermaid/models/state_model.zig");
     _ = @import("mermaid/parsers/flowchart.zig");
     _ = @import("mermaid/parsers/sequence.zig");
     _ = @import("mermaid/parsers/pie.zig");
@@ -31,9 +34,6 @@ test {
     _ = @import("mermaid/parsers/gitgraph.zig");
     _ = @import("mermaid/parsers/journey.zig");
     _ = @import("mermaid/parsers/timeline_diagram.zig");
-    _ = @import("mermaid/models/pie_model.zig");
-    _ = @import("mermaid/models/gantt_model.zig");
-    _ = @import("mermaid/models/state_model.zig");
 }
 
 pub fn main() !u8 {

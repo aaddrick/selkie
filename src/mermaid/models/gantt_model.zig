@@ -218,16 +218,13 @@ test "GanttModel computeDateRange" {
     var model = GanttModel.init(allocator);
     defer model.deinit();
 
-    var t1 = GanttTask{
+    try model.tasks.append(.{
         .id = "t1",
         .name = "Task 1",
         .tags = std.ArrayList(TaskTag).init(allocator),
         .start_day = 10,
         .end_day = 20,
-    };
-    // Don't need to deinit t1 separately since model.deinit handles it
-    _ = &t1;
-    try model.tasks.append(t1);
+    });
 
     model.computeDateRange();
     try testing.expectEqual(@as(i32, 10), model.min_day);

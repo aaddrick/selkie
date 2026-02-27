@@ -367,28 +367,22 @@ test "tokenize thick arrow ==>" {
     const allocator = testing.allocator;
     var tokens = try tokenize(allocator, "A ==> B");
     defer tokens.deinit();
-    var found_thick = false;
-    for (tokens.items) |tok| {
-        if (tok.type == .arrow and tok.arrow_style == .thick) {
-            found_thick = true;
-            break;
-        }
-    }
-    try testing.expect(found_thick);
+    // A, ==>, B, eof
+    try testing.expect(tokens.items.len >= 4);
+    try testing.expectEqual(TokenType.arrow, tokens.items[1].type);
+    try testing.expectEqual(ArrowStyle.thick, tokens.items[1].arrow_style);
+    try testing.expectEqual(ArrowHeadType.arrow, tokens.items[1].arrow_head);
 }
 
-test "tokenize dotted arrow -.->  " {
+test "tokenize dotted arrow -.->" {
     const allocator = testing.allocator;
     var tokens = try tokenize(allocator, "A -.-> B");
     defer tokens.deinit();
-    var found_dotted = false;
-    for (tokens.items) |tok| {
-        if (tok.type == .arrow and tok.arrow_style == .dotted) {
-            found_dotted = true;
-            break;
-        }
-    }
-    try testing.expect(found_dotted);
+    // A, -.->, B, eof
+    try testing.expect(tokens.items.len >= 4);
+    try testing.expectEqual(TokenType.arrow, tokens.items[1].type);
+    try testing.expectEqual(ArrowStyle.dotted, tokens.items[1].arrow_style);
+    try testing.expectEqual(ArrowHeadType.arrow, tokens.items[1].arrow_head);
 }
 
 test "tokenize string literal" {
