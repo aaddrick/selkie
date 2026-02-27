@@ -55,12 +55,12 @@ pub const Theme = struct {
     max_content_width: f32,
     table_cell_padding: f32 = 8,
 
-    pub fn headingSize(self: Theme, level: u8) f32 {
+    pub fn headingSize(self: *const Theme, level: u8) f32 {
         if (level == 0 or level > 6) return self.body_font_size;
         return self.body_font_size * self.heading_scale[level - 1];
     }
 
-    pub fn headingColor(self: Theme, level: u8) rl.Color {
+    pub fn headingColor(self: *const Theme, level: u8) rl.Color {
         if (level == 0 or level > 6) return self.text;
         return self.heading[level - 1];
     }

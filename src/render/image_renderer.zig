@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 const slice_utils = @import("../utils/slice_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
+const log = std.log.scoped(.image_renderer);
+
 pub const ImageRenderer = struct {
     cache: std.StringHashMap(rl.Texture2D),
     allocator: Allocator,
@@ -18,30 +20,30 @@ pub const ImageRenderer = struct {
         };
     }
 
-    pub fn setBaseDir(self: *ImageRenderer, dir: []const u8) void {
+    pub fn setBaseDir(self: *ImageRenderer, dir: []const u8) Allocator.Error!void {
         if (self.base_dir) |old| self.allocator.free(old);
-        self.base_dir = self.allocator.dupe(u8, dir) catch null;
+        self.base_dir = try self.allocator.dupe(u8, dir);
     }
 
     /// Resolve a path relative to the markdown file's directory.
-    fn resolvePath(self: *ImageRenderer, path: []const u8) ?[:0]const u8 {
+    fn resolvePath(self: *ImageRenderer, path: []const u8) Allocator.Error!?[:0]const u8 {
         // Absolute paths pass through
         if (path.len > 0 and path[0] == '/') {
-            return self.allocator.dupeZ(u8, path) catch null;
+            return try self.allocator.dupeZ(u8, path);
         }
         // Relative path: join with base_dir
         if (self.base_dir) |base| {
-            const joined = std.fs.path.join(self.allocator, &.{ base, path }) catch return null;
+            const joined = try std.fs.path.join(self.allocator, &.{ base, path });
             defer self.allocator.free(joined);
-            return self.allocator.dupeZ(u8, joined) catch null;
+            return try self.allocator.dupeZ(u8, joined);
         }
         // No base dir, try as-is
-        return self.allocator.dupeZ(u8, path) catch null;
+        return try self.allocator.dupeZ(u8, path);
     }
 
     /// Load an image texture from a file path. Returns null if loading fails.
-    pub fn loadImage(self: *ImageRenderer, path: []const u8) ?rl.Texture2D {
-        const resolved = self.resolvePath(path) orelse return null;
+    pub fn loadImage(self: *ImageRenderer, path: []const u8) Allocator.Error!?rl.Texture2D {
+        const resolved = try self.resolvePath(path) orelse return null;
         defer self.allocator.free(resolved);
 
         const texture = rl.loadTexture(resolved) catch return null;
@@ -53,16 +55,17 @@ pub const ImageRenderer = struct {
     }
 
     /// Get a cached texture or load it on cache miss.
-    pub fn getOrLoad(self: *ImageRenderer, path: []const u8) ?rl.Texture2D {
+    pub fn getOrLoad(self: *ImageRenderer, path: []const u8) Allocator.Error!?rl.Texture2D {
         if (self.cache.get(path)) |texture| {
             return texture;
         }
 
-        const texture = self.loadImage(path) orelse return null;
+        const texture = try self.loadImage(path) orelse return null;
 
         // Store a durable copy of the path as the key
-        const key = self.allocator.dupe(u8, path) catch return texture;
-        self.cache.put(key, texture) catch {};
+        const key = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(key);
+        try self.cache.put(key, texture);
         return texture;
     }
 
@@ -115,8 +118,8 @@ pub const ImageRenderer = struct {
         rl.drawTextEx(font, z_text, .{ .x = text_x, .y = text_y }, font_size, 1, rl.Color{ .r = 100, .g = 100, .b = 100, .a = 255 });
     }
 
-    /// Free all cached textures.
-    pub fn unloadAll(self: *ImageRenderer) void {
+    /// Free all cached textures and owned resources.
+    pub fn deinit(self: *ImageRenderer) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
             rl.unloadTexture(entry.value_ptr.*);

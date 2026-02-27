@@ -108,8 +108,8 @@ pub const App = struct {
         self.fonts = null;
     }
 
-    pub fn setBaseDir(self: *App, path: []const u8) void {
-        self.image_renderer.setBaseDir(path);
+    pub fn setBaseDir(self: *App, path: []const u8) Allocator.Error!void {
+        try self.image_renderer.setBaseDir(path);
     }
 
     pub fn loadMarkdown(self: *App, text: []const u8) !void {
@@ -273,6 +273,6 @@ pub const App = struct {
         if (self.file_watcher) |*watcher| watcher.deinit();
         if (self.layout_tree) |*tree| tree.deinit();
         if (self.document) |*doc| doc.deinit();
-        self.image_renderer.unloadAll();
+        self.image_renderer.deinit();
     }
 };

@@ -4,10 +4,13 @@ const Allocator = std.mem.Allocator;
 const Theme = @import("theme.zig").Theme;
 const defaults = @import("defaults.zig");
 
+const log = std.log.scoped(.theme_loader);
+
 pub const ThemeLoadError = error{
     InvalidJson,
     InvalidColor,
     FileReadError,
+    InvalidValue,
     OutOfMemory,
 };
 
@@ -91,23 +94,37 @@ fn colorOrDefault(hex: ?[]const u8, default: rl.Color) rl.Color {
     return default;
 }
 
-fn f64ToF32(val: ?f64, default: f32) f32 {
-    if (val) |v| return @floatCast(v);
-    return default;
+/// Validate and convert an f64 to f32, rejecting negative values and values
+/// outside the f32 representable range. Returns the default if the value is null.
+fn f64ToF32(val: ?f64, default: f32) ThemeLoadError!f32 {
+    const v = val orelse return default;
+    if (v < 0) return ThemeLoadError.InvalidValue;
+    if (v > std.math.floatMax(f32)) return ThemeLoadError.InvalidValue;
+    return @floatCast(v);
+}
+
+/// Validate and convert an f64 scale factor to f32. Scale factors must be
+/// positive and within f32 range.
+fn validateScale(v: f64) ThemeLoadError!f32 {
+    if (v <= 0) return ThemeLoadError.InvalidValue;
+    if (v > std.math.floatMax(f32)) return ThemeLoadError.InvalidValue;
+    return @floatCast(v);
 }
 
 /// Load a theme from a JSON file, falling back to the light theme defaults for missing fields.
 pub fn loadFromFile(allocator: Allocator, path: []const u8) !Theme {
-    const file_data = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch
+    const file_data = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |err| {
+        log.err("Failed to read theme file '{s}': {}", .{ path, err });
         return ThemeLoadError.FileReadError;
+    };
     defer allocator.free(file_data);
 
-    return loadFromJson(file_data);
+    return loadFromJson(allocator, file_data);
 }
 
 /// Parse a Theme from JSON data, falling back to light theme defaults.
-pub fn loadFromJson(json_data: []const u8) !Theme {
-    const parsed = std.json.parseFromSlice(JsonTheme, std.heap.page_allocator, json_data, .{
+pub fn loadFromJson(allocator: Allocator, json_data: []const u8) !Theme {
+    const parsed = std.json.parseFromSlice(JsonTheme, allocator, json_data, .{
         .ignore_unknown_fields = true,
     }) catch return ThemeLoadError.InvalidJson;
     defer parsed.deinit();
@@ -161,29 +178,29 @@ pub fn loadFromJson(json_data: []const u8) !Theme {
 
     // Sizing
     if (json.sizing) |s| {
-        theme.body_font_size = f64ToF32(s.body_font_size, def.body_font_size);
-        theme.mono_font_size = f64ToF32(s.mono_font_size, def.mono_font_size);
-        theme.line_height = f64ToF32(s.line_height, def.line_height);
+        theme.body_font_size = try f64ToF32(s.body_font_size, def.body_font_size);
+        theme.mono_font_size = try f64ToF32(s.mono_font_size, def.mono_font_size);
+        theme.line_height = try f64ToF32(s.line_height, def.line_height);
 
         if (s.heading_scale) |scales| {
             var i: usize = 0;
             while (i < 6 and i < scales.len) : (i += 1) {
-                theme.heading_scale[i] = @floatCast(scales[i]);
+                theme.heading_scale[i] = try validateScale(scales[i]);
             }
         }
     }
 
     // Spacing
     if (json.spacing) |sp| {
-        theme.paragraph_spacing = f64ToF32(sp.paragraph_spacing, def.paragraph_spacing);
-        theme.heading_spacing_above = f64ToF32(sp.heading_spacing_above, def.heading_spacing_above);
-        theme.heading_spacing_below = f64ToF32(sp.heading_spacing_below, def.heading_spacing_below);
-        theme.list_indent = f64ToF32(sp.list_indent, def.list_indent);
-        theme.blockquote_indent = f64ToF32(sp.blockquote_indent, def.blockquote_indent);
-        theme.code_block_padding = f64ToF32(sp.code_block_padding, def.code_block_padding);
-        theme.page_margin = f64ToF32(sp.page_margin, def.page_margin);
-        theme.max_content_width = f64ToF32(sp.max_content_width, def.max_content_width);
-        theme.table_cell_padding = f64ToF32(sp.table_cell_padding, def.table_cell_padding);
+        theme.paragraph_spacing = try f64ToF32(sp.paragraph_spacing, def.paragraph_spacing);
+        theme.heading_spacing_above = try f64ToF32(sp.heading_spacing_above, def.heading_spacing_above);
+        theme.heading_spacing_below = try f64ToF32(sp.heading_spacing_below, def.heading_spacing_below);
+        theme.list_indent = try f64ToF32(sp.list_indent, def.list_indent);
+        theme.blockquote_indent = try f64ToF32(sp.blockquote_indent, def.blockquote_indent);
+        theme.code_block_padding = try f64ToF32(sp.code_block_padding, def.code_block_padding);
+        theme.page_margin = try f64ToF32(sp.page_margin, def.page_margin);
+        theme.max_content_width = try f64ToF32(sp.max_content_width, def.max_content_width);
+        theme.table_cell_padding = try f64ToF32(sp.table_cell_padding, def.table_cell_padding);
     }
 
     return theme;

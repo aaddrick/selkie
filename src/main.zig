@@ -72,7 +72,7 @@ pub fn main() !u8 {
 
     if (file_path) |path| {
         const dir = std.fs.path.dirname(path) orelse ".";
-        app.setBaseDir(dir);
+        try app.setBaseDir(dir);
         app.setFilePath(path);
     }
 

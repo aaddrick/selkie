@@ -143,7 +143,7 @@ fn layoutInlines(
                 var texture: ?rl.Texture2D = null;
                 if (child.url) |url| {
                     if (ctx.image_renderer) |ir| {
-                        texture = ir.getOrLoad(url);
+                        texture = ir.getOrLoad(url) catch null;
                     }
                 }
 
