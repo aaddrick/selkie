@@ -3,23 +3,20 @@ const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
 
 const ast = @import("parser/ast.zig");
-const markdown_parser = @import("parser/markdown_parser.zig");
 const Theme = @import("theme/theme.zig").Theme;
 const defaults = @import("theme/defaults.zig");
 const Fonts = @import("layout/text_measurer.zig").Fonts;
 const LayoutTree = @import("layout/layout_types.zig").LayoutTree;
-const document_layout = @import("layout/document_layout.zig");
 const renderer = @import("render/renderer.zig");
-const LinkHandler = @import("render/link_handler.zig").LinkHandler;
 const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const Viewport = @import("viewport/viewport.zig").Viewport;
-const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
-const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const MenuBar = @import("menu_bar.zig").MenuBar;
+const TabBar = @import("tab_bar.zig").TabBar;
+const Tab = @import("tab.zig").Tab;
+const TocSidebar = @import("toc_sidebar.zig").TocSidebar;
 const file_dialog = @import("file_dialog.zig");
 const pdf_exporter = @import("export/pdf_exporter.zig");
 const save_dialog = @import("export/save_dialog.zig");
-const SearchState = @import("search/search_state.zig").SearchState;
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
 
@@ -28,43 +25,33 @@ pub const App = struct {
     const fade_duration: i64 = 1500;
 
     allocator: Allocator,
-    document: ?ast.Document,
-    layout_tree: ?LayoutTree,
     theme: *const Theme,
     is_dark: bool,
     fonts: ?Fonts,
-    scroll: ScrollState,
     viewport: Viewport,
-    link_handler: LinkHandler,
-    image_renderer: ImageRenderer,
     menu_bar: MenuBar,
-    search: SearchState,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
     custom_theme: ?Theme,
-    /// File watcher for auto-reload (null if no file path set)
-    file_watcher: ?FileWatcher = null,
-    /// File path from CLI args (not owned)
-    file_path: ?[]const u8 = null,
-    /// Timestamp when last reload happened, for visual indicator
-    reload_indicator_ms: i64 = 0,
-    /// Whether the watched file has been deleted
-    file_deleted: bool = false,
+
+    // Tab management
+    tabs: std.ArrayList(Tab),
+    active_tab: usize,
+
+    // ToC sidebar (shared across all tabs — shows headings for active tab)
+    toc_sidebar: TocSidebar,
 
     pub fn init(allocator: Allocator) App {
         return .{
             .allocator = allocator,
-            .document = null,
-            .layout_tree = null,
             .theme = &defaults.light,
             .is_dark = false,
             .fonts = null,
-            .scroll = .{},
             .viewport = Viewport.init(),
-            .link_handler = LinkHandler.init(&defaults.light),
-            .image_renderer = ImageRenderer.init(allocator),
             .menu_bar = MenuBar.init(),
-            .search = SearchState.init(allocator),
             .custom_theme = null,
+            .tabs = std.ArrayList(Tab).init(allocator),
+            .active_tab = 0,
+            .toc_sidebar = TocSidebar.init(allocator),
         };
     }
 
@@ -79,7 +66,10 @@ pub const App = struct {
         } else {
             self.theme = &defaults.light;
         }
-        self.link_handler.theme = self.theme;
+        // Update link handlers on all existing tabs
+        for (self.tabs.items) |*tab| {
+            tab.link_handler.theme = self.theme;
+        }
     }
 
     const font_paths = .{
@@ -91,11 +81,10 @@ pub const App = struct {
     };
 
     pub fn loadFonts(self: *App) !void {
-        const size = 32; // Load at high size, scale down when rendering
+        const size = 32;
         var fonts: Fonts = undefined;
         var loaded_count: usize = 0;
         errdefer {
-            // Unload any fonts that were successfully loaded before the failure
             var unload_idx: usize = 0;
             inline for (font_paths) |entry| {
                 if (unload_idx >= loaded_count) break;
@@ -119,66 +108,183 @@ pub const App = struct {
         self.fonts = null;
     }
 
-    pub fn setBaseDir(self: *App, path: []const u8) Allocator.Error!void {
-        try self.image_renderer.setBaseDir(path);
+    // =========================================================================
+    // Tab management
+    // =========================================================================
+
+    pub fn activeTab(self: *App) ?*Tab {
+        if (self.tabs.items.len == 0) return null;
+        return &self.tabs.items[self.active_tab];
     }
 
-    pub fn loadMarkdown(self: *App, text: []const u8) !void {
-        // Parse into local first — if parse fails, old document is preserved
-        const new_doc = try markdown_parser.parse(self.allocator, text);
-
-        // Parse succeeded — destroy old state and swap in new document.
-        // From here, self owns new_doc, so no errdefer (relayout failure is non-fatal).
-        if (self.layout_tree) |*tree| tree.deinit();
-        self.layout_tree = null;
-        if (self.document) |*doc| doc.deinit();
-        self.document = new_doc;
-
-        // Best-effort layout — document is valid even if layout fails
-        self.relayout() catch |err| {
-            std.log.err("Failed to layout document: {}", .{err});
-        };
+    pub fn newTab(self: *App) !*Tab {
+        var tab = Tab.init(self.allocator);
+        tab.link_handler.theme = self.theme;
+        try self.tabs.append(tab);
+        self.active_tab = self.tabs.items.len - 1;
+        return &self.tabs.items[self.active_tab];
     }
 
-    /// Set the file path and start watching for changes
-    pub fn setFilePath(self: *App, path: []const u8) void {
-        self.file_path = path;
-        self.file_watcher = FileWatcher.init(path);
-    }
-
-    /// Reload the markdown file from disk, preserving scroll position
-    fn reloadFromDisk(self: *App) void {
-        const path = self.file_path orelse return;
+    pub fn newTabWithFile(self: *App, path: []const u8) !void {
+        const tab = try self.newTab();
 
         const content = std.fs.cwd().readFileAlloc(self.allocator, path, max_file_size) catch |err| {
-            std.log.err("Failed to reload file '{s}': {}", .{ path, err });
+            std.log.err("Failed to read file '{s}': {}", .{ path, err });
             return;
         };
         defer self.allocator.free(content);
 
-        const saved_scroll_y = self.scroll.y;
+        const dir = std.fs.path.dirname(path) orelse ".";
+        tab.setBaseDir(dir) catch |err| {
+            std.log.err("Failed to set base dir: {}", .{err});
+        };
+        tab.setFilePath(path) catch |err| {
+            std.log.err("Failed to set file path: {}", .{err});
+        };
 
-        self.loadMarkdown(content) catch |err| {
-            std.log.err("Failed to parse reloaded markdown: {}", .{err});
+        tab.loadMarkdown(content) catch |err| {
+            std.log.err("Failed to parse markdown from '{s}': {}", .{ path, err });
             return;
         };
 
-        // Restore scroll position, clamped to new document height
-        self.scroll.y = saved_scroll_y;
-        self.scroll.clamp();
+        if (self.fonts) |*f| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+                std.log.err("Failed to layout document: {}", .{err});
+            };
+        }
 
-        self.reload_indicator_ms = std.time.milliTimestamp();
-        self.file_deleted = false;
+        self.updateWindowTitle();
+        self.rebuildToc();
     }
 
-    /// Open a native file dialog and load the selected markdown file.
-    /// NOTE: Blocks the render loop while the dialog is open — the window will
-    /// be unresponsive until the user selects a file or cancels.
+    pub fn closeTab(self: *App, index: usize) void {
+        if (self.tabs.items.len <= 1) return; // Don't close last tab
+        if (index >= self.tabs.items.len) return;
+
+        var tab = self.tabs.orderedRemove(index);
+        tab.deinit();
+
+        if (self.active_tab >= self.tabs.items.len) {
+            self.active_tab = self.tabs.items.len - 1;
+        } else if (self.active_tab > index) {
+            self.active_tab -= 1;
+        }
+
+        self.updateWindowTitle();
+        self.rebuildToc();
+    }
+
+    pub fn cycleTab(self: *App, delta: i32) void {
+        if (self.tabs.items.len <= 1) return;
+        const len: i32 = @intCast(self.tabs.items.len);
+        const current: i32 = @intCast(self.active_tab);
+        self.active_tab = @intCast(@mod(current + delta, len));
+        self.updateWindowTitle();
+        self.rebuildToc();
+    }
+
+    fn switchToTab(self: *App, index: usize) void {
+        if (index >= self.tabs.items.len) return;
+        self.active_tab = index;
+        self.updateWindowTitle();
+        self.rebuildToc();
+    }
+
+    fn updateWindowTitle(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        const name = tab.title();
+        var title_buf: [256:0]u8 = undefined;
+        const title = std.fmt.bufPrintZ(&title_buf, "Selkie \xe2\x80\x94 {s}", .{name}) catch "Selkie";
+        // Only call raylib if a window is open (avoids crash in unit tests)
+        if (rl.isWindowReady()) {
+            rl.setWindowTitle(title);
+        }
+    }
+
+    // =========================================================================
+    // Layout geometry
+    // =========================================================================
+
+    pub fn computeContentYOffset(self: *const App) f32 {
+        var y = MenuBar.bar_height;
+        if (TabBar.isVisible(self.tabs.items.len)) {
+            y += TabBar.bar_height;
+        }
+        return y;
+    }
+
+    pub fn computeLayoutWidth(self: *const App) f32 {
+        return self.viewport.width - self.toc_sidebar.effectiveWidth();
+    }
+
+    // =========================================================================
+    // Document operations (delegate to active tab)
+    // =========================================================================
+
+    pub fn loadMarkdown(self: *App, text: []const u8) !void {
+        const tab = self.activeTab() orelse return;
+        try tab.loadMarkdown(text);
+        self.relayoutActiveTab();
+    }
+
+    fn relayoutActiveTab(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        const fonts = &(self.fonts orelse return);
+        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+            std.log.err("Failed to relayout: {}", .{err});
+        };
+        self.rebuildToc();
+    }
+
+    fn relayoutAllTabs(self: *App) void {
+        const fonts = &(self.fonts orelse return);
+        const width = self.computeLayoutWidth();
+        const y_offset = self.computeContentYOffset();
+        for (self.tabs.items) |*tab| {
+            tab.relayout(self.theme, fonts, width, y_offset) catch |err| {
+                std.log.err("Failed to relayout tab: {}", .{err});
+            };
+        }
+        self.rebuildToc();
+    }
+
+    fn rebuildToc(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        if (tab.layout_tree) |*tree| {
+            self.toc_sidebar.rebuild(tree);
+        }
+    }
+
+    pub fn toggleTheme(self: *App) void {
+        if (self.custom_theme) |*ct| {
+            self.theme = if (self.theme == ct) &defaults.dark else ct;
+        } else {
+            self.is_dark = !self.is_dark;
+            self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+        }
+        for (self.tabs.items) |*tab| {
+            tab.link_handler.theme = self.theme;
+        }
+        self.relayoutAllTabs();
+    }
+
+    // =========================================================================
+    // File dialogs
+    // =========================================================================
+
     fn openFileDialog(self: *App) void {
+        self.openFileDialogImpl(false);
+    }
+
+    fn openFileDialogNewTab(self: *App) void {
+        self.openFileDialogImpl(true);
+    }
+
+    fn openFileDialogImpl(self: *App, new_tab: bool) void {
         const selected = file_dialog.openFileDialog(self.allocator) catch |err| {
             std.log.err("File dialog error: {}", .{err});
             return;
-        } orelse return; // User cancelled
+        } orelse return;
         defer self.allocator.free(selected);
 
         const content = std.fs.cwd().readFileAlloc(self.allocator, selected, max_file_size) catch |err| {
@@ -187,58 +293,64 @@ pub const App = struct {
         };
         defer self.allocator.free(content);
 
-        // Set base dir for relative image paths
+        const tab = if (new_tab)
+            self.newTab() catch |err| {
+                std.log.err("Failed to create new tab: {}", .{err});
+                return;
+            }
+        else
+            self.activeTab() orelse return;
+
         const dir = std.fs.path.dirname(selected) orelse ".";
-        self.setBaseDir(dir) catch |err| {
+        tab.setBaseDir(dir) catch |err| {
             std.log.err("Failed to set base dir: {}", .{err});
         };
-
-        self.loadMarkdown(content) catch |err| {
-            std.log.err("Failed to parse markdown from '{s}': {}", .{ selected, err });
+        tab.loadMarkdown(content) catch |err| {
+            std.log.err("Failed to parse markdown: {}", .{err});
             return;
         };
+        tab.scroll.y = 0;
 
-        // Reset scroll to top for new file
-        self.scroll.y = 0;
-
-        // Disable file watching for dialog-opened files (we don't own the path long-term)
-        if (self.file_watcher) |*watcher| {
-            watcher.deinit();
-            self.file_watcher = null;
+        if (!new_tab) {
+            // Disable file watching for dialog-opened files
+            if (tab.file_watcher) |*watcher| {
+                watcher.deinit();
+                tab.file_watcher = null;
+            }
+            if (tab.file_path) |p| self.allocator.free(p);
+            tab.file_path = null;
         }
-        self.file_path = null;
 
-        // Update window title with filename
-        const basename = std.fs.path.basename(selected);
-        var title_buf: [256:0]u8 = undefined;
-        const title = std.fmt.bufPrintZ(&title_buf, "Selkie \xe2\x80\x94 {s}", .{basename}) catch "Selkie";
-        rl.setWindowTitle(title);
+        if (self.fonts) |*f| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+                std.log.err("Failed to relayout: {}", .{err});
+            };
+        }
+
+        self.updateWindowTitle();
+        self.rebuildToc();
     }
 
-    /// Export the current document to PDF via a save-as dialog.
-    /// NOTE: Blocks the render loop while the dialog is open.
     fn exportToPdf(self: *App) void {
-        const tree = &(self.layout_tree orelse {
+        const tab = self.activeTab() orelse return;
+        const tree = &(tab.layout_tree orelse {
             std.log.warn("No document to export", .{});
             return;
         });
         const fonts_val = self.fonts orelse return;
 
-        // Build a default filename from the current file path
-        const default_name = pdf_exporter.buildPdfName(self.allocator, self.file_path) catch {
+        const default_name = pdf_exporter.buildPdfName(self.allocator, tab.file_path) catch {
             std.log.err("Failed to build default PDF name", .{});
             return;
         };
         defer self.allocator.free(default_name);
 
-        // Open save dialog
         const output_path = save_dialog.saveFileDialog(self.allocator, default_name) catch |err| {
             std.log.err("Save dialog error: {}", .{err});
             return;
-        } orelse return; // User cancelled
+        } orelse return;
         defer self.allocator.free(output_path);
 
-        // Perform the export
         pdf_exporter.exportPdf(
             self.allocator,
             tree,
@@ -250,43 +362,42 @@ pub const App = struct {
             return;
         };
 
-        // Show a brief status indicator reusing the reload indicator
-        self.reload_indicator_ms = std.time.milliTimestamp();
+        tab.reload_indicator_ms = std.time.milliTimestamp();
     }
 
-    pub fn relayout(self: *App) !void {
-        if (self.layout_tree) |*tree| tree.deinit();
-        self.layout_tree = null;
+    // =========================================================================
+    // Drag and drop
+    // =========================================================================
 
-        const doc = &(self.document orelse return);
-        const fonts = &(self.fonts orelse return);
-        const tree = try document_layout.layout(
-            self.allocator,
-            doc,
-            self.theme,
-            fonts,
-            self.viewport.width,
-            &self.image_renderer,
-            MenuBar.bar_height,
-        );
-        self.scroll.total_height = tree.total_height;
-        self.layout_tree = tree;
-    }
+    fn handleFileDrop(self: *App) void {
+        if (!rl.isFileDropped()) return;
 
-    pub fn toggleTheme(self: *App) void {
-        if (self.custom_theme) |*ct| {
-            // Toggle between custom theme and built-in dark
-            self.theme = if (self.theme == ct) &defaults.dark else ct;
-        } else {
-            self.is_dark = !self.is_dark;
-            self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+        const dropped = rl.loadDroppedFiles();
+        defer rl.unloadDroppedFiles(dropped);
+
+        for (0..dropped.count) |i| {
+            const path_ptr = dropped.paths[i];
+            const path = std.mem.span(path_ptr);
+            if (isSupportedMarkdownExtension(path)) {
+                self.newTabWithFile(path) catch |err| {
+                    std.log.err("Failed to open dropped file: {}", .{err});
+                };
+            }
         }
-        self.link_handler.theme = self.theme;
-        // Best-effort relayout — failure here is non-fatal since the old layout remains visible
-        self.relayout() catch |err| {
-            std.log.err("Failed to relayout after theme toggle: {}", .{err});
-        };
     }
+
+    pub fn isSupportedMarkdownExtension(path: []const u8) bool {
+        const ext = std.fs.path.extension(path);
+        const supported = [_][]const u8{ ".md", ".markdown", ".txt", ".mkd" };
+        for (supported) |s| {
+            if (std.ascii.eqlIgnoreCase(ext, s)) return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // Update loop
+    // =========================================================================
 
     pub fn update(self: *App) void {
         const fonts = self.fonts orelse return;
@@ -298,27 +409,51 @@ pub const App = struct {
         if (menu_action) |action| {
             switch (action) {
                 .open_file => self.openFileDialog(),
+                .open_new_tab => self.openFileDialogNewTab(),
                 .export_pdf => self.exportToPdf(),
                 .close_app => rl.closeWindow(),
                 .toggle_theme => self.toggleTheme(),
+                .toggle_toc => {
+                    self.toc_sidebar.toggle();
+                    self.relayoutAllTabs();
+                },
                 .open_settings => std.log.info("Settings not yet implemented", .{}),
             }
         }
 
-        // Keyboard shortcuts — suppressed when menu is open to avoid confusing UX
+        // Handle file drag-and-drop early, before capturing tab pointer,
+        // since dropping files can append to self.tabs and invalidate pointers.
+        self.handleFileDrop();
+
+        // Tab bar interaction
+        if (!menu_is_open) {
+            const tab_action = TabBar.update(self.tabs.items, self.active_tab);
+            switch (tab_action) {
+                .switch_tab => |idx| self.switchToTab(idx),
+                .close_tab => |idx| self.closeTab(idx),
+                .none => {},
+            }
+        }
+
+        // Get active tab for the rest of the update
+        const tab = self.activeTab() orelse return;
+
+        // Keyboard shortcuts — suppressed when menu is open
         if (!menu_is_open) {
             const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
+            const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
 
-            // Ctrl+F opens search (works even when search is already open — refocuses)
+            // Ctrl+F opens search
             if (ctrl_held and rl.isKeyPressed(.f)) {
-                self.search.open();
-            } else if (self.search.is_open) {
-                // Search bar consumes input when open
+                tab.search.open();
+            } else if (tab.search.is_open) {
                 self.updateSearch();
             } else {
                 // Normal keyboard shortcuts when search is closed
-                if (rl.isKeyPressed(.t)) {
-                    self.toggleTheme();
+                if (!ctrl_held and !shift_held) {
+                    if (rl.isKeyPressed(.t)) {
+                        self.toggleTheme();
+                    }
                 }
                 if (ctrl_held) {
                     if (rl.isKeyPressed(.o)) {
@@ -327,64 +462,111 @@ pub const App = struct {
                     if (rl.isKeyPressed(.p)) {
                         self.exportToPdf();
                     }
+                    // Tab keybindings
+                    if (rl.isKeyPressed(.t)) {
+                        if (shift_held) {
+                            // Ctrl+Shift+T: toggle ToC sidebar
+                            self.toc_sidebar.toggle();
+                            self.relayoutAllTabs();
+                        } else {
+                            // Ctrl+T: open file in new tab
+                            self.openFileDialogNewTab();
+                        }
+                    }
+                    if (rl.isKeyPressed(.w)) {
+                        self.closeTab(self.active_tab);
+                    }
+                    if (rl.isKeyPressed(.tab)) {
+                        if (shift_held) {
+                            self.cycleTab(-1);
+                        } else {
+                            self.cycleTab(1);
+                        }
+                    }
+                    // Ctrl+1-9 direct tab select
+                    inline for (.{ .one, .two, .three, .four, .five, .six, .seven, .eight, .nine }, 0..) |key, idx| {
+                        if (rl.isKeyPressed(key)) {
+                            if (idx < self.tabs.items.len) {
+                                self.switchToTab(idx);
+                            }
+                        }
+                    }
                 }
 
                 // Vim '/' opens search
-                const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
                 if (!ctrl_held and !shift_held and rl.isKeyPressed(.slash)) {
-                    self.search.open();
+                    tab.search.open();
                 }
             }
         }
 
-        // Only process scroll/link input when menu is closed.
-        // When search bar is open, allow mouse wheel scroll but block keyboard scroll
-        // (keyboard input is consumed by the search bar).
+        // Scroll/link input when menu is closed.
+        // Skip document scroll when mouse is over the ToC sidebar (it has its own scroll).
         if (!menu_is_open) {
-            if (self.search.is_open) {
-                self.scroll.handleMouseWheel();
-            } else {
-                self.scroll.update();
+            const mouse_over_sidebar = self.toc_sidebar.is_open and
+                @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
+            if (!mouse_over_sidebar) {
+                if (tab.search.is_open) {
+                    tab.scroll.handleMouseWheel();
+                } else {
+                    tab.scroll.update();
+                }
             }
         }
 
-        // Expire reload indicator (state mutation belongs in update, not draw)
-        if (self.reload_indicator_ms != 0) {
-            const elapsed = std.time.milliTimestamp() - self.reload_indicator_ms;
+        // Expire reload indicator on active tab
+        if (tab.reload_indicator_ms != 0) {
+            const elapsed = std.time.milliTimestamp() - tab.reload_indicator_ms;
             if (elapsed >= fade_duration) {
-                self.reload_indicator_ms = 0;
+                tab.reload_indicator_ms = 0;
             }
         }
 
-        // Re-layout on window resize (best-effort — old layout remains usable on failure)
+        // Re-layout all tabs on window resize
         if (self.viewport.updateSize()) {
-            self.relayout() catch |err| {
-                std.log.err("Failed to relayout after window resize: {}", .{err});
-            };
+            self.relayoutAllTabs();
         }
 
-        // Check for file changes
-        if (self.file_watcher) |*watcher| {
+        // Check for file changes on active tab
+        if (tab.file_watcher) |*watcher| {
             switch (watcher.checkForChanges()) {
-                .file_changed => self.reloadFromDisk(),
+                .file_changed => {
+                    const f = &(self.fonts orelse return);
+                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset());
+                    self.rebuildToc();
+                },
                 .file_deleted => {
-                    self.file_deleted = true;
-                    self.reload_indicator_ms = std.time.milliTimestamp();
+                    tab.file_deleted = true;
+                    tab.reload_indicator_ms = std.time.milliTimestamp();
                 },
                 .no_change => {},
             }
         }
 
-        if (self.layout_tree) |*tree| {
+        // Link handler
+        if (tab.layout_tree) |*tree| {
             const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
-            self.link_handler.update(tree, self.scroll.y, screen_h);
-            // Don't process link clicks when menu is open or mouse is over menu bar
+            tab.link_handler.update(tree, tab.scroll.y, screen_h);
             const mouse_y: f32 = @floatFromInt(rl.getMouseY());
-            if (!menu_is_open and mouse_y >= MenuBar.bar_height) {
-                self.link_handler.handleClick();
+            const mouse_x: f32 = @floatFromInt(rl.getMouseX());
+            if (!menu_is_open and mouse_y >= self.computeContentYOffset() and mouse_x >= self.toc_sidebar.effectiveWidth()) {
+                tab.link_handler.handleClick();
             }
         }
+
+        // ToC sidebar interaction
+        const toc_action = self.toc_sidebar.update(tab.scroll.y, self.computeContentYOffset());
+        switch (toc_action) {
+            .scroll_to => |target_y| {
+                tab.scroll.y = @max(0, @min(target_y, tab.scroll.maxScroll()));
+            },
+            .none => {},
+        }
     }
+
+    // =========================================================================
+    // Draw loop
+    // =========================================================================
 
     pub fn draw(self: *App) void {
         rl.beginDrawing();
@@ -393,39 +575,49 @@ pub const App = struct {
         rl.clearBackground(self.theme.background);
 
         const fonts_val = self.fonts orelse return;
+        const content_top_y = self.computeContentYOffset();
+        const left_offset = self.toc_sidebar.effectiveWidth();
 
-        if (self.layout_tree) |*tree| {
-            renderer.render(tree, self.theme, &fonts_val, self.scroll.y, MenuBar.bar_height);
+        if (self.activeTab()) |tab| {
+            if (tab.layout_tree) |*tree| {
+                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset);
 
-            // Search highlights drawn over document content
-            search_renderer.drawHighlights(&self.search, self.theme, self.scroll.y, MenuBar.bar_height);
-        } else {
-            const y_offset: i32 = @intFromFloat(MenuBar.bar_height + 8);
-            rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+                // Search highlights drawn over document content
+                search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);
+            } else {
+                const y_offset: i32 = @intFromFloat(content_top_y + 8);
+                rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+            }
+
+            // Draw reload/deletion indicator
+            self.drawReloadIndicator(tab, content_top_y);
+
+            // Search bar drawn above document but below menu
+            search_renderer.drawSearchBar(&tab.search, self.theme, &fonts_val, content_top_y);
         }
 
-        // Draw reload/deletion indicator (below menu bar)
-        self.drawReloadIndicator();
+        // ToC sidebar
+        self.toc_sidebar.draw(self.theme, &fonts_val, content_top_y);
 
-        // Search bar drawn above menu bar layer but below menu dropdowns
-        search_renderer.drawSearchBar(&self.search, self.theme, &fonts_val, MenuBar.bar_height);
+        // Tab bar
+        TabBar.draw(self.tabs.items, self.active_tab, self.theme, &fonts_val);
 
         // Menu bar drawn last so it's always on top
         self.menu_bar.draw(self.theme, &fonts_val);
     }
 
-    fn drawReloadIndicator(self: *const App) void {
-        if (self.reload_indicator_ms == 0) return;
+    fn drawReloadIndicator(self: *const App, tab: *const Tab, content_top_y: f32) void {
+        if (tab.reload_indicator_ms == 0) return;
 
-        const elapsed = std.time.milliTimestamp() - self.reload_indicator_ms;
+        const elapsed = std.time.milliTimestamp() - tab.reload_indicator_ms;
         if (elapsed >= fade_duration) return;
 
         const t: f32 = @floatFromInt(elapsed);
         const d: f32 = @floatFromInt(fade_duration);
         const alpha: u8 = @intFromFloat((1.0 - t / d) * 255.0);
 
-        const text: [:0]const u8 = if (self.file_deleted) "File deleted" else "Reloaded";
-        const color: rl.Color = if (self.file_deleted)
+        const text: [:0]const u8 = if (tab.file_deleted) "File deleted" else "Reloaded";
+        const color: rl.Color = if (tab.file_deleted)
             .{ .r = 220, .g = 60, .b = 60, .a = alpha }
         else
             .{ .r = self.theme.text.r, .g = self.theme.text.g, .b = self.theme.text.b, .a = alpha };
@@ -433,45 +625,44 @@ pub const App = struct {
         const font_size: i32 = 16;
         const screen_w = rl.getScreenWidth();
         const text_w = rl.measureText(text, font_size);
-        const indicator_y: i32 = @intFromFloat(MenuBar.bar_height + 8);
+        const indicator_y: i32 = @intFromFloat(content_top_y + 8);
         rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
     }
 
-    /// Handle input when the search bar is open.
+    // =========================================================================
+    // Search (delegates to active tab)
+    // =========================================================================
+
     fn updateSearch(self: *App) void {
+        const tab = self.activeTab() orelse return;
         const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
 
-        // Escape closes search
         if (rl.isKeyPressed(.escape)) {
-            self.search.close();
+            tab.search.close();
             return;
         }
 
-        // Enter — next match, Shift+Enter — previous match
         if (rl.isKeyPressed(.enter)) {
             if (shift_held) {
-                self.search.prevMatch();
+                tab.search.prevMatch();
             } else {
-                self.search.nextMatch();
+                tab.search.nextMatch();
             }
             self.scrollToCurrentMatch();
             return;
         }
 
-        // Backspace
         if (rl.isKeyPressed(.backspace)) {
-            if (self.search.backspace()) {
+            if (tab.search.backspace()) {
                 self.executeSearch();
             }
             return;
         }
 
-        // Text input — raylib provides getCharPressed() for typed characters
         var char = rl.getCharPressed();
         while (char > 0) {
-            // Only handle printable ASCII for now
             if (char >= 32 and char < 127) {
-                if (self.search.appendChar(@intCast(char))) {
+                if (tab.search.appendChar(@intCast(char))) {
                     self.executeSearch();
                 }
             }
@@ -479,17 +670,17 @@ pub const App = struct {
         }
     }
 
-    /// Run the search algorithm with the current input and update matches.
     fn executeSearch(self: *App) void {
+        const tab = self.activeTab() orelse return;
         const fonts_val = self.fonts orelse return;
-        const tree = &(self.layout_tree orelse return);
+        const tree = &(tab.layout_tree orelse return);
 
-        self.search.setQuery(self.search.inputSlice()) catch |err| {
+        tab.search.setQuery(tab.search.inputSlice()) catch |err| {
             std.log.err("Failed to set search query: {}", .{err});
             return;
         };
 
-        searcher.search(&self.search, tree, &fonts_val) catch |err| {
+        searcher.search(&tab.search, tree, &fonts_val) catch |err| {
             std.log.err("Search failed: {}", .{err});
             return;
         };
@@ -497,23 +688,26 @@ pub const App = struct {
         self.scrollToCurrentMatch();
     }
 
-    /// Scroll the viewport to center the current search match within the
-    /// visible content area (below menu bar and search bar).
     fn scrollToCurrentMatch(self: *App) void {
-        const rect = (self.search.currentMatch() orelse return).highlight_rect;
+        const tab = self.activeTab() orelse return;
+        const rect = (tab.search.currentMatch() orelse return).highlight_rect;
         const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
-        const chrome_height = MenuBar.bar_height + search_renderer.bar_height;
+        const chrome_height = self.computeContentYOffset() + search_renderer.bar_height;
         const visible_h = screen_h - chrome_height;
         const target_y = rect.y - chrome_height - visible_h / 2.0 + rect.height / 2.0;
-        self.scroll.y = @max(0, @min(target_y, self.scroll.maxScroll()));
+        tab.scroll.y = @max(0, @min(target_y, tab.scroll.maxScroll()));
     }
 
+    // =========================================================================
+    // Cleanup
+    // =========================================================================
+
     pub fn deinit(self: *App) void {
-        self.search.deinit();
-        if (self.file_watcher) |*watcher| watcher.deinit();
-        if (self.layout_tree) |*tree| tree.deinit();
-        if (self.document) |*doc| doc.deinit();
-        self.image_renderer.deinit();
+        for (self.tabs.items) |*tab| {
+            tab.deinit();
+        }
+        self.tabs.deinit();
+        self.toc_sidebar.deinit();
     }
 };
 
@@ -527,24 +721,18 @@ test "App.init returns correct default state" {
     var app = App.init(testing.allocator);
     defer app.deinit();
 
-    try testing.expectEqual(@as(?ast.Document, null), app.document);
-    try testing.expectEqual(@as(?LayoutTree, null), app.layout_tree);
     try testing.expect(!app.is_dark);
     try testing.expectEqual(@as(?Fonts, null), app.fonts);
-    try testing.expectEqual(@as(f32, 0), app.scroll.y);
     try testing.expect(!app.menu_bar.isOpen());
     try testing.expectEqual(@as(?Theme, null), app.custom_theme);
-    try testing.expectEqual(@as(?FileWatcher, null), app.file_watcher);
-    try testing.expectEqual(@as(?[]const u8, null), app.file_path);
-    try testing.expectEqual(@as(i64, 0), app.reload_indicator_ms);
-    try testing.expect(!app.file_deleted);
+    try testing.expectEqual(@as(usize, 0), app.tabs.items.len);
+    try testing.expectEqual(@as(usize, 0), app.active_tab);
 }
 
 test "App.init uses light theme by default" {
     var app = App.init(testing.allocator);
     defer app.deinit();
 
-    // Default theme should be light
     try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
     try testing.expectEqual(defaults.light.background.g, app.theme.background.g);
     try testing.expectEqual(defaults.light.background.b, app.theme.background.b);
@@ -560,8 +748,6 @@ test "App.setTheme selects dark theme" {
     try testing.expectEqual(defaults.dark.background.r, app.theme.background.r);
     try testing.expectEqual(defaults.dark.background.g, app.theme.background.g);
     try testing.expectEqual(defaults.dark.background.b, app.theme.background.b);
-    // link_handler should also be updated
-    try testing.expectEqual(defaults.dark.link.r, app.link_handler.theme.link.r);
 }
 
 test "App.setTheme with custom theme stores it" {
@@ -583,39 +769,161 @@ test "App.setTheme with light sets light theme" {
     var app = App.init(testing.allocator);
     defer app.deinit();
 
-    // setTheme(null, false) selects light theme
     app.setTheme(null, false);
     try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
     try testing.expectEqual(defaults.light.background.g, app.theme.background.g);
-    try testing.expectEqual(defaults.light.link.r, app.link_handler.theme.link.r);
 }
 
 test "App.toggleTheme switches between light and dark" {
     var app = App.init(testing.allocator);
     defer app.deinit();
 
-    // Start light
     try testing.expect(!app.is_dark);
     try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
 
-    // Toggle to dark
     app.toggleTheme();
     try testing.expect(app.is_dark);
     try testing.expectEqual(defaults.dark.background.r, app.theme.background.r);
-    try testing.expectEqual(defaults.dark.link.r, app.link_handler.theme.link.r);
 
-    // Toggle back to light
     app.toggleTheme();
     try testing.expect(!app.is_dark);
     try testing.expectEqual(defaults.light.background.r, app.theme.background.r);
 }
 
-test "App.deinit cleans up without leaks" {
-    // testing.allocator will detect any leaks
+test "App.activeTab returns null when no tabs" {
     var app = App.init(testing.allocator);
-    app.deinit();
+    defer app.deinit();
+
+    try testing.expect(app.activeTab() == null);
 }
 
-// NOTE: loadMarkdown(), relayout(), update(), draw(), openFileDialog() depend
-// on cmark-gfm, raylib fonts/window, or external processes and cannot be
-// meaningfully unit tested. They require integration testing.
+test "App.newTab creates a tab and sets it active" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    try testing.expectEqual(@as(usize, 1), app.tabs.items.len);
+    try testing.expectEqual(@as(usize, 0), app.active_tab);
+    try testing.expect(app.activeTab() != null);
+
+    _ = try app.newTab();
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+    try testing.expectEqual(@as(usize, 1), app.active_tab);
+}
+
+test "App.closeTab removes tab and adjusts active index" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+    _ = try app.newTab();
+    app.active_tab = 2;
+
+    app.closeTab(1);
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+    try testing.expectEqual(@as(usize, 1), app.active_tab);
+}
+
+test "App.closeTab closes the active tab itself" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+    _ = try app.newTab();
+    app.active_tab = 1;
+
+    app.closeTab(1);
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+    // After closing active tab at index 1, active stays at 1 (now pointing to the former tab 2)
+    try testing.expectEqual(@as(usize, 1), app.active_tab);
+}
+
+test "App.closeTab closes last tab when active adjusts to previous" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+    _ = try app.newTab();
+    app.active_tab = 2;
+
+    app.closeTab(2);
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+    try testing.expectEqual(@as(usize, 1), app.active_tab);
+}
+
+test "App.closeTab with out-of-bounds index is no-op" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+
+    app.closeTab(5);
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+}
+
+test "App.closeTab does not close last tab" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    app.closeTab(0);
+    try testing.expectEqual(@as(usize, 1), app.tabs.items.len);
+}
+
+test "App.cycleTab wraps around" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+    _ = try app.newTab();
+    app.active_tab = 2;
+
+    app.cycleTab(1);
+    try testing.expectEqual(@as(usize, 0), app.active_tab);
+
+    app.cycleTab(-1);
+    try testing.expectEqual(@as(usize, 2), app.active_tab);
+}
+
+test "App.computeContentYOffset without tab bar" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    // 0 or 1 tab: no tab bar
+    try testing.expectEqual(MenuBar.bar_height, app.computeContentYOffset());
+
+    _ = try app.newTab();
+    try testing.expectEqual(MenuBar.bar_height, app.computeContentYOffset());
+}
+
+test "App.computeContentYOffset with tab bar" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+    try testing.expectEqual(MenuBar.bar_height + TabBar.bar_height, app.computeContentYOffset());
+}
+
+test "App.isSupportedMarkdownExtension" {
+    try testing.expect(App.isSupportedMarkdownExtension("readme.md"));
+    try testing.expect(App.isSupportedMarkdownExtension("doc.markdown"));
+    try testing.expect(App.isSupportedMarkdownExtension("notes.txt"));
+    try testing.expect(App.isSupportedMarkdownExtension("file.mkd"));
+    try testing.expect(App.isSupportedMarkdownExtension("FILE.MD"));
+    try testing.expect(!App.isSupportedMarkdownExtension("image.png"));
+    try testing.expect(!App.isSupportedMarkdownExtension("script.js"));
+    try testing.expect(!App.isSupportedMarkdownExtension("noext"));
+}
+
+test "App.deinit cleans up without leaks" {
+    var app = App.init(testing.allocator);
+    _ = try app.newTab();
+    _ = try app.newTab();
+    app.deinit();
+}

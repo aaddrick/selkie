@@ -43,6 +43,24 @@ pub const Theme = struct {
     search_bar_text: rl.Color,
     search_bar_border: rl.Color,
 
+    // Tab bar
+    tab_bar_bg: rl.Color,
+    tab_active_bg: rl.Color,
+    tab_inactive_bg: rl.Color,
+    tab_hover_bg: rl.Color,
+    tab_text: rl.Color,
+    tab_text_inactive: rl.Color,
+    tab_border: rl.Color,
+    tab_close_hover: rl.Color,
+
+    // Sidebar
+    sidebar_bg: rl.Color,
+    sidebar_text: rl.Color,
+    sidebar_active_bg: rl.Color,
+    sidebar_hover_bg: rl.Color,
+    sidebar_border: rl.Color,
+    sidebar_indent_line: rl.Color,
+
     // Mermaid diagram colors
     mermaid_node_fill: rl.Color,
     mermaid_node_border: rl.Color,

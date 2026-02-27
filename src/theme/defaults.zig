@@ -58,6 +58,24 @@ pub const light = Theme{
     .search_bar_text = rgb(36, 41, 46),
     .search_bar_border = rgb(208, 215, 222),
 
+    // Tab bar
+    .tab_bar_bg = rgb(246, 248, 250),
+    .tab_active_bg = rgb(255, 255, 255),
+    .tab_inactive_bg = rgb(236, 239, 243),
+    .tab_hover_bg = rgb(230, 233, 237),
+    .tab_text = rgb(36, 41, 46),
+    .tab_text_inactive = rgb(106, 115, 125),
+    .tab_border = rgb(208, 215, 222),
+    .tab_close_hover = rgb(220, 60, 60),
+
+    // Sidebar
+    .sidebar_bg = rgb(246, 248, 250),
+    .sidebar_text = rgb(36, 41, 46),
+    .sidebar_active_bg = rgb(218, 232, 252),
+    .sidebar_hover_bg = rgb(230, 233, 237),
+    .sidebar_border = rgb(208, 215, 222),
+    .sidebar_indent_line = rgb(208, 215, 222),
+
     // Mermaid (light: blue-gray nodes, dark borders)
     .mermaid_node_fill = rgb(218, 232, 252),
     .mermaid_node_border = rgb(100, 130, 180),
@@ -130,6 +148,24 @@ pub const dark = Theme{
     .search_bar_bg = rgb(49, 50, 68),
     .search_bar_text = rgb(205, 214, 244),
     .search_bar_border = rgb(88, 91, 112),
+
+    // Tab bar (Catppuccin surface tones)
+    .tab_bar_bg = rgb(49, 50, 68),
+    .tab_active_bg = rgb(30, 30, 46),
+    .tab_inactive_bg = rgb(59, 60, 78),
+    .tab_hover_bg = rgb(69, 71, 90),
+    .tab_text = rgb(205, 214, 244),
+    .tab_text_inactive = rgb(147, 153, 178),
+    .tab_border = rgb(69, 71, 90),
+    .tab_close_hover = rgb(243, 139, 168),
+
+    // Sidebar (Catppuccin surface tones)
+    .sidebar_bg = rgb(49, 50, 68),
+    .sidebar_text = rgb(205, 214, 244),
+    .sidebar_active_bg = rgb(69, 71, 90),
+    .sidebar_hover_bg = rgb(59, 60, 78),
+    .sidebar_border = rgb(69, 71, 90),
+    .sidebar_indent_line = rgb(88, 91, 112),
 
     // Mermaid (Catppuccin-style teal/mauve fills)
     .mermaid_node_fill = rgb(69, 71, 90),

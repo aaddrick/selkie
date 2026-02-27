@@ -17,11 +17,15 @@ test {
     _ = @import("viewport/scroll.zig");
     _ = @import("render/syntax_highlight.zig");
     _ = @import("utils/slice_utils.zig");
+    _ = @import("utils/text_utils.zig");
     _ = @import("file_watcher.zig");
     _ = @import("menu_bar.zig");
     _ = @import("file_dialog.zig");
     _ = @import("app.zig");
     _ = @import("stdin_reader.zig");
+    _ = @import("tab.zig");
+    _ = @import("tab_bar.zig");
+    _ = @import("toc_sidebar.zig");
     // Search subsystem tests
     _ = @import("search/search_state.zig");
     _ = @import("search/searcher.zig");
@@ -62,7 +66,10 @@ pub fn main() !u8 {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    var file_path: ?[]const u8 = null;
+    // Collect all positional args as file paths
+    var file_paths = std.ArrayList([]const u8).init(allocator);
+    defer file_paths.deinit();
+
     var theme_path: ?[]const u8 = null;
     var use_dark: bool = false;
     var explicit_stdin: bool = false;
@@ -83,23 +90,12 @@ pub fn main() !u8 {
         } else if (std.mem.eql(u8, arg, "-")) {
             explicit_stdin = true;
         } else if (arg.len > 0 and arg[0] != '-') {
-            file_path = arg;
+            try file_paths.append(arg);
         }
     }
 
-    // Read content from file or stdin
-    const file_content: ?[]u8 = if (file_path) |path|
-        std.fs.cwd().readFileAlloc(allocator, path, App.max_file_size) catch |err| {
-            std.log.err("Failed to read file '{s}': {}", .{ path, err });
-            return 1;
-        }
-    else
-        null;
-    defer if (file_content) |content| allocator.free(content);
-
-    // If no file argument given, try reading from stdin (piped or explicit "-").
-    // File argument takes priority — if both file and "-" are given, stdin is ignored.
-    const stdin_content: ?[]u8 = if (file_path == null) blk: {
+    // Read stdin content if no file args given
+    const stdin_content: ?[]u8 = if (file_paths.items.len == 0) blk: {
         const result = stdin_reader.readStdin(allocator, App.max_file_size) catch |err| switch (err) {
             error.EmptyStdin => break :blk null,
             error.StdinTooLarge => {
@@ -120,9 +116,7 @@ pub fn main() !u8 {
     } else null;
     defer if (stdin_content) |s| allocator.free(s);
 
-    // Determine which content to use (file takes priority over stdin)
-    const content = file_content orelse stdin_content;
-    const source_is_stdin = file_content == null and stdin_content != null;
+    const source_is_stdin = file_paths.items.len == 0 and stdin_content != null;
 
     const custom_theme: ?Theme = if (theme_path) |tp|
         theme_loader.loadFromFile(allocator, tp) catch |err| {
@@ -132,8 +126,12 @@ pub fn main() !u8 {
     else
         null;
 
+    // Buffer declared in outer scope so the formatted title outlives initWindow
+    var title_buf: [256:0]u8 = undefined;
     const window_title: [:0]const u8 = if (source_is_stdin)
         "Selkie \u{2014} stdin"
+    else if (file_paths.items.len == 1)
+        std.fmt.bufPrintZ(&title_buf, "Selkie \xe2\x80\x94 {s}", .{std.fs.path.basename(file_paths.items[0])}) catch "Selkie"
     else
         "Selkie \u{2014} Markdown Viewer";
 
@@ -150,16 +148,25 @@ pub fn main() !u8 {
     try app.loadFonts();
     defer app.unloadFonts();
 
-    if (file_path) |path| {
-        const dir = std.fs.path.dirname(path) orelse ".";
-        try app.setBaseDir(dir);
-        app.setFilePath(path); // Starts file watcher — not used for stdin
-    }
-
-    if (content) |c| {
-        app.loadMarkdown(c) catch |err| {
-            std.log.err("Failed to parse markdown: {}", .{err});
+    // Open files in tabs
+    if (file_paths.items.len > 0) {
+        for (file_paths.items) |path| {
+            app.newTabWithFile(path) catch |err| {
+                std.log.err("Failed to open '{s}': {}", .{ path, err });
+            };
+        }
+    } else {
+        // Create a default tab for stdin or empty state
+        _ = app.newTab() catch |err| {
+            std.log.err("Failed to create tab: {}", .{err});
+            return 1;
         };
+
+        if (stdin_content) |c| {
+            app.loadMarkdown(c) catch |err| {
+                std.log.err("Failed to parse markdown: {}", .{err});
+            };
+        }
     }
 
     while (!rl.windowShouldClose()) {
