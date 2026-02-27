@@ -148,11 +148,10 @@ test "journey parse score clamping" {
     var model = try parse(allocator, source);
     defer model.deinit();
 
-    try testing.expectEqual(@as(usize, 2), model.sections.items[0].tasks.items.len);
-    // Score 0 clamped to 1
-    try testing.expectEqual(@as(u8, 1), model.sections.items[0].tasks.items[0].score);
-    // Score 9 clamped to 5
-    try testing.expectEqual(@as(u8, 5), model.sections.items[0].tasks.items[1].score);
+    const tasks = model.sections.items[0].tasks.items;
+    try testing.expectEqual(@as(usize, 2), tasks.len);
+    try testing.expectEqual(@as(u8, 1), tasks[0].score); // 0 clamped to min 1
+    try testing.expectEqual(@as(u8, 5), tasks[1].score); // 9 clamped to max 5
 }
 
 test "journey parse empty input" {

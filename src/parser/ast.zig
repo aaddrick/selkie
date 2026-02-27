@@ -100,6 +100,7 @@ const testing = std.testing;
 test "Node.deinit frees all optional fields" {
     const allocator = testing.allocator;
     var node = Node.init(allocator, .code_block);
+    defer node.deinit(allocator);
 
     // Populate all 5 optional heap-owned fields
     node.literal = try allocator.dupe(u8, "some literal");
@@ -112,9 +113,6 @@ test "Node.deinit frees all optional fields" {
     var child = Node.init(allocator, .text);
     child.literal = try allocator.dupe(u8, "child text");
     try node.children.append(child);
-
-    // deinit should free everything; testing.allocator will detect leaks
-    node.deinit(allocator);
 }
 
 pub const Document = struct {
