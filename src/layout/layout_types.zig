@@ -92,6 +92,10 @@ pub const LayoutNode = struct {
     allocator: Allocator,
     text_runs: std.ArrayList(TextRun),
     data: NodeData,
+    /// Source file line number (1-based, 0 = unknown). For multi-line elements,
+    /// source_end_line > source_line indicates a span (rendered as "N+").
+    source_line: u32 = 0,
+    source_end_line: u32 = 0,
 
     pub fn init(allocator: Allocator, data: NodeData) LayoutNode {
         return .{
@@ -120,6 +124,9 @@ pub const LayoutNode = struct {
     }
 };
 
+/// Padding inside the source line number gutter (used by layout and renderer).
+pub const gutter_padding: f32 = 8;
+
 pub const LayoutTree = struct {
     nodes: std.ArrayList(LayoutNode),
     total_height: f32,
@@ -127,6 +134,8 @@ pub const LayoutTree = struct {
     /// Arena for strings generated during layout (formatted numbers, alt text, etc.).
     /// Freed in bulk by deinit(), so individual strings need no cleanup.
     arena: std.heap.ArenaAllocator,
+    /// Width of the source line number gutter (0 when line numbers are hidden).
+    gutter_width: f32 = 0,
 
     pub fn init(allocator: Allocator) LayoutTree {
         return .{

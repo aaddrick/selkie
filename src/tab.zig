@@ -72,7 +72,7 @@ pub const Tab = struct {
 
     /// Lay out the current document using the given theme, fonts, and dimensions.
     /// Replaces any existing layout tree.
-    pub fn relayout(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32) !void {
+    pub fn relayout(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool) !void {
         if (self.layout_tree) |*tree| tree.deinit();
         self.layout_tree = null;
 
@@ -86,6 +86,7 @@ pub const Tab = struct {
             &self.image_renderer,
             y_offset,
             left_offset,
+            show_line_numbers,
         );
         self.scroll.total_height = tree.total_height;
         self.layout_tree = tree;
@@ -114,7 +115,7 @@ pub const Tab = struct {
     }
 
     /// Reload the markdown file from disk, preserving scroll position.
-    pub fn reloadFromDisk(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32) void {
+    pub fn reloadFromDisk(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool) void {
         const path = self.file_path orelse return;
 
         const content = std.fs.cwd().readFileAlloc(self.allocator, path, App.max_file_size) catch |err| {
@@ -130,7 +131,7 @@ pub const Tab = struct {
             return;
         };
 
-        self.relayout(theme, fonts, layout_width, y_offset, left_offset) catch |err| {
+        self.relayout(theme, fonts, layout_width, y_offset, left_offset, show_line_numbers) catch |err| {
             std.log.err("Failed to layout reloaded document: {}", .{err});
         };
 

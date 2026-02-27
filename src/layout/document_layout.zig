@@ -31,6 +31,8 @@ pub const LayoutContext = struct {
     footnote_index: u32 = 0,
     // Image renderer for loading textures
     image_renderer: ?*ImageRenderer = null,
+    // Line number gutter width (0 when disabled)
+    gutter_width: f32 = 0,
 
     pub fn init(
         allocator: Allocator,
@@ -260,6 +262,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
 
             var layout_node = layout_types.LayoutNode.init(ctx.allocator, .{ .heading = .{ .level = node.heading_level } });
             errdefer layout_node.deinit();
+            layout_node.source_line = node.start_line;
+            layout_node.source_end_line = node.end_line;
 
             const font_size = ctx.theme.headingSize(node.heading_level);
             const color = ctx.theme.headingColor(node.heading_level);
@@ -293,6 +297,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
         .paragraph => {
             var layout_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
+            layout_node.source_line = node.start_line;
+            layout_node.source_end_line = node.end_line;
 
             const text_color = if (ctx.dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
             const style = layout_types.TextStyle{
@@ -319,6 +325,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
         },
         .code_block => {
             const is_mermaid = if (node.fence_info) |info| std.mem.eql(u8, info, "mermaid") else false;
+            const before_count = ctx.tree.nodes.items.len;
 
             if (is_mermaid) {
                 try mermaid_layout.layoutMermaidBlock(
@@ -344,10 +351,18 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
                     ctx.tree,
                 );
             }
+
+            // Tag newly appended nodes with source line info
+            for (ctx.tree.nodes.items[before_count..]) |*ln| {
+                ln.source_line = node.start_line;
+                ln.source_end_line = node.end_line;
+            }
         },
         .thematic_break => {
             var layout_node = layout_types.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
             errdefer layout_node.deinit();
+            layout_node.source_line = node.start_line;
+            layout_node.source_end_line = node.end_line;
             layout_node.rect = .{
                 .x = ctx.content_x,
                 .y = ctx.cursor_y + 8,
@@ -372,6 +387,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             // Add border marker
             var border_node = layout_types.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = ctx.theme.blockquote_border } });
             errdefer border_node.deinit();
+            border_node.source_line = node.start_line;
+            border_node.source_end_line = node.end_line;
             border_node.rect = .{
                 .x = saved_x,
                 .y = start_y,
@@ -384,6 +401,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_width = saved_w;
         },
         .table => {
+            const before_count = ctx.tree.nodes.items.len;
             try table_layout.layoutTable(
                 ctx.allocator,
                 node,
@@ -394,6 +412,11 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
                 ctx.content_width,
                 &ctx.cursor_y,
             );
+            // Tag newly appended table nodes with source line info
+            for (ctx.tree.nodes.items[before_count..]) |*ln| {
+                ln.source_line = node.start_line;
+                ln.source_end_line = node.end_line;
+            }
         },
         .list => {
             const saved_depth = ctx.list_depth;
@@ -422,6 +445,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             // Add bullet/number/checkbox marker
             var marker_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer marker_node.deinit();
+            marker_node.source_line = node.start_line;
+            marker_node.source_end_line = node.end_line;
 
             const is_dimmed = node.tasklist_checked orelse false;
             const marker_color = if (is_dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
@@ -522,6 +547,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             // Render as a small paragraph with footnote number prefix
             var layout_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
+            layout_node.source_line = node.start_line;
+            layout_node.source_end_line = node.end_line;
 
             const small_size = ctx.theme.body_font_size * 0.85;
             const style = layout_types.TextStyle{
@@ -570,6 +597,15 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
     }
 }
 
+// Find the maximum end_line in the AST to determine gutter digit count.
+fn maxEndLine(node: *const ast.Node) u32 {
+    var max: u32 = node.end_line;
+    for (node.children.items) |*child| {
+        max = @max(max, maxEndLine(child));
+    }
+    return max;
+}
+
 /// Lay out a parsed document into positioned nodes for rendering.
 /// `y_offset` shifts content start downward (e.g., to leave room for a menu bar).
 /// `left_offset` shifts content start rightward (e.g., for a ToC sidebar).
@@ -582,11 +618,31 @@ pub fn layout(
     image_renderer: ?*ImageRenderer,
     y_offset: f32,
     left_offset: f32,
+    show_line_numbers: bool,
 ) !layout_types.LayoutTree {
     var tree = layout_types.LayoutTree.init(allocator);
     errdefer tree.deinit();
     var ctx = LayoutContext.init(allocator, theme, fonts, available_width, &tree, y_offset, left_offset);
     ctx.image_renderer = image_renderer;
+
+    // Compute gutter width when line numbers are enabled
+    if (show_line_numbers) {
+        const max_line = maxEndLine(&document.root);
+        if (max_line > 0) {
+            // Measure widest possible label: "{max_line}+" (multi-line elements show "N+")
+            var buf: [20]u8 = undefined;
+            const widest_label = std.fmt.bufPrint(&buf, "{d}+", .{max_line}) catch "0+";
+            const gutter_text_width = fonts.measure(widest_label, theme.mono_font_size, false, false, true).x;
+            const desired_gutter = gutter_text_width + layout_types.gutter_padding * 2;
+            // Skip gutter if viewport is too narrow to fit meaningful content
+            if (ctx.content_width > desired_gutter + 100) {
+                ctx.gutter_width = desired_gutter;
+                tree.gutter_width = desired_gutter;
+                ctx.content_x += desired_gutter;
+                ctx.content_width -= desired_gutter;
+            }
+        }
+    }
 
     try layoutBlock(&ctx, &document.root);
 
@@ -646,4 +702,51 @@ test "LayoutContext.init content_x starts at zero with no left_offset" {
     const expected_content_width = @min(theme.max_content_width, available_width - theme.page_margin * 2);
     const expected_x = (available_width - expected_content_width) / 2.0;
     try testing.expectEqual(expected_x, ctx.content_x);
+}
+
+test "maxEndLine returns maximum end_line across AST tree" {
+    var root = ast.Node.init(testing.allocator, .document);
+    defer root.deinit(testing.allocator);
+    root.start_line = 1;
+    root.end_line = 10;
+
+    var child1 = ast.Node.init(testing.allocator, .paragraph);
+    child1.start_line = 1;
+    child1.end_line = 3;
+
+    var child2 = ast.Node.init(testing.allocator, .heading);
+    child2.start_line = 5;
+    child2.end_line = 15;
+
+    try root.children.append(child1);
+    try root.children.append(child2);
+
+    try testing.expectEqual(@as(u32, 15), maxEndLine(&root));
+}
+
+test "maxEndLine finds maximum in grandchild" {
+    var root = ast.Node.init(testing.allocator, .document);
+    defer root.deinit(testing.allocator);
+    root.start_line = 1;
+    root.end_line = 5;
+
+    var child = ast.Node.init(testing.allocator, .list);
+    child.start_line = 2;
+    child.end_line = 5;
+
+    var grandchild = ast.Node.init(testing.allocator, .item);
+    grandchild.start_line = 3;
+    grandchild.end_line = 20;
+
+    try child.children.append(grandchild);
+    try root.children.append(child);
+
+    try testing.expectEqual(@as(u32, 20), maxEndLine(&root));
+}
+
+test "maxEndLine returns 0 for node with no line info" {
+    var root = ast.Node.init(testing.allocator, .document);
+    defer root.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u32, 0), maxEndLine(&root));
 }

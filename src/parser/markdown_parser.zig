@@ -63,6 +63,13 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
     var node = ast.Node.init(allocator, node_type);
     errdefer node.deinit(allocator);
 
+    // Capture source line positions (1-based) from cmark-gfm.
+    // cmark returns 0 for no position; > 0 guard also skips any negative error values.
+    const sl = cmark.cmark_node_get_start_line(cmark_node);
+    const el = cmark.cmark_node_get_end_line(cmark_node);
+    if (sl > 0) node.start_line = @intCast(sl);
+    if (el > 0) node.end_line = @intCast(el);
+
     switch (node_type) {
         .text, .code, .html_block, .html_inline => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
@@ -295,6 +302,27 @@ test "parse GFM strikethrough" {
         if (child.node_type == .strikethrough) break true;
     } else false;
     try testing.expect(has_strike);
+}
+
+test "parse extracts source line numbers from cmark-gfm" {
+    const input = "# Heading\n\nParagraph\n\n- item\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    // Heading on line 1
+    const heading = &doc.root.children.items[0];
+    try testing.expectEqual(ast.NodeType.heading, heading.node_type);
+    try testing.expectEqual(@as(u32, 1), heading.start_line);
+
+    // Paragraph on line 3
+    const para = &doc.root.children.items[1];
+    try testing.expectEqual(ast.NodeType.paragraph, para.node_type);
+    try testing.expectEqual(@as(u32, 3), para.start_line);
+
+    // List starts on line 5
+    const list = &doc.root.children.items[2];
+    try testing.expectEqual(ast.NodeType.list, list.node_type);
+    try testing.expectEqual(@as(u32, 5), list.start_line);
 }
 
 test "parse GFM tasklist" {

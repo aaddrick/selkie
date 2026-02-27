@@ -43,6 +43,9 @@ pub const App = struct {
     // ToC sidebar (shared across all tabs — shows headings for active tab)
     toc_sidebar: TocSidebar,
 
+    // Source line numbers gutter
+    show_line_numbers: bool = false,
+
     pub fn init(allocator: Allocator) App {
         return .{
             .allocator = allocator,
@@ -164,7 +167,7 @@ pub const App = struct {
         };
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
                 std.log.err("Failed to layout document: {}", .{err});
             };
         }
@@ -255,7 +258,7 @@ pub const App = struct {
     fn relayoutActiveTab(self: *App) void {
         const tab = self.activeTab() orelse return;
         const fonts = &(self.fonts orelse return);
-        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
+        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
             std.log.err("Failed to relayout: {}", .{err});
         };
         self.rebuildToc();
@@ -267,7 +270,7 @@ pub const App = struct {
         const y_offset = self.computeContentYOffset();
         const left_offset = self.computeContentLeftOffset();
         for (self.tabs.items) |*tab| {
-            tab.relayout(self.theme, fonts, width, y_offset, left_offset) catch |err| {
+            tab.relayout(self.theme, fonts, width, y_offset, left_offset, self.show_line_numbers) catch |err| {
                 std.log.err("Failed to relayout tab: {}", .{err});
             };
         }
@@ -348,7 +351,7 @@ pub const App = struct {
         }
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
                 std.log.err("Failed to relayout: {}", .{err});
             };
         }
@@ -443,6 +446,10 @@ pub const App = struct {
                     self.toc_sidebar.toggle();
                     self.relayoutAllTabs();
                 },
+                .toggle_line_numbers => {
+                    self.show_line_numbers = !self.show_line_numbers;
+                    self.relayoutAllTabs();
+                },
                 .open_settings => std.log.info("Settings not yet implemented", .{}),
             }
         }
@@ -487,6 +494,10 @@ pub const App = struct {
                     }
                     if (rl.isKeyPressed(.p)) {
                         self.exportToPdf();
+                    }
+                    if (rl.isKeyPressed(.l)) {
+                        self.show_line_numbers = !self.show_line_numbers;
+                        self.relayoutAllTabs();
                     }
                     // Tab keybindings
                     if (rl.isKeyPressed(.t)) {
@@ -562,7 +573,7 @@ pub const App = struct {
             switch (watcher.checkForChanges()) {
                 .file_changed => {
                     const f = &(self.fonts orelse return);
-                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset());
+                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers);
                     self.rebuildToc();
                 },
                 .file_deleted => {

@@ -71,6 +71,10 @@ pub const Node = struct {
     // Code block
     fence_info: ?[]const u8 = null,
 
+    // Source location (1-based line numbers from cmark-gfm)
+    start_line: u32 = 0,
+    end_line: u32 = 0,
+
     pub fn init(allocator: Allocator, node_type: NodeType) Node {
         return .{
             .node_type = node_type,

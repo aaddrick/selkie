@@ -32,6 +32,7 @@ pub const MenuBar = struct {
         close_app,
         toggle_theme,
         toggle_toc,
+        toggle_line_numbers,
         open_settings,
     };
 
@@ -63,6 +64,7 @@ pub const MenuBar = struct {
     const view_items = [_]MenuItem{
         .{ .label = "Toggle Theme", .shortcut = "T", .action = .toggle_theme },
         .{ .label = "Table of Contents", .shortcut = "Ctrl+Shift+T", .action = .toggle_toc },
+        .{ .label = "Line Numbers", .shortcut = "Ctrl+L", .action = .toggle_line_numbers },
     };
 
     const settings_items = [_]MenuItem{
@@ -318,7 +320,7 @@ test "MenuBar isOpen reflects open_menu state" {
 
 test "MenuBar menuItems returns correct item count per menu" {
     try testing.expectEqual(@as(usize, 4), MenuBar.menuItems(.file).len);
-    try testing.expectEqual(@as(usize, 2), MenuBar.menuItems(.view).len);
+    try testing.expectEqual(@as(usize, 3), MenuBar.menuItems(.view).len);
     try testing.expectEqual(@as(usize, 1), MenuBar.menuItems(.settings).len);
 }
 
@@ -335,11 +337,13 @@ test "MenuBar export_pdf item has Ctrl+P shortcut" {
     try testing.expectEqualStrings("Ctrl+P", items[2].shortcut.?);
 }
 
-test "MenuBar view menu has toggle_theme and toggle_toc actions" {
+test "MenuBar view menu has toggle_theme, toggle_toc, and toggle_line_numbers actions" {
     const items = MenuBar.menuItems(.view);
     try testing.expectEqual(MenuBar.Action.toggle_theme, items[0].action);
     try testing.expectEqual(MenuBar.Action.toggle_toc, items[1].action);
     try testing.expectEqualStrings("Ctrl+Shift+T", items[1].shortcut.?);
+    try testing.expectEqual(MenuBar.Action.toggle_line_numbers, items[2].action);
+    try testing.expectEqualStrings("Ctrl+L", items[2].shortcut.?);
 }
 
 test "MenuBar file and view items are all enabled" {

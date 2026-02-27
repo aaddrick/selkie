@@ -3,6 +3,7 @@ const LayoutTree = @import("../layout/layout_types.zig").LayoutTree;
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const scrollbar = @import("scrollbar.zig");
+const gutter_renderer = @import("gutter_renderer.zig");
 const block_renderer = @import("block_renderer.zig");
 const table_renderer = @import("table_renderer.zig");
 const text_renderer = @import("text_renderer.zig");
@@ -74,6 +75,9 @@ pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts,
             },
         }
     }
+
+    // Draw source line number gutter (if enabled)
+    gutter_renderer.drawGutter(tree, theme, fonts, scroll_y, content_top_y, left_offset);
 
     // Draw scrollbar (starts below chrome, right-aligned)
     drawScrollbar(tree.total_height, scroll_y, screen_h, content_top_y, theme);
