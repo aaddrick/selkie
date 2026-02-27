@@ -220,7 +220,8 @@ pub const App = struct {
         }
 
         if (self.layout_tree) |*tree| {
-            self.link_handler.update(tree, self.scroll.y);
+            const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+            self.link_handler.update(tree, self.scroll.y, screen_h);
             self.link_handler.handleClick();
         }
     }
