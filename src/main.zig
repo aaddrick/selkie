@@ -5,6 +5,19 @@ const App = @import("app.zig").App;
 const Theme = @import("theme/theme.zig").Theme;
 const theme_loader = @import("theme/theme_loader.zig");
 
+// Test imports: ensure the test runner discovers tests in all subsystems.
+// These are only referenced at comptime during `zig build test`.
+test {
+    _ = @import("parser/markdown_parser.zig");
+    _ = @import("parser/gfm_extensions.zig");
+    _ = @import("parser/ast.zig");
+    _ = @import("layout/layout_types.zig");
+    _ = @import("theme/theme_loader.zig");
+    _ = @import("viewport/scroll.zig");
+    _ = @import("render/syntax_highlight.zig");
+    _ = @import("utils/slice_utils.zig");
+}
+
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {

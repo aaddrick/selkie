@@ -201,3 +201,146 @@ pub fn loadFromJson(allocator: Allocator, json_data: []const u8) !Theme {
 
     return theme;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "parseHexColor with valid 6-digit hex" {
+    const color = try parseHexColor("#ff8040");
+    try testing.expectEqual(@as(u8, 255), color.r);
+    try testing.expectEqual(@as(u8, 128), color.g);
+    try testing.expectEqual(@as(u8, 64), color.b);
+    try testing.expectEqual(@as(u8, 255), color.a);
+}
+
+test "parseHexColor without hash prefix" {
+    const color = try parseHexColor("00ff00");
+    try testing.expectEqual(@as(u8, 0), color.r);
+    try testing.expectEqual(@as(u8, 255), color.g);
+    try testing.expectEqual(@as(u8, 0), color.b);
+}
+
+test "parseHexColor with black" {
+    const color = try parseHexColor("#000000");
+    try testing.expectEqual(@as(u8, 0), color.r);
+    try testing.expectEqual(@as(u8, 0), color.g);
+    try testing.expectEqual(@as(u8, 0), color.b);
+}
+
+test "parseHexColor with white" {
+    const color = try parseHexColor("#ffffff");
+    try testing.expectEqual(@as(u8, 255), color.r);
+    try testing.expectEqual(@as(u8, 255), color.g);
+    try testing.expectEqual(@as(u8, 255), color.b);
+}
+
+test "parseHexColor rejects short string" {
+    try testing.expectError(ThemeLoadError.InvalidColor, parseHexColor("#fff"));
+}
+
+test "parseHexColor rejects empty string" {
+    try testing.expectError(ThemeLoadError.InvalidColor, parseHexColor(""));
+}
+
+test "parseHexColor rejects non-hex characters" {
+    try testing.expectError(ThemeLoadError.InvalidColor, parseHexColor("#gggggg"));
+}
+
+test "parseHexColor rejects too-long string" {
+    try testing.expectError(ThemeLoadError.InvalidColor, parseHexColor("#ff00ff00"));
+}
+
+test "loadFromJson with valid minimal JSON uses defaults" {
+    const json = "{}";
+    const theme = try loadFromJson(testing.allocator, json);
+    // Should equal the light theme defaults
+    try testing.expectEqual(defaults.light.body_font_size, theme.body_font_size);
+    try testing.expectEqual(defaults.light.line_height, theme.line_height);
+    try testing.expectEqual(defaults.light.page_margin, theme.page_margin);
+    try testing.expectEqual(defaults.light.background.r, theme.background.r);
+}
+
+test "loadFromJson with colors overrides defaults" {
+    const json =
+        \\{"colors": {"background": "#112233", "text": "#aabbcc"}}
+    ;
+    const theme = try loadFromJson(testing.allocator, json);
+    try testing.expectEqual(@as(u8, 0x11), theme.background.r);
+    try testing.expectEqual(@as(u8, 0x22), theme.background.g);
+    try testing.expectEqual(@as(u8, 0x33), theme.background.b);
+    try testing.expectEqual(@as(u8, 0xaa), theme.text.r);
+    try testing.expectEqual(@as(u8, 0xbb), theme.text.g);
+    try testing.expectEqual(@as(u8, 0xcc), theme.text.b);
+}
+
+test "loadFromJson with sizing overrides" {
+    const json =
+        \\{"sizing": {"body_font_size": 20.0, "line_height": 1.8}}
+    ;
+    const theme = try loadFromJson(testing.allocator, json);
+    try testing.expectEqual(@as(f32, 20.0), theme.body_font_size);
+    try testing.expectEqual(@as(f32, 1.8), theme.line_height);
+}
+
+test "loadFromJson rejects malformed JSON" {
+    try testing.expectError(ThemeLoadError.InvalidJson, loadFromJson(testing.allocator, "{broken"));
+}
+
+test "loadFromJson rejects negative sizing values" {
+    const json =
+        \\{"sizing": {"body_font_size": -5.0}}
+    ;
+    try testing.expectError(ThemeLoadError.InvalidValue, loadFromJson(testing.allocator, json));
+}
+
+test "loadFromJson with missing fields falls back to defaults" {
+    const json =
+        \\{"colors": {"background": "#000000"}, "sizing": {}}
+    ;
+    const theme = try loadFromJson(testing.allocator, json);
+    // background overridden
+    try testing.expectEqual(@as(u8, 0), theme.background.r);
+    // text falls back to default
+    try testing.expectEqual(defaults.light.text.r, theme.text.r);
+    // sizing falls back to defaults
+    try testing.expectEqual(defaults.light.body_font_size, theme.body_font_size);
+}
+
+test "loadFromJson with invalid color falls back to default" {
+    const json =
+        \\{"colors": {"background": "not-a-color"}}
+    ;
+    const theme = try loadFromJson(testing.allocator, json);
+    // Invalid color should fall back to default
+    try testing.expectEqual(defaults.light.background.r, theme.background.r);
+}
+
+test "f64ToF32 returns default for null" {
+    const result = try f64ToF32(null, 42.0);
+    try testing.expectEqual(@as(f32, 42.0), result);
+}
+
+test "f64ToF32 converts valid value" {
+    const result = try f64ToF32(16.5, 0);
+    try testing.expectEqual(@as(f32, 16.5), result);
+}
+
+test "f64ToF32 rejects negative value" {
+    try testing.expectError(ThemeLoadError.InvalidValue, f64ToF32(-1.0, 0));
+}
+
+test "validateScale rejects zero" {
+    try testing.expectError(ThemeLoadError.InvalidValue, validateScale(0));
+}
+
+test "validateScale rejects negative" {
+    try testing.expectError(ThemeLoadError.InvalidValue, validateScale(-0.5));
+}
+
+test "validateScale converts valid value" {
+    const result = try validateScale(1.5);
+    try testing.expectEqual(@as(f32, 1.5), result);
+}

@@ -145,3 +145,78 @@ pub const LayoutTree = struct {
         self.arena.deinit();
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "Rect.bottom returns y + height" {
+    const r = Rect{ .x = 10, .y = 20, .width = 100, .height = 50 };
+    try testing.expectEqual(@as(f32, 70), r.bottom());
+}
+
+test "Rect.right returns x + width" {
+    const r = Rect{ .x = 10, .y = 20, .width = 100, .height = 50 };
+    try testing.expectEqual(@as(f32, 110), r.right());
+}
+
+test "Rect.overlapsVertically detects overlap" {
+    const r = Rect{ .x = 0, .y = 100, .width = 50, .height = 50 };
+    // Rect spans y=100..150
+
+    // Fully inside
+    try testing.expect(r.overlapsVertically(110, 140));
+    // Partial overlap top
+    try testing.expect(r.overlapsVertically(90, 120));
+    // Partial overlap bottom
+    try testing.expect(r.overlapsVertically(130, 200));
+    // Fully containing
+    try testing.expect(r.overlapsVertically(50, 200));
+}
+
+test "Rect.overlapsVertically detects no overlap" {
+    const r = Rect{ .x = 0, .y = 100, .width = 50, .height = 50 };
+    // Rect spans y=100..150
+
+    // Entirely above
+    try testing.expect(!r.overlapsVertically(0, 100));
+    // Entirely below
+    try testing.expect(!r.overlapsVertically(150, 200));
+    // Far away
+    try testing.expect(!r.overlapsVertically(300, 400));
+}
+
+test "Rect with zero dimensions" {
+    const r = Rect{ .x = 5, .y = 10, .width = 0, .height = 0 };
+    try testing.expectEqual(@as(f32, 10), r.bottom());
+    try testing.expectEqual(@as(f32, 5), r.right());
+    // Zero-height rect at y=10: bottom=10, does not overlap (10,20)
+    try testing.expect(!r.overlapsVertically(10, 20));
+}
+
+test "LayoutNode init and deinit with text_block" {
+    var node = LayoutNode.init(testing.allocator, .text_block);
+    defer node.deinit();
+    try testing.expectEqual(@as(f32, 0), node.rect.x);
+    try testing.expectEqual(@as(usize, 0), node.text_runs.items.len);
+}
+
+test "LayoutTree init and deinit" {
+    var tree = LayoutTree.init(testing.allocator);
+    defer tree.deinit();
+    try testing.expectEqual(@as(f32, 0), tree.total_height);
+    try testing.expectEqual(@as(usize, 0), tree.nodes.items.len);
+}
+
+test "LayoutTree append nodes" {
+    var tree = LayoutTree.init(testing.allocator);
+    defer tree.deinit();
+
+    var node = LayoutNode.init(testing.allocator, .text_block);
+    node.rect = .{ .x = 0, .y = 0, .width = 100, .height = 50 };
+    try tree.nodes.append(node);
+
+    try testing.expectEqual(@as(usize, 1), tree.nodes.items.len);
+}

@@ -631,3 +631,203 @@ fn isPunctuation(ch: u8) bool {
         else => false,
     };
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "getLangDef recognizes zig" {
+    try testing.expect(getLangDef("zig") != null);
+}
+
+test "getLangDef recognizes python aliases" {
+    try testing.expect(getLangDef("python") != null);
+    try testing.expect(getLangDef("py") != null);
+}
+
+test "getLangDef recognizes javascript aliases" {
+    try testing.expect(getLangDef("javascript") != null);
+    try testing.expect(getLangDef("js") != null);
+}
+
+test "getLangDef is case insensitive" {
+    try testing.expect(getLangDef("Zig") != null);
+    try testing.expect(getLangDef("PYTHON") != null);
+    try testing.expect(getLangDef("JavaScript") != null);
+}
+
+test "getLangDef returns null for unknown language" {
+    try testing.expectEqual(null, getLangDef("brainfuck"));
+    try testing.expectEqual(null, getLangDef(""));
+}
+
+test "getLangDef trims to first word" {
+    // "python extra_stuff" should match "python"
+    try testing.expect(getLangDef("python extra_stuff") != null);
+}
+
+test "tokenize Zig keyword" {
+    const source = "const x = 42;";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expect(tokens.len > 0);
+    // First non-whitespace token should be "const" as keyword
+    try testing.expectEqual(TokenKind.keyword, tokens[0].kind);
+    try testing.expectEqualStrings("const", source[tokens[0].start..tokens[0].end]);
+}
+
+test "tokenize Zig string literal" {
+    const source =
+        \\const s = "hello";
+    ;
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    // Find a string token
+    var found_string = false;
+    for (tokens) |tok| {
+        if (tok.kind == .string) {
+            try testing.expectEqualStrings("\"hello\"", source[tok.start..tok.end]);
+            found_string = true;
+            break;
+        }
+    }
+    try testing.expect(found_string);
+}
+
+test "tokenize Zig line comment" {
+    const source = "// this is a comment\nconst x = 1;";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expect(tokens.len > 0);
+    try testing.expectEqual(TokenKind.comment, tokens[0].kind);
+    try testing.expectEqualStrings("// this is a comment", source[tokens[0].start..tokens[0].end]);
+}
+
+test "tokenize Zig number literals" {
+    const source = "42 0xff 0b1010 3.14";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    var number_count: usize = 0;
+    for (tokens) |tok| {
+        if (tok.kind == .number) number_count += 1;
+    }
+    try testing.expectEqual(@as(usize, 4), number_count);
+}
+
+test "tokenize Zig type names" {
+    const source = "var x: u32 = 0;";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    var found_type = false;
+    for (tokens) |tok| {
+        if (tok.kind == .type_name) {
+            try testing.expectEqualStrings("u32", source[tok.start..tok.end]);
+            found_type = true;
+            break;
+        }
+    }
+    try testing.expect(found_type);
+}
+
+test "tokenize Zig builtin function" {
+    const source = "@import(\"std\")";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expect(tokens.len > 0);
+    try testing.expectEqual(TokenKind.function, tokens[0].kind);
+    try testing.expectEqualStrings("@import", source[tokens[0].start..tokens[0].end]);
+}
+
+test "tokenize Python basics" {
+    const source = "def hello():\n    return 42";
+    const lang = getLangDef("python").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    // First token should be "def" keyword
+    try testing.expectEqual(TokenKind.keyword, tokens[0].kind);
+    try testing.expectEqualStrings("def", source[tokens[0].start..tokens[0].end]);
+
+    // Find "return" keyword
+    var found_return = false;
+    for (tokens) |tok| {
+        if (tok.kind == .keyword and std.mem.eql(u8, source[tok.start..tok.end], "return")) {
+            found_return = true;
+            break;
+        }
+    }
+    try testing.expect(found_return);
+}
+
+test "tokenize Python comment" {
+    const source = "# a comment\nx = 1";
+    const lang = getLangDef("python").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expectEqual(TokenKind.comment, tokens[0].kind);
+}
+
+test "tokenize JavaScript block comment" {
+    const source = "/* block */\nvar x;";
+    const lang = getLangDef("js").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expectEqual(TokenKind.comment, tokens[0].kind);
+    try testing.expectEqualStrings("/* block */", source[tokens[0].start..tokens[0].end]);
+}
+
+test "tokenize empty source" {
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, "", lang);
+    defer testing.allocator.free(tokens);
+    try testing.expectEqual(@as(usize, 0), tokens.len);
+}
+
+test "tokenize operators and punctuation" {
+    const source = "a + b();";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    var found_operator = false;
+    var found_punctuation = false;
+    for (tokens) |tok| {
+        if (tok.kind == .operator) found_operator = true;
+        if (tok.kind == .punctuation) found_punctuation = true;
+    }
+    try testing.expect(found_operator);
+    try testing.expect(found_punctuation);
+}
+
+test "tokenize function call heuristic" {
+    const source = "foo(42)";
+    const lang = getLangDef("zig").?;
+    const tokens = try tokenize(testing.allocator, source, lang);
+    defer testing.allocator.free(tokens);
+
+    try testing.expectEqual(TokenKind.function, tokens[0].kind);
+    try testing.expectEqualStrings("foo", source[tokens[0].start..tokens[0].end]);
+}
+
+test "eqlIgnoreCase matches correctly" {
+    try testing.expect(eqlIgnoreCase("abc", "ABC"));
+    try testing.expect(eqlIgnoreCase("Zig", "zig"));
+    try testing.expect(!eqlIgnoreCase("abc", "abcd"));
+    try testing.expect(!eqlIgnoreCase("abc", "xyz"));
+}
