@@ -21,7 +21,20 @@ pub const ExportError = error{
     NoDocument,
     RenderFailed,
     WriteFailed,
-    OutOfMemory,
+};
+
+/// Holds a pointer to PNG data allocated by raylib (freed via rl.memFree).
+const PngBuffer = struct {
+    data: [*]u8,
+    size: usize,
+
+    fn slice(self: PngBuffer) []const u8 {
+        return self.data[0..self.size];
+    }
+
+    fn free(self: PngBuffer) void {
+        rl.memFree(@ptrCast(self.data));
+    }
 };
 
 /// Export the current document layout to a PDF file.
@@ -55,9 +68,7 @@ pub fn exportPdf(
     // Collect PNG data for all pages
     var png_buffers = std.ArrayList(PngBuffer).init(allocator);
     defer {
-        for (png_buffers.items) |buf| {
-            rl.memFree(@ptrCast(buf.data));
-        }
+        for (png_buffers.items) |buf| buf.free();
         png_buffers.deinit();
     }
 
@@ -69,7 +80,8 @@ pub fn exportPdf(
     defer rl.unloadRenderTexture(target);
 
     for (0..num_pages) |page_idx| {
-        const scroll_y: f32 = @as(f32, @floatFromInt(page_idx)) * page_h_f;
+        const page_offset: f32 = @floatFromInt(page_idx);
+        const scroll_y = page_offset * page_h_f;
 
         // Render to offscreen texture
         rl.beginTextureMode(target);
@@ -90,21 +102,24 @@ pub fn exportPdf(
         defer rl.unloadImage(image);
         rl.imageFlipVertical(&image);
 
-        // Export as PNG to memory — call C API directly to safely null-check
-        // the returned pointer (the Zig wrapper calls std.mem.span which panics on null)
+        // Call C API directly to safely null-check the returned pointer
+        // (the Zig wrapper calls std.mem.span which panics on null)
         var file_size: c_int = 0;
-        const raw_ptr: ?[*]u8 = rl.cdef.ExportImageToMemory(image, ".png", &file_size);
-        if (raw_ptr == null or file_size <= 0) {
+        const png_ptr = rl.cdef.ExportImageToMemory(image, ".png", &file_size) orelse {
+            log.err("Failed to export page {d} as PNG", .{page_idx});
+            return ExportError.RenderFailed;
+        };
+        if (file_size <= 0) {
+            rl.memFree(@ptrCast(png_ptr));
             log.err("Failed to export page {d} as PNG", .{page_idx});
             return ExportError.RenderFailed;
         }
-        const png_ptr = raw_ptr.?;
-        errdefer rl.memFree(@ptrCast(png_ptr));
-
-        try png_buffers.append(.{
-            .data = png_ptr,
-            .size = @intCast(file_size),
-        });
+        // Safe: file_size > 0 is checked above, so the c_int → usize cast cannot overflow.
+        const buf = PngBuffer{ .data = png_ptr, .size = @intCast(file_size) };
+        png_buffers.append(buf) catch |err| {
+            buf.free();
+            return err;
+        };
     }
 
     // Build PDF
@@ -112,8 +127,7 @@ pub fn exportPdf(
     defer pw.deinit();
 
     for (png_buffers.items) |buf| {
-        const png_slice = buf.data[0..buf.size];
-        try pw.addPage(png_slice);
+        try pw.addPage(buf.slice());
     }
 
     // Write to file
@@ -131,12 +145,6 @@ pub fn exportPdf(
     log.info("Exported {d} page(s) to '{s}'", .{ num_pages, output_path });
 }
 
-/// Holds a pointer to PNG data allocated by raylib (freed via rl.memFree).
-const PngBuffer = struct {
-    data: [*]u8,
-    size: usize,
-};
-
 /// Build a default PDF filename by replacing the extension.
 /// E.g., "document.md" -> "document.pdf", null -> "export.pdf".
 /// Caller must free the returned slice.
@@ -148,10 +156,7 @@ pub fn buildPdfName(allocator: Allocator, file_path: ?[]const u8) Allocator.Erro
     else
         basename;
 
-    const result = try allocator.alloc(u8, stem.len + 4);
-    @memcpy(result[0..stem.len], stem);
-    @memcpy(result[stem.len..][0..4], ".pdf");
-    return result;
+    return try std.fmt.allocPrint(allocator, "{s}.pdf", .{stem});
 }
 
 // =============================================================================

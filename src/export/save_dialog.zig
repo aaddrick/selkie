@@ -29,8 +29,10 @@ pub const DialogError = error{
 pub fn saveFileDialog(allocator: Allocator, default_name: []const u8) (DialogError || Allocator.Error)!?[]u8 {
     // Build the --filename argument with default name
     var filename_buf: [512]u8 = undefined;
-    const filename_arg = std.fmt.bufPrint(&filename_buf, "--filename={s}", .{default_name}) catch
+    const filename_arg = std.fmt.bufPrint(&filename_buf, "--filename={s}", .{default_name}) catch {
+        log.warn("Default filename too long ({d} bytes), falling back to export.pdf", .{default_name.len});
         return saveFileDialogImpl(allocator, "--filename=export.pdf");
+    };
 
     return saveFileDialogImpl(allocator, filename_arg);
 }
@@ -88,10 +90,7 @@ pub fn ensurePdfExtension(allocator: Allocator, path: []const u8) Allocator.Erro
     if (std.ascii.endsWithIgnoreCase(path, ".pdf")) {
         return try allocator.dupe(u8, path);
     }
-    const result = try allocator.alloc(u8, path.len + 4);
-    @memcpy(result[0..path.len], path);
-    @memcpy(result[path.len..][0..4], ".pdf");
-    return result;
+    return try std.fmt.allocPrint(allocator, "{s}.pdf", .{path});
 }
 
 // =============================================================================

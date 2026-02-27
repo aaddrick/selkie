@@ -134,7 +134,7 @@ pub const PdfWriter = struct {
                     png_info.height,
                     color_space,
                     png_info.bit_depth,
-                    png_info.channels(),
+                    try png_info.channels(),
                     png_info.bit_depth,
                     png_info.width,
                     png_info.idat_len,
@@ -148,16 +148,16 @@ pub const PdfWriter = struct {
         for (0..n) |i| {
             const contents_obj = 3 + 2 * n + i;
             // PDF drawing command: scale image to page size and paint
-            var cmd_buf: [256]u8 = undefined;
-            const cmd = try std.fmt.bufPrint(&cmd_buf, "q {d:.3} 0 0 {d:.3} 0 0 cm /Img{d} Do Q", .{
+            var draw_cmd_buf: [256]u8 = undefined;
+            const draw_cmd = try std.fmt.bufPrint(&draw_cmd_buf, "q {d:.3} 0 0 {d:.3} 0 0 cm /Img{d} Do Q", .{
                 a4_width_pt,
                 a4_height_pt,
                 i,
             });
 
             offsets[contents_obj - 1] = counting.bytes_written;
-            try w.print("{d} 0 obj\n<< /Length {d} >>\nstream\n", .{ contents_obj, cmd.len });
-            try w.writeAll(cmd);
+            try w.print("{d} 0 obj\n<< /Length {d} >>\nstream\n", .{ contents_obj, draw_cmd.len });
+            try w.writeAll(draw_cmd);
             try w.writeAll("\nendstream\nendobj\n");
         }
 
@@ -178,7 +178,7 @@ pub const PdfWriter = struct {
     }
 };
 
-/// PNG chunk/header parser for extracting IDAT data.
+/// Parsed PNG header fields needed for PDF image embedding.
 const PngInfo = struct {
     width: u32,
     height: u32,
@@ -186,14 +186,14 @@ const PngInfo = struct {
     color_type: u8,
     idat_len: u64,
 
-    fn channels(self: PngInfo) u8 {
+    fn channels(self: PngInfo) error{InvalidPng}!u8 {
         return switch (self.color_type) {
             0 => 1, // Grayscale
             2 => 3, // RGB
             3 => 1, // Palette (indexed)
             4 => 2, // Grayscale + Alpha
             6 => 4, // RGBA
-            else => 3,
+            else => error.InvalidPng,
         };
     }
 };
@@ -201,7 +201,50 @@ const PngInfo = struct {
 /// PNG signature bytes.
 const png_signature = [_]u8{ 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
 
-/// Parse PNG header and compute total IDAT data length.
+/// Iterates over PNG chunks after the 8-byte signature, yielding (type, data) pairs.
+/// Stops after IEND. Returns `error.InvalidPng` if a chunk length overflows the data.
+const PngChunkIterator = struct {
+    data: []const u8,
+    pos: usize,
+
+    const Chunk = struct {
+        chunk_type: *const [4]u8,
+        data: []const u8,
+    };
+
+    fn next(self: *PngChunkIterator) error{InvalidPng}!?Chunk {
+        if (self.pos + 8 > self.data.len) return null;
+
+        const chunk_len = std.mem.readInt(u32, self.data[self.pos..][0..4], .big);
+        const chunk_type: *const [4]u8 = self.data[self.pos + 4 ..][0..4];
+        self.pos += 8;
+
+        if (self.pos + chunk_len > self.data.len) return error.InvalidPng;
+        const chunk_data = self.data[self.pos .. self.pos + chunk_len];
+
+        if (std.mem.eql(u8, chunk_type, "IEND")) {
+            self.pos = self.data.len; // ensure next call returns null
+            return .{ .chunk_type = chunk_type, .data = chunk_data };
+        }
+
+        // Skip chunk data + CRC (4 bytes)
+        const advance = @as(usize, chunk_len) + 4;
+        if (advance > self.data.len - self.pos) return error.InvalidPng;
+        self.pos += advance;
+
+        return .{ .chunk_type = chunk_type, .data = chunk_data };
+    }
+};
+
+/// Create a chunk iterator over PNG data. Returns null if the signature is invalid.
+fn pngChunkIterator(data: []const u8) ?PngChunkIterator {
+    if (data.len < 8) return null;
+    if (!std.mem.eql(u8, data[0..8], &png_signature)) return null;
+    return .{ .data = data, .pos = 8 };
+}
+
+/// Parse PNG header (IHDR) and compute total IDAT data length.
+/// Returns `error.InvalidPng` if the data is not a valid PNG or has no IDAT chunks.
 fn parsePngInfo(data: []const u8) !PngInfo {
     if (data.len < 33) return error.InvalidPng; // Minimum: sig(8) + IHDR chunk(25)
     if (!std.mem.eql(u8, data[0..8], &png_signature)) return error.InvalidPng;
@@ -218,22 +261,11 @@ fn parsePngInfo(data: []const u8) !PngInfo {
 
     // Walk chunks to sum IDAT lengths
     var idat_total: u64 = 0;
-    var pos: usize = 8; // After signature
-    while (pos + 8 <= data.len) {
-        const chunk_len = std.mem.readInt(u32, data[pos..][0..4], .big);
-        const chunk_type = data[pos + 4 .. pos + 8];
-        pos += 8; // Past length + type
-
-        if (std.mem.eql(u8, chunk_type, "IDAT")) {
-            idat_total += chunk_len;
+    var it = pngChunkIterator(data) orelse return error.InvalidPng;
+    while (try it.next()) |chunk| {
+        if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
+            idat_total += chunk.data.len;
         }
-
-        if (std.mem.eql(u8, chunk_type, "IEND")) break;
-
-        // Skip chunk data + CRC (validate bounds to prevent overflow on malformed PNGs)
-        const advance = @as(usize, chunk_len) + 4;
-        if (advance > data.len - pos) return error.InvalidPng;
-        pos += advance;
     }
 
     if (idat_total == 0) return error.InvalidPng;
@@ -248,24 +280,13 @@ fn parsePngInfo(data: []const u8) !PngInfo {
 }
 
 /// Write concatenated IDAT chunk data (raw zlib stream) to the writer.
+/// Multiple IDAT chunks are concatenated in order to form a single zlib stream.
 fn writePngIdatData(data: []const u8, writer: anytype) !void {
-    var pos: usize = 8; // Skip PNG signature
-    while (pos + 8 <= data.len) {
-        const chunk_len = std.mem.readInt(u32, data[pos..][0..4], .big);
-        const chunk_type = data[pos + 4 .. pos + 8];
-        pos += 8;
-
-        if (std.mem.eql(u8, chunk_type, "IDAT")) {
-            if (pos + chunk_len > data.len) return error.InvalidPng;
-            try writer.writeAll(data[pos .. pos + chunk_len]);
+    var it = pngChunkIterator(data) orelse return error.InvalidPng;
+    while (try it.next()) |chunk| {
+        if (std.mem.eql(u8, chunk.chunk_type, "IDAT")) {
+            try writer.writeAll(chunk.data);
         }
-
-        if (std.mem.eql(u8, chunk_type, "IEND")) break;
-
-        // Validate bounds to prevent overflow on malformed PNGs
-        const advance = @as(usize, chunk_len) + 4;
-        if (advance > data.len - pos) return error.InvalidPng;
-        pos += advance;
     }
 }
 
@@ -340,7 +361,7 @@ fn writeChunk(buf: *std.ArrayList(u8), chunk_type: *const [4]u8, data: []const u
 test "PdfWriter init and deinit without pages" {
     var pw = PdfWriter.init(testing.allocator);
     defer pw.deinit();
-    try testing.expectEqual(@as(usize, 0), pw.pages.items.len);
+    try testing.expectEqual(0, pw.pages.items.len);
 }
 
 test "PdfWriter addPage increments page count" {
@@ -351,10 +372,10 @@ test "PdfWriter addPage increments page count" {
     defer testing.allocator.free(png);
 
     try pw.addPage(png);
-    try testing.expectEqual(@as(usize, 1), pw.pages.items.len);
+    try testing.expectEqual(1, pw.pages.items.len);
 
     try pw.addPage(png);
-    try testing.expectEqual(@as(usize, 2), pw.pages.items.len);
+    try testing.expectEqual(2, pw.pages.items.len);
 }
 
 test "PdfWriter write with no pages returns error" {
@@ -425,10 +446,10 @@ test "parsePngInfo extracts correct dimensions from test PNG" {
     defer testing.allocator.free(png);
 
     const info = try parsePngInfo(png);
-    try testing.expectEqual(@as(u32, 2), info.width);
-    try testing.expectEqual(@as(u32, 2), info.height);
-    try testing.expectEqual(@as(u8, 8), info.bit_depth);
-    try testing.expectEqual(@as(u8, 2), info.color_type); // RGB
+    try testing.expectEqual(2, info.width);
+    try testing.expectEqual(2, info.height);
+    try testing.expectEqual(8, info.bit_depth);
+    try testing.expectEqual(2, info.color_type); // RGB
     try testing.expect(info.idat_len > 0);
 }
 
@@ -442,30 +463,18 @@ test "parsePngInfo rejects truncated data" {
 }
 
 test "parsePngInfo rejects bad IHDR length" {
-    // Valid PNG signature + IHDR chunk with wrong length (12 instead of 13)
-    var data: [33]u8 = undefined;
+    var data: [33]u8 = @splat(0);
     @memcpy(data[0..8], &png_signature);
-    // Chunk length = 12 (should be 13)
-    data[8] = 0;
-    data[9] = 0;
-    data[10] = 0;
-    data[11] = 12;
+    std.mem.writeInt(u32, data[8..12], 12, .big); // Should be 13
     @memcpy(data[12..16], "IHDR");
-    @memset(data[16..33], 0);
     try testing.expectError(error.InvalidPng, parsePngInfo(&data));
 }
 
 test "parsePngInfo rejects missing IHDR tag" {
-    // Valid PNG signature + chunk that is not IHDR
-    var data: [33]u8 = undefined;
+    var data: [33]u8 = @splat(0);
     @memcpy(data[0..8], &png_signature);
-    // Chunk length = 13
-    data[8] = 0;
-    data[9] = 0;
-    data[10] = 0;
-    data[11] = 13;
+    std.mem.writeInt(u32, data[8..12], 13, .big);
     @memcpy(data[12..16], "FAKE");
-    @memset(data[16..33], 0);
     try testing.expectError(error.InvalidPng, parsePngInfo(&data));
 }
 
@@ -493,7 +502,7 @@ test "parsePngInfo rejects malformed chunk with oversized length" {
     try testing.expectError(error.InvalidPng, parsePngInfo(buf.items));
 }
 
-test "writePngIdatData extracts correct IDAT bytes" {
+test "writePngIdatData extracts correct IDAT bytes and decompresses to original pixels" {
     const png = try makeTestPng(testing.allocator);
     defer testing.allocator.free(png);
 
@@ -504,21 +513,76 @@ test "writePngIdatData extracts correct IDAT bytes" {
     try writePngIdatData(png, idat_buf.writer());
 
     // Extracted IDAT length should match parsePngInfo's calculation
-    try testing.expectEqual(info.idat_len, @as(u64, idat_buf.items.len));
-    // IDAT data should be non-empty and be valid zlib (starts with zlib header)
-    try testing.expect(idat_buf.items.len > 2);
+    try testing.expectEqual(info.idat_len, idat_buf.items.len);
+
+    // Decompress the zlib data and verify it matches the original raw pixel data
+    var idat_stream = std.io.fixedBufferStream(idat_buf.items);
+    var decompressor = std.compress.zlib.decompressor(idat_stream.reader());
+    var decompressed = std.ArrayList(u8).init(testing.allocator);
+    defer decompressed.deinit();
+    while (true) {
+        var read_buf: [256]u8 = undefined;
+        const n = try decompressor.read(&read_buf);
+        if (n == 0) break;
+        try decompressed.appendSlice(read_buf[0..n]);
+    }
+
+    // Original raw image data from makeTestPng: 2×2 RGB, filter=None per row
+    const expected = [_]u8{
+        0, 255, 0, 0, 0, 255, 0, // Row 1: filter=None, red, green
+        0, 0, 0, 255, 255, 255, 255, // Row 2: filter=None, blue, white
+    };
+    try testing.expectEqualSlices(u8, &expected, decompressed.items);
+}
+
+test "writePngIdatData concatenates multiple IDAT chunks" {
+    // Build a PNG with IHDR + two IDAT chunks + IEND
+    const raw_image = [_]u8{
+        0, 255, 0, 0, 0, 255, 0,
+        0, 0, 0, 255, 255, 255, 255,
+    };
+
+    var compressed = std.ArrayList(u8).init(testing.allocator);
+    defer compressed.deinit();
+    var compressor = try std.compress.zlib.compressor(compressed.writer(), .{});
+    try compressor.writer().writeAll(&raw_image);
+    try compressor.finish();
+
+    // Split compressed data into two halves for two IDAT chunks
+    const split = compressed.items.len / 2;
+    const part1 = compressed.items[0..split];
+    const part2 = compressed.items[split..];
+
+    var buf = std.ArrayList(u8).init(testing.allocator);
+    defer buf.deinit();
+    try buf.appendSlice(&png_signature);
+    const ihdr_data = [13]u8{ 0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0, 0, 0 };
+    try writeChunk(&buf, "IHDR", &ihdr_data);
+    try writeChunk(&buf, "IDAT", part1);
+    try writeChunk(&buf, "IDAT", part2);
+    try writeChunk(&buf, "IEND", &[0]u8{});
+
+    // parsePngInfo should report the total of both IDAT chunks
+    const info = try parsePngInfo(buf.items);
+    try testing.expectEqual(compressed.items.len, info.idat_len);
+
+    // writePngIdatData should concatenate both chunks
+    var idat_buf = std.ArrayList(u8).init(testing.allocator);
+    defer idat_buf.deinit();
+    try writePngIdatData(buf.items, idat_buf.writer());
+    try testing.expectEqualSlices(u8, compressed.items, idat_buf.items);
 }
 
 test "PngInfo channels returns correct value per color type" {
     const ch = struct {
-        fn f(color_type: u8) u8 {
+        fn f(color_type: u8) error{InvalidPng}!u8 {
             return (PngInfo{ .width = 1, .height = 1, .bit_depth = 8, .color_type = color_type, .idat_len = 1 }).channels();
         }
     }.f;
-    try testing.expectEqual(@as(u8, 1), ch(0)); // Grayscale
-    try testing.expectEqual(@as(u8, 3), ch(2)); // RGB
-    try testing.expectEqual(@as(u8, 1), ch(3)); // Palette
-    try testing.expectEqual(@as(u8, 2), ch(4)); // Grayscale + Alpha
-    try testing.expectEqual(@as(u8, 4), ch(6)); // RGBA
-    try testing.expectEqual(@as(u8, 3), ch(99)); // Unknown → default
+    try testing.expectEqual(1, try ch(0)); // Grayscale
+    try testing.expectEqual(3, try ch(2)); // RGB
+    try testing.expectEqual(1, try ch(3)); // Palette
+    try testing.expectEqual(2, try ch(4)); // Grayscale + Alpha
+    try testing.expectEqual(4, try ch(6)); // RGBA
+    try testing.expectError(error.InvalidPng, ch(99)); // Unknown -> error
 }
