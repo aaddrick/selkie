@@ -26,7 +26,7 @@ pub const ImageRenderer = struct {
     }
 
     /// Resolve a path relative to the markdown file's directory.
-    fn resolvePath(self: *ImageRenderer, path: []const u8) Allocator.Error!?[:0]const u8 {
+    fn resolvePath(self: *ImageRenderer, path: []const u8) Allocator.Error![:0]const u8 {
         // Absolute paths pass through
         if (path.len > 0 and path[0] == '/') {
             return try self.allocator.dupeZ(u8, path);
@@ -43,7 +43,7 @@ pub const ImageRenderer = struct {
 
     /// Load an image texture from a file path. Returns null if loading fails.
     pub fn loadImage(self: *ImageRenderer, path: []const u8) Allocator.Error!?rl.Texture2D {
-        const resolved = try self.resolvePath(path) orelse return null;
+        const resolved = try self.resolvePath(path);
         defer self.allocator.free(resolved);
 
         const texture = rl.loadTexture(resolved) catch return null;
@@ -125,7 +125,7 @@ pub const ImageRenderer = struct {
             rl.unloadTexture(entry.value_ptr.*);
             self.allocator.free(entry.key_ptr.*);
         }
-        self.cache.clearAndFree();
+        self.cache.deinit();
         if (self.base_dir) |dir| {
             self.allocator.free(dir);
             self.base_dir = null;

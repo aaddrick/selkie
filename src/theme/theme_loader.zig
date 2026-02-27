@@ -88,10 +88,8 @@ const JsonTheme = struct {
 };
 
 fn colorOrDefault(hex: ?[]const u8, default: rl.Color) rl.Color {
-    if (hex) |h| {
-        return parseHexColor(h) catch default;
-    }
-    return default;
+    const h = hex orelse return default;
+    return parseHexColor(h) catch default;
 }
 
 /// Validate and convert an f64 to f32, rejecting negative values and values
