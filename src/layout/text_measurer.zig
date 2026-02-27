@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const rl = @import("raylib");
-const render_utils = @import("../render/render_utils.zig");
+const slice_utils = @import("../utils/slice_utils.zig");
 
 pub const Fonts = struct {
     body: rl.Font,
@@ -29,7 +29,7 @@ pub const Fonts = struct {
     pub fn measure(self: Fonts, text: []const u8, font_size: f32, is_bold: bool, is_italic: bool, is_code: bool) rl.Vector2 {
         if (text.len == 0) return .{ .x = 0, .y = font_size };
         var buf: [2048]u8 = undefined;
-        const z = render_utils.sliceToZ(&buf, text);
+        const z = slice_utils.sliceToZ(&buf, text);
         return self.measureZ(z, font_size, is_bold, is_italic, is_code);
     }
 };

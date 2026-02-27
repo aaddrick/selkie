@@ -1,12 +1,12 @@
 const rl = @import("raylib");
 const lt = @import("../layout/layout_types.zig");
-const render_utils = @import("render_utils.zig");
+const slice_utils = @import("../utils/slice_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
 fn drawTextSlice(font: rl.Font, text: []const u8, pos: rl.Vector2, font_size: f32, spacing: f32, color: rl.Color) void {
     if (text.len == 0) return;
     var buf: [2048]u8 = undefined;
-    const z = render_utils.sliceToZ(&buf, text);
+    const z = slice_utils.sliceToZ(&buf, text);
     rl.drawTextEx(font, z, pos, font_size, spacing, color);
 }
 

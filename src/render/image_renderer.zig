@@ -1,7 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
-const render_utils = @import("render_utils.zig");
+const slice_utils = @import("../utils/slice_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
 pub const ImageRenderer = struct {
@@ -100,21 +100,19 @@ pub const ImageRenderer = struct {
         );
 
         // Alt text centered
-        if (alt_text) |text| {
-            if (text.len > 0) {
-                const font_size: f32 = 14;
-                const measured = fonts.measure(text, font_size, false, true, false);
-                const text_x = rect.x + (rect.width - measured.x) / 2.0;
-                const text_y = draw_y + (rect.height - measured.y) / 2.0;
+        const text = alt_text orelse return;
+        if (text.len == 0) return;
 
-                // Need null-terminated string for raylib
-                var buf: [2048]u8 = undefined;
-                const z_text = render_utils.sliceToZ(&buf, text);
+        const font_size: f32 = 14;
+        const measured = fonts.measure(text, font_size, false, true, false);
+        const text_x = rect.x + (rect.width - measured.x) / 2.0;
+        const text_y = draw_y + (rect.height - measured.y) / 2.0;
 
-                const font = fonts.selectFont(.{ .italic = true });
-                rl.drawTextEx(font, z_text, .{ .x = text_x, .y = text_y }, font_size, 1, rl.Color{ .r = 100, .g = 100, .b = 100, .a = 255 });
-            }
-        }
+        var buf: [2048]u8 = undefined;
+        const z_text = slice_utils.sliceToZ(&buf, text);
+
+        const font = fonts.selectFont(.{ .italic = true });
+        rl.drawTextEx(font, z_text, .{ .x = text_x, .y = text_y }, font_size, 1, rl.Color{ .r = 100, .g = 100, .b = 100, .a = 255 });
     }
 
     /// Free all cached textures.

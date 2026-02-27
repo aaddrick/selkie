@@ -1,15 +1,5 @@
 const std = @import("std");
 
-/// Maximum stack buffer size for null-terminating slices.
-/// Strings longer than this will be truncated with a warning logged.
-const max_stack_buf = 2048;
-
-/// Result of null-terminating a slice. Holds either a stack-buffered
-/// sentinel pointer or the original pointer if already sentinel-terminated.
-pub const ZSlice = struct {
-    ptr: [:0]const u8,
-};
-
 /// Convert a `[]const u8` slice into a `[:0]const u8` suitable for C APIs.
 ///
 /// Uses a caller-provided stack buffer to avoid heap allocation. If the text
@@ -29,4 +19,25 @@ pub fn sliceToZ(buf: []u8, text: []const u8) [:0]const u8 {
     @memcpy(buf[0..len], text[0..len]);
     buf[len] = 0;
     return buf[0..len :0];
+}
+
+test "sliceToZ converts slice to null-terminated" {
+    var buf: [64]u8 = undefined;
+    const result = sliceToZ(&buf, "hello");
+    try std.testing.expectEqualStrings("hello", result);
+    try std.testing.expectEqual(@as(u8, 0), result.ptr[result.len]);
+}
+
+test "sliceToZ handles empty input" {
+    var buf: [4]u8 = undefined;
+    const result = sliceToZ(&buf, "");
+    try std.testing.expectEqual(@as(usize, 0), result.len);
+    try std.testing.expectEqual(@as(u8, 0), result.ptr[0]);
+}
+
+test "sliceToZ truncates when text exceeds buffer" {
+    var buf: [4]u8 = undefined;
+    const result = sliceToZ(&buf, "abcdef");
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqualStrings("abc", result);
 }
