@@ -7,7 +7,8 @@ const ImageRenderer = @import("image_renderer.zig").ImageRenderer;
 
 /// Draw a code block: rounded background rectangle, line number gutter, and syntax-highlighted text.
 pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
-    const bg = node.code_bg_color orelse theme.code_background;
+    const code = node.data.code_block;
+    const bg = code.bg_color orelse theme.code_background;
     const draw_y = node.rect.y - scroll_y;
 
     // Background rectangle
@@ -24,8 +25,8 @@ pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *co
     );
 
     // Gutter separator line
-    if (node.line_number_gutter_width > 0) {
-        const gutter_x = node.rect.x + node.line_number_gutter_width;
+    if (code.line_number_gutter_width > 0) {
+        const gutter_x = node.rect.x + code.line_number_gutter_width;
         const gutter_color = theme.line_number_color;
         rl.drawLineEx(
             .{ .x = gutter_x, .y = draw_y + theme.code_block_padding },
@@ -42,8 +43,8 @@ pub fn drawCodeBlock(node: *const lt.LayoutNode, theme: *const Theme, fonts: *co
 }
 
 /// Draw a horizontal rule (thematic break).
-pub fn drawThematicBreak(node: *const lt.LayoutNode, theme: *const Theme, scroll_y: f32) void {
-    const color = node.hr_color orelse theme.hr_color;
+pub fn drawThematicBreak(node: *const lt.LayoutNode, scroll_y: f32) void {
+    const color = node.data.thematic_break.color;
     rl.drawLineEx(
         .{ .x = node.rect.x, .y = node.rect.y - scroll_y },
         .{ .x = node.rect.x + node.rect.width, .y = node.rect.y - scroll_y },
@@ -53,8 +54,8 @@ pub fn drawThematicBreak(node: *const lt.LayoutNode, theme: *const Theme, scroll
 }
 
 /// Draw a blockquote left border bar.
-pub fn drawBlockQuoteBorder(node: *const lt.LayoutNode, theme: *const Theme, scroll_y: f32) void {
-    const color = node.hr_color orelse theme.blockquote_border;
+pub fn drawBlockQuoteBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
+    const color = node.data.block_quote_border.color;
     rl.drawRectangleRec(
         .{
             .x = node.rect.x,
@@ -75,10 +76,10 @@ pub fn drawTextBlock(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: 
 
 /// Draw an image or placeholder if texture is missing.
 pub fn drawImage(node: *const lt.LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
-    if (node.image_texture) |texture| {
+    const img = node.data.image;
+    if (img.texture) |texture| {
         ImageRenderer.drawImage(texture, node.rect, scroll_y);
     } else {
-        ImageRenderer.drawPlaceholder(node.rect, node.image_alt, fonts, scroll_y);
+        ImageRenderer.drawPlaceholder(node.rect, img.alt, fonts, scroll_y);
     }
 }
-

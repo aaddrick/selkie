@@ -26,137 +26,29 @@ pub fn render(tree: *const lt.LayoutTree, theme: *const Theme, fonts: *const Fon
         // Frustum culling
         if (!node.rect.overlapsVertically(view_top, view_bottom)) continue;
 
-        switch (node.kind) {
+        switch (node.data) {
             .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y),
             .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y),
-            .thematic_break => block_renderer.drawThematicBreak(node, theme, scroll_y),
-            .block_quote_border => block_renderer.drawBlockQuoteBorder(node, theme, scroll_y),
+            .thematic_break => block_renderer.drawThematicBreak(node, scroll_y),
+            .block_quote_border => block_renderer.drawBlockQuoteBorder(node, scroll_y),
             .table_row_bg => table_renderer.drawTableRowBg(node, scroll_y),
-            .table_border => table_renderer.drawTableBorder(node, theme, scroll_y),
+            .table_border => table_renderer.drawTableBorder(node, scroll_y),
             .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y),
             .image => block_renderer.drawImage(node, fonts, scroll_y),
-            .mermaid_diagram => {
-                if (node.mermaid_flowchart) |model| {
-                    flowchart_renderer.drawFlowchart(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_sequence) |model| {
-                    sequence_renderer.drawSequenceDiagram(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_pie) |model| {
-                    pie_renderer.drawPieChart(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_gantt) |model| {
-                    gantt_renderer.drawGanttChart(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_class) |model| {
-                    class_renderer.drawClassDiagram(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_er) |model| {
-                    er_renderer.drawERDiagram(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_state) |model| {
-                    state_renderer.drawStateDiagram(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_mindmap) |model| {
-                    mindmap_renderer.drawMindMap(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_gitgraph) |model| {
-                    gitgraph_renderer.drawGitGraph(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_journey) |model| {
-                    journey_renderer.drawJourney(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
-                } else if (node.mermaid_timeline) |model| {
-                    timeline_renderer.drawTimeline(
-                        model,
-                        node.rect.x,
-                        node.rect.y,
-                        node.rect.width,
-                        node.rect.height,
-                        theme,
-                        fonts,
-                        scroll_y,
-                    );
+            .mermaid_diagram => |mermaid| {
+                const r = node.rect;
+                switch (mermaid) {
+                    .flowchart => |model| flowchart_renderer.drawFlowchart(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .sequence => |model| sequence_renderer.drawSequenceDiagram(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .pie => |model| pie_renderer.drawPieChart(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .gantt => |model| gantt_renderer.drawGanttChart(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .class_diagram => |model| class_renderer.drawClassDiagram(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .er => |model| er_renderer.drawERDiagram(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .state => |model| state_renderer.drawStateDiagram(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .mindmap => |model| mindmap_renderer.drawMindMap(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .gitgraph => |model| gitgraph_renderer.drawGitGraph(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .journey => |model| journey_renderer.drawJourney(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
+                    .timeline => |model| timeline_renderer.drawTimeline(model, r.x, r.y, r.width, r.height, theme, fonts, scroll_y),
                 }
             },
         }

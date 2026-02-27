@@ -135,10 +135,6 @@ fn layoutInlines(
                     }
                 }
 
-                var img_node = lt.LayoutNode.init(ctx.allocator);
-                errdefer img_node.deinit();
-                img_node.kind = .image;
-
                 // Try to load the texture
                 var texture: ?rl.Texture2D = null;
                 if (child.url) |url| {
@@ -149,7 +145,6 @@ fn layoutInlines(
 
                 var img_height: f32 = 80; // placeholder height
                 if (texture) |tex| {
-                    img_node.image_texture = tex;
                     // Scale to fit content width, preserving aspect ratio
                     const tex_w: f32 = @floatFromInt(tex.width);
                     const tex_h: f32 = @floatFromInt(tex.height);
@@ -159,9 +154,16 @@ fn layoutInlines(
                     }
                 }
 
-                if (alt_parts.items.len > 0) {
-                    img_node.image_alt = try std.mem.concat(arena_alloc, u8, alt_parts.items);
-                }
+                const alt_text: ?[]const u8 = if (alt_parts.items.len > 0)
+                    try std.mem.concat(arena_alloc, u8, alt_parts.items)
+                else
+                    null;
+
+                var img_node = lt.LayoutNode.init(ctx.allocator, .{ .image = .{
+                    .texture = texture,
+                    .alt = alt_text,
+                } });
+                errdefer img_node.deinit();
 
                 // Move to a new line before the image
                 cursor_x.* = ctx.content_x;
@@ -254,10 +256,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
         .heading => {
             ctx.cursor_y += ctx.theme.heading_spacing_above;
 
-            var layout_node = lt.LayoutNode.init(ctx.allocator);
+            var layout_node = lt.LayoutNode.init(ctx.allocator, .{ .heading = .{ .level = node.heading_level } });
             errdefer layout_node.deinit();
-            layout_node.kind = .heading;
-            layout_node.heading_level = node.heading_level;
 
             const font_size = ctx.theme.headingSize(node.heading_level);
             const color = ctx.theme.headingColor(node.heading_level);
@@ -289,9 +289,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y += layout_node.rect.height + ctx.theme.heading_spacing_below;
         },
         .paragraph => {
-            var layout_node = lt.LayoutNode.init(ctx.allocator);
+            var layout_node = lt.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
-            layout_node.kind = .text_block;
 
             const text_color = if (ctx.dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
             const style = lt.TextStyle{
@@ -345,10 +344,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
         },
         .thematic_break => {
-            var layout_node = lt.LayoutNode.init(ctx.allocator);
+            var layout_node = lt.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
             errdefer layout_node.deinit();
-            layout_node.kind = .thematic_break;
-            layout_node.hr_color = ctx.theme.hr_color;
             layout_node.rect = .{
                 .x = ctx.content_x,
                 .y = ctx.cursor_y + 8,
@@ -371,16 +368,14 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
 
             // Add border marker
-            var border_node = lt.LayoutNode.init(ctx.allocator);
+            var border_node = lt.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = ctx.theme.blockquote_border } });
             errdefer border_node.deinit();
-            border_node.kind = .block_quote_border;
             border_node.rect = .{
                 .x = saved_x,
                 .y = start_y,
                 .width = 3,
                 .height = ctx.cursor_y - start_y,
             };
-            border_node.hr_color = ctx.theme.blockquote_border;
             try ctx.tree.nodes.append(border_node);
 
             ctx.content_x = saved_x;
@@ -423,9 +418,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_width -= ctx.theme.list_indent;
 
             // Add bullet/number/checkbox marker
-            var marker_node = lt.LayoutNode.init(ctx.allocator);
+            var marker_node = lt.LayoutNode.init(ctx.allocator, .text_block);
             errdefer marker_node.deinit();
-            marker_node.kind = .text_block;
 
             const is_dimmed = node.tasklist_checked orelse false;
             const marker_color = if (is_dimmed) blendColor(ctx.theme.text, ctx.theme.background, 0.5) else ctx.theme.text;
@@ -511,10 +505,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
                 ctx.cursor_y += ctx.theme.paragraph_spacing;
 
                 // Thin separator line
-                var sep_node = lt.LayoutNode.init(ctx.allocator);
+                var sep_node = lt.LayoutNode.init(ctx.allocator, .{ .thematic_break = .{ .color = ctx.theme.hr_color } });
                 errdefer sep_node.deinit();
-                sep_node.kind = .thematic_break;
-                sep_node.hr_color = ctx.theme.hr_color;
                 sep_node.rect = .{
                     .x = ctx.content_x,
                     .y = ctx.cursor_y,
@@ -526,9 +518,8 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             }
 
             // Render as a small paragraph with footnote number prefix
-            var layout_node = lt.LayoutNode.init(ctx.allocator);
+            var layout_node = lt.LayoutNode.init(ctx.allocator, .text_block);
             errdefer layout_node.deinit();
-            layout_node.kind = .text_block;
 
             const small_size = ctx.theme.body_font_size * 0.85;
             const style = lt.TextStyle{

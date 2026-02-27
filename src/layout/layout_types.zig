@@ -53,57 +53,52 @@ pub const TextRun = struct {
     rect: Rect,
 };
 
-pub const LayoutNodeKind = enum {
-    text_block,
-    heading,
-    code_block,
-    thematic_break,
-    block_quote_border,
-    table_cell,
-    table_border,
-    table_row_bg,
-    image,
-    mermaid_diagram,
+pub const MermaidModel = union(enum) {
+    flowchart: *FlowchartModel,
+    sequence: *SequenceModel,
+    pie: *PieModel,
+    gantt: *GanttModel,
+    class_diagram: *ClassModel,
+    er: *ERModel,
+    state: *StateModel,
+    mindmap: *MindMapModel,
+    gitgraph: *GitGraphModel,
+    journey: *JourneyModel,
+    timeline: *TimelineModel,
+};
+
+pub const NodeData = union(enum) {
+    text_block: void,
+    heading: struct { level: u8 },
+    code_block: struct {
+        bg_color: ?rl.Color,
+        lang: ?[]const u8,
+        line_number_gutter_width: f32,
+    },
+    thematic_break: struct { color: rl.Color },
+    block_quote_border: struct { color: rl.Color },
+    table_cell: void,
+    table_border: struct { color: rl.Color },
+    table_row_bg: struct { bg_color: rl.Color },
+    image: struct {
+        texture: ?rl.Texture2D,
+        alt: ?[]const u8,
+    },
+    mermaid_diagram: MermaidModel,
 };
 
 pub const LayoutNode = struct {
-    kind: LayoutNodeKind,
     rect: Rect,
     allocator: Allocator,
     text_runs: std.ArrayList(TextRun),
-    // Code block content
-    code_text: ?[]const u8 = null,
-    code_bg_color: ?rl.Color = null,
-    code_lang: ?[]const u8 = null,
-    line_number_gutter_width: f32 = 0,
-    // Heading level for styling
-    heading_level: u8 = 0,
-    // Block quote depth
-    blockquote_depth: u8 = 0,
-    // HR color
-    hr_color: ?rl.Color = null,
-    // Image data
-    image_texture: ?rl.Texture2D = null,
-    image_alt: ?[]const u8 = null,
-    // Mermaid diagram data
-    mermaid_flowchart: ?*FlowchartModel = null,
-    mermaid_sequence: ?*SequenceModel = null,
-    mermaid_pie: ?*PieModel = null,
-    mermaid_gantt: ?*GanttModel = null,
-    mermaid_class: ?*ClassModel = null,
-    mermaid_er: ?*ERModel = null,
-    mermaid_state: ?*StateModel = null,
-    mermaid_mindmap: ?*MindMapModel = null,
-    mermaid_gitgraph: ?*GitGraphModel = null,
-    mermaid_journey: ?*JourneyModel = null,
-    mermaid_timeline: ?*TimelineModel = null,
+    data: NodeData,
 
-    pub fn init(allocator: Allocator) LayoutNode {
+    pub fn init(allocator: Allocator, data: NodeData) LayoutNode {
         return .{
-            .kind = .text_block,
             .rect = std.mem.zeroes(Rect),
             .allocator = allocator,
             .text_runs = std.ArrayList(TextRun).init(allocator),
+            .data = data,
         };
     }
 
@@ -111,23 +106,16 @@ pub const LayoutNode = struct {
         self.text_runs.deinit();
 
         // Free heap-allocated mermaid models (created via allocator.create() in mermaid_layout.zig)
-        inline for (.{
-            "mermaid_flowchart",
-            "mermaid_sequence",
-            "mermaid_pie",
-            "mermaid_gantt",
-            "mermaid_class",
-            "mermaid_er",
-            "mermaid_state",
-            "mermaid_mindmap",
-            "mermaid_gitgraph",
-            "mermaid_journey",
-            "mermaid_timeline",
-        }) |field_name| {
-            if (@field(self, field_name)) |model| {
-                model.deinit();
-                self.allocator.destroy(model);
-            }
+        switch (self.data) {
+            .mermaid_diagram => |mermaid| {
+                switch (mermaid) {
+                    inline else => |model| {
+                        model.deinit();
+                        self.allocator.destroy(model);
+                    },
+                }
+            },
+            else => {},
         }
     }
 };

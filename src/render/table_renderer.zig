@@ -6,7 +6,7 @@ const text_renderer = @import("text_renderer.zig");
 
 /// Draw a table row background (header bg or alternating row bg).
 pub fn drawTableRowBg(node: *const lt.LayoutNode, scroll_y: f32) void {
-    const bg = node.code_bg_color orelse return;
+    const bg = node.data.table_row_bg.bg_color;
     rl.drawRectangleRec(
         .{
             .x = node.rect.x,
@@ -19,8 +19,8 @@ pub fn drawTableRowBg(node: *const lt.LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw table grid lines (borders).
-pub fn drawTableBorder(node: *const lt.LayoutNode, theme: *const Theme, scroll_y: f32) void {
-    const color = node.hr_color orelse theme.table_border;
+pub fn drawTableBorder(node: *const lt.LayoutNode, scroll_y: f32) void {
+    const color = node.data.table_border.color;
     rl.drawRectangleRec(
         .{
             .x = node.rect.x,

@@ -49,12 +49,12 @@ pub fn layoutCodeBlock(
     const code_height = @as(f32, @floatFromInt(line_count)) * line_h;
     const total_height = code_height + padding * 2;
 
-    var layout_node = lt.LayoutNode.init(allocator);
+    var layout_node = lt.LayoutNode.init(allocator, .{ .code_block = .{
+        .bg_color = theme.code_background,
+        .lang = fence_info,
+        .line_number_gutter_width = gutter_width,
+    } });
     errdefer layout_node.deinit();
-    layout_node.kind = .code_block;
-    layout_node.code_bg_color = theme.code_background;
-    layout_node.code_lang = fence_info;
-    layout_node.line_number_gutter_width = gutter_width;
 
     layout_node.rect = .{
         .x = content_x,

@@ -140,16 +140,14 @@ pub fn layoutTable(
             null;
 
         if (row_bg_color) |bg_color| {
-            var bg_node = lt.LayoutNode.init(allocator);
+            var bg_node = lt.LayoutNode.init(allocator, .{ .table_row_bg = .{ .bg_color = bg_color } });
             errdefer bg_node.deinit();
-            bg_node.kind = .table_row_bg;
             bg_node.rect = .{
                 .x = content_x,
                 .y = row_y,
                 .width = content_width,
                 .height = row_height,
             };
-            bg_node.code_bg_color = bg_color;
             try tree.nodes.append(bg_node);
         }
 
@@ -162,9 +160,8 @@ pub fn layoutTable(
             const alignment: ast.Alignment = if (col_idx < alignments.len) alignments[col_idx] else .none;
 
             // Create a text_block-like node for the cell
-            var cell_node = lt.LayoutNode.init(allocator);
+            var cell_node = lt.LayoutNode.init(allocator, .table_cell);
             errdefer cell_node.deinit();
-            cell_node.kind = .table_cell;
 
             // Layout inline content within the cell
             const text_x = cell_x + cell_pad;
@@ -201,16 +198,14 @@ pub fn layoutTable(
         }
 
         // Horizontal border below row
-        var h_border = lt.LayoutNode.init(allocator);
+        var h_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
         errdefer h_border.deinit();
-        h_border.kind = .table_border;
         h_border.rect = .{
             .x = content_x,
             .y = row_y + row_height,
             .width = content_width,
             .height = 1,
         };
-        h_border.hr_color = theme.table_border;
         try tree.nodes.append(h_border);
 
         y += row_height;
@@ -218,31 +213,27 @@ pub fn layoutTable(
     }
 
     // Top border
-    var top_border = lt.LayoutNode.init(allocator);
+    var top_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
     errdefer top_border.deinit();
-    top_border.kind = .table_border;
     top_border.rect = .{
         .x = content_x,
         .y = cursor_y.*,
         .width = content_width,
         .height = 1,
     };
-    top_border.hr_color = theme.table_border;
     try tree.nodes.append(top_border);
 
     // Vertical borders
     var vx = content_x;
     for (0..num_cols + 1) |i| {
-        var v_border = lt.LayoutNode.init(allocator);
+        var v_border = lt.LayoutNode.init(allocator, .{ .table_border = .{ .color = theme.table_border } });
         errdefer v_border.deinit();
-        v_border.kind = .table_border;
         v_border.rect = .{
             .x = vx,
             .y = cursor_y.*,
             .width = 1,
             .height = y - cursor_y.*,
         };
-        v_border.hr_color = theme.table_border;
         try tree.nodes.append(v_border);
 
         if (i < num_cols) vx += col_widths[i];
