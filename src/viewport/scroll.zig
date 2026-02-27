@@ -18,6 +18,13 @@ pub const ScrollState = struct {
     /// Fraction of viewport height for half-page scroll (d/u).
     const half_page_fraction: f32 = 0.5;
 
+    /// Process only mouse wheel input (used when search bar consumes keyboard).
+    pub fn handleMouseWheel(self: *ScrollState) void {
+        self.viewport_height = @floatFromInt(rl.getScreenHeight());
+        const wheel = rl.getMouseWheelMove();
+        if (wheel != 0) self.scrollBy(-wheel * self.scroll_speed);
+    }
+
     /// Process input events and update scroll position.
     pub fn update(self: *ScrollState) void {
         self.viewport_height = @floatFromInt(rl.getScreenHeight());
@@ -98,7 +105,7 @@ pub const ScrollState = struct {
     }
 
     /// Compute the maximum valid scroll offset for the current content and viewport.
-    fn maxScroll(self: ScrollState) f32 {
+    pub fn maxScroll(self: ScrollState) f32 {
         return maxScrollForHeight(self.total_height, self.viewport_height);
     }
 

@@ -36,6 +36,13 @@ pub const Theme = struct {
     syntax_punctuation: rl.Color,
     line_number_color: rl.Color,
 
+    // Search
+    search_highlight: rl.Color,
+    search_current: rl.Color,
+    search_bar_bg: rl.Color,
+    search_bar_text: rl.Color,
+    search_bar_border: rl.Color,
+
     // Mermaid diagram colors
     mermaid_node_fill: rl.Color,
     mermaid_node_border: rl.Color,

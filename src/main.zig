@@ -20,6 +20,9 @@ test {
     _ = @import("menu_bar.zig");
     _ = @import("file_dialog.zig");
     _ = @import("app.zig");
+    // Search subsystem tests
+    _ = @import("search/search_state.zig");
+    _ = @import("search/searcher.zig");
     // Mermaid subsystem tests
     _ = @import("mermaid/parse_utils.zig");
     _ = @import("mermaid/tokenizer.zig");

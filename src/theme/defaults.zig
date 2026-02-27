@@ -5,6 +5,10 @@ fn rgb(r: u8, g: u8, b: u8) rl.Color {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
+fn rgba(r: u8, g: u8, b: u8, a: u8) rl.Color {
+    return .{ .r = r, .g = g, .b = b, .a = a };
+}
+
 pub const light = Theme{
     .background = rgb(255, 255, 255),
     .text = rgb(36, 41, 46),
@@ -46,6 +50,13 @@ pub const light = Theme{
     .syntax_operator = rgb(36, 41, 46),
     .syntax_punctuation = rgb(36, 41, 46),
     .line_number_color = rgb(175, 184, 193),
+
+    // Search
+    .search_highlight = rgba(255, 235, 59, 80), // Yellow, semi-transparent
+    .search_current = rgba(255, 152, 0, 140), // Orange, more opaque
+    .search_bar_bg = rgb(246, 248, 250),
+    .search_bar_text = rgb(36, 41, 46),
+    .search_bar_border = rgb(208, 215, 222),
 
     // Mermaid (light: blue-gray nodes, dark borders)
     .mermaid_node_fill = rgb(218, 232, 252),
@@ -112,6 +123,13 @@ pub const dark = Theme{
     .syntax_operator = rgb(148, 226, 213),
     .syntax_punctuation = rgb(147, 153, 178),
     .line_number_color = rgb(108, 112, 134),
+
+    // Search
+    .search_highlight = rgba(250, 179, 135, 80), // Peach, semi-transparent
+    .search_current = rgba(249, 226, 175, 140), // Yellow, more opaque
+    .search_bar_bg = rgb(49, 50, 68),
+    .search_bar_text = rgb(205, 214, 244),
+    .search_bar_border = rgb(88, 91, 112),
 
     // Mermaid (Catppuccin-style teal/mauve fills)
     .mermaid_node_fill = rgb(69, 71, 90),

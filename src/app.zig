@@ -17,6 +17,9 @@ const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const MenuBar = @import("menu_bar.zig").MenuBar;
 const file_dialog = @import("file_dialog.zig");
+const SearchState = @import("search/search_state.zig").SearchState;
+const searcher = @import("search/searcher.zig");
+const search_renderer = @import("render/search_renderer.zig");
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
@@ -33,6 +36,7 @@ pub const App = struct {
     link_handler: LinkHandler,
     image_renderer: ImageRenderer,
     menu_bar: MenuBar,
+    search: SearchState,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
     custom_theme: ?Theme,
     /// File watcher for auto-reload (null if no file path set)
@@ -57,6 +61,7 @@ pub const App = struct {
             .link_handler = LinkHandler.init(&defaults.light),
             .image_renderer = ImageRenderer.init(allocator),
             .menu_bar = MenuBar.init(),
+            .search = SearchState.init(allocator),
             .custom_theme = null,
         };
     }
@@ -260,19 +265,42 @@ pub const App = struct {
 
         // Keyboard shortcuts — suppressed when menu is open to avoid confusing UX
         if (!menu_is_open) {
-            if (rl.isKeyPressed(.t)) {
-                self.toggleTheme();
-            }
-            if (rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control)) {
-                if (rl.isKeyPressed(.o)) {
-                    self.openFileDialog();
+            const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
+
+            // Ctrl+F opens search (works even when search is already open — refocuses)
+            if (ctrl_held and rl.isKeyPressed(.f)) {
+                self.search.open();
+            } else if (self.search.is_open) {
+                // Search bar consumes input when open
+                self.updateSearch();
+            } else {
+                // Normal keyboard shortcuts when search is closed
+                if (rl.isKeyPressed(.t)) {
+                    self.toggleTheme();
+                }
+                if (ctrl_held) {
+                    if (rl.isKeyPressed(.o)) {
+                        self.openFileDialog();
+                    }
+                }
+
+                // Vim '/' opens search
+                const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+                if (!ctrl_held and !shift_held and rl.isKeyPressed(.slash)) {
+                    self.search.open();
                 }
             }
         }
 
-        // Only process scroll/link input when menu is closed
+        // Only process scroll/link input when menu is closed.
+        // When search bar is open, allow mouse wheel scroll but block keyboard scroll
+        // (keyboard input is consumed by the search bar).
         if (!menu_is_open) {
-            self.scroll.update();
+            if (self.search.is_open) {
+                self.scroll.handleMouseWheel();
+            } else {
+                self.scroll.update();
+            }
         }
 
         // Expire reload indicator (state mutation belongs in update, not draw)
@@ -323,6 +351,9 @@ pub const App = struct {
 
         if (self.layout_tree) |*tree| {
             renderer.render(tree, self.theme, &fonts_val, self.scroll.y, MenuBar.bar_height);
+
+            // Search highlights drawn over document content
+            search_renderer.drawHighlights(&self.search, self.theme, self.scroll.y, MenuBar.bar_height);
         } else {
             const y_offset: i32 = @intFromFloat(MenuBar.bar_height + 8);
             rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
@@ -330,6 +361,9 @@ pub const App = struct {
 
         // Draw reload/deletion indicator (below menu bar)
         self.drawReloadIndicator();
+
+        // Search bar drawn above menu bar layer but below menu dropdowns
+        search_renderer.drawSearchBar(&self.search, self.theme, &fonts_val, MenuBar.bar_height);
 
         // Menu bar drawn last so it's always on top
         self.menu_bar.draw(self.theme, &fonts_val);
@@ -358,7 +392,79 @@ pub const App = struct {
         rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
     }
 
+    /// Handle input when the search bar is open.
+    fn updateSearch(self: *App) void {
+        const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+
+        // Escape closes search
+        if (rl.isKeyPressed(.escape)) {
+            self.search.close();
+            return;
+        }
+
+        // Enter — next match, Shift+Enter — previous match
+        if (rl.isKeyPressed(.enter)) {
+            if (shift_held) {
+                self.search.prevMatch();
+            } else {
+                self.search.nextMatch();
+            }
+            self.scrollToCurrentMatch();
+            return;
+        }
+
+        // Backspace
+        if (rl.isKeyPressed(.backspace)) {
+            if (self.search.backspace()) {
+                self.executeSearch();
+            }
+            return;
+        }
+
+        // Text input — raylib provides getCharPressed() for typed characters
+        var char = rl.getCharPressed();
+        while (char > 0) {
+            // Only handle printable ASCII for now
+            if (char >= 32 and char < 127) {
+                if (self.search.appendChar(@intCast(char))) {
+                    self.executeSearch();
+                }
+            }
+            char = rl.getCharPressed();
+        }
+    }
+
+    /// Run the search algorithm with the current input and update matches.
+    fn executeSearch(self: *App) void {
+        const fonts_val = self.fonts orelse return;
+        const tree = &(self.layout_tree orelse return);
+
+        self.search.setQuery(self.search.inputSlice()) catch |err| {
+            std.log.err("Failed to set search query: {}", .{err});
+            return;
+        };
+
+        searcher.search(&self.search, tree, &fonts_val) catch |err| {
+            std.log.err("Search failed: {}", .{err});
+            return;
+        };
+
+        self.scrollToCurrentMatch();
+    }
+
+    /// Scroll the viewport to center the current search match within the
+    /// visible content area (below menu bar and search bar).
+    fn scrollToCurrentMatch(self: *App) void {
+        const rect = (self.search.currentMatch() orelse return).highlight_rect;
+        const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+        const chrome_height = MenuBar.bar_height + search_renderer.bar_height;
+        const visible_h = screen_h - chrome_height;
+        const target_y = rect.y - chrome_height - visible_h / 2.0 + rect.height / 2.0;
+        self.scroll.y = @max(0, @min(target_y, self.scroll.maxScroll()));
+    }
+
     pub fn deinit(self: *App) void {
+        self.search.deinit();
         if (self.file_watcher) |*watcher| watcher.deinit();
         if (self.layout_tree) |*tree| tree.deinit();
         if (self.document) |*doc| doc.deinit();
