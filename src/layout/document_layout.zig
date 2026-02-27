@@ -36,15 +36,16 @@ pub const LayoutContext = struct {
         allocator: Allocator,
         theme: *const Theme,
         fonts: *const Fonts,
-        window_width: f32,
+        available_width: f32,
         tree: *layout_types.LayoutTree,
         y_offset: f32,
+        left_offset: f32,
     ) LayoutContext {
         const content_width = @min(
             theme.max_content_width,
-            window_width - theme.page_margin * 2,
+            available_width - theme.page_margin * 2,
         );
-        const content_x = (window_width - content_width) / 2.0;
+        const content_x = left_offset + (available_width - content_width) / 2.0;
 
         return .{
             .allocator = allocator,
@@ -571,22 +572,78 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
 
 /// Lay out a parsed document into positioned nodes for rendering.
 /// `y_offset` shifts content start downward (e.g., to leave room for a menu bar).
+/// `left_offset` shifts content start rightward (e.g., for a ToC sidebar).
 pub fn layout(
     allocator: Allocator,
     document: *const ast.Document,
     theme: *const Theme,
     fonts: *const Fonts,
-    window_width: f32,
+    available_width: f32,
     image_renderer: ?*ImageRenderer,
     y_offset: f32,
+    left_offset: f32,
 ) !layout_types.LayoutTree {
     var tree = layout_types.LayoutTree.init(allocator);
     errdefer tree.deinit();
-    var ctx = LayoutContext.init(allocator, theme, fonts, window_width, &tree, y_offset);
+    var ctx = LayoutContext.init(allocator, theme, fonts, available_width, &tree, y_offset, left_offset);
     ctx.image_renderer = image_renderer;
 
     try layoutBlock(&ctx, &document.root);
 
     tree.total_height = ctx.cursor_y + theme.page_margin;
     return tree;
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "LayoutContext.init content_x accounts for left_offset" {
+    const theme = @import("../theme/defaults.zig").light;
+    var tree = layout_types.LayoutTree.init(testing.allocator);
+    defer tree.deinit();
+
+    const available_width: f32 = 960;
+    const left_offset: f32 = 240;
+    const fonts: Fonts = undefined;
+
+    const ctx = LayoutContext.init(
+        testing.allocator,
+        &theme,
+        &fonts,
+        available_width,
+        &tree,
+        0,
+        left_offset,
+    );
+
+    const expected_content_width = @min(theme.max_content_width, available_width - theme.page_margin * 2);
+    const expected_x = left_offset + (available_width - expected_content_width) / 2.0;
+    try testing.expectEqual(expected_x, ctx.content_x);
+    try testing.expect(ctx.content_x >= left_offset);
+}
+
+test "LayoutContext.init content_x starts at zero with no left_offset" {
+    const theme = @import("../theme/defaults.zig").light;
+    var tree = layout_types.LayoutTree.init(testing.allocator);
+    defer tree.deinit();
+
+    const available_width: f32 = 960;
+    const fonts: Fonts = undefined;
+
+    const ctx = LayoutContext.init(
+        testing.allocator,
+        &theme,
+        &fonts,
+        available_width,
+        &tree,
+        0,
+        0,
+    );
+
+    const expected_content_width = @min(theme.max_content_width, available_width - theme.page_margin * 2);
+    const expected_x = (available_width - expected_content_width) / 2.0;
+    try testing.expectEqual(expected_x, ctx.content_x);
 }

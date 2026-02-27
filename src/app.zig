@@ -163,7 +163,7 @@ pub const App = struct {
         };
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
                 std.log.err("Failed to layout document: {}", .{err});
             };
         }
@@ -228,8 +228,17 @@ pub const App = struct {
         return y;
     }
 
+    /// Return the available width for document layout (viewport minus sidebar).
+    /// Must stay in sync with `computeContentLeftOffset` — layout centers content
+    /// within this width, then shifts it right by the left offset.
     pub fn computeLayoutWidth(self: *const App) f32 {
         return self.viewport.width - self.toc_sidebar.effectiveWidth();
+    }
+
+    /// Return the horizontal offset for content to account for the ToC sidebar.
+    /// Must stay in sync with `computeLayoutWidth` — both derive from sidebar width.
+    pub fn computeContentLeftOffset(self: *const App) f32 {
+        return self.toc_sidebar.effectiveWidth();
     }
 
     // =========================================================================
@@ -245,7 +254,7 @@ pub const App = struct {
     fn relayoutActiveTab(self: *App) void {
         const tab = self.activeTab() orelse return;
         const fonts = &(self.fonts orelse return);
-        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
             std.log.err("Failed to relayout: {}", .{err});
         };
         self.rebuildToc();
@@ -255,8 +264,9 @@ pub const App = struct {
         const fonts = &(self.fonts orelse return);
         const width = self.computeLayoutWidth();
         const y_offset = self.computeContentYOffset();
+        const left_offset = self.computeContentLeftOffset();
         for (self.tabs.items) |*tab| {
-            tab.relayout(self.theme, fonts, width, y_offset) catch |err| {
+            tab.relayout(self.theme, fonts, width, y_offset, left_offset) catch |err| {
                 std.log.err("Failed to relayout tab: {}", .{err});
             };
         }
@@ -337,7 +347,7 @@ pub const App = struct {
         }
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset()) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset()) catch |err| {
                 std.log.err("Failed to relayout: {}", .{err});
             };
         }
@@ -547,7 +557,7 @@ pub const App = struct {
             switch (watcher.checkForChanges()) {
                 .file_changed => {
                     const f = &(self.fonts orelse return);
-                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset());
+                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset());
                     self.rebuildToc();
                 },
                 .file_deleted => {
@@ -923,6 +933,21 @@ test "App.computeContentYOffset with tab bar" {
     _ = try app.newTab();
     _ = try app.newTab();
     try testing.expectEqual(MenuBar.bar_height + TabBar.bar_height, app.computeContentYOffset());
+}
+
+test "App.computeContentLeftOffset returns 0 when sidebar closed" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    try testing.expectEqual(@as(f32, 0), app.computeContentLeftOffset());
+}
+
+test "App.computeContentLeftOffset returns sidebar width when open" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    app.toc_sidebar.toggle();
+    try testing.expectEqual(TocSidebar.sidebar_width, app.computeContentLeftOffset());
 }
 
 test "App.isSupportedMarkdownExtension" {
