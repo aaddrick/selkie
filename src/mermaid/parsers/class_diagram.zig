@@ -12,19 +12,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !ClassModel {
     var model = ClassModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
     var current_class: ?[]const u8 = null;
@@ -232,4 +221,3 @@ fn parseMember(line: []const u8) ClassMember {
         .is_method = is_method,
     };
 }
-

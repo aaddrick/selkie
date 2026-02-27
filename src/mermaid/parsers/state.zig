@@ -11,19 +11,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !StateModel {
     var model = StateModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
 
@@ -163,7 +152,7 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
 
     // "state fork_state <<fork>>"
     if (pu.indexOfStr(rest, "<<fork>>")) |_| {
-        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
+        const state_id = pu.strip(rest[0..pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .fork;
@@ -171,7 +160,7 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
         return;
     }
     if (pu.indexOfStr(rest, "<<join>>")) |_| {
-        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
+        const state_id = pu.strip(rest[0..pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .join;
@@ -179,7 +168,7 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel) !void {
         return;
     }
     if (pu.indexOfStr(rest, "<<choice>>")) |_| {
-        const state_id = pu.strip(rest[0 .. pu.indexOfStr(rest, "<<").?]);
+        const state_id = pu.strip(rest[0..pu.indexOfStr(rest, "<<").?]);
         if (state_id.len > 0) {
             var state = try model.ensureState(state_id);
             state.state_type = .choice;
@@ -222,4 +211,3 @@ fn tryParseTransition(line: []const u8, model: *StateModel) !bool {
 
     return true;
 }
-

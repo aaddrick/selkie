@@ -10,19 +10,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !GitGraphModel {
     var model = GitGraphModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
     var current_branch: []const u8 = "main";
@@ -179,13 +168,13 @@ fn autoId(seq: u32) []const u8 {
 }
 
 fn parseAttr(text: []const u8, key: []const u8) []const u8 {
-    const idx = std.mem.indexOf(u8, text, key) orelse return "";
+    const idx = pu.indexOfStr(text, key) orelse return "";
     const after = pu.strip(text[idx + key.len ..]);
     if (after.len == 0) return "";
 
     // Value may be quoted
     if (after[0] == '"') {
-        const close = std.mem.indexOfScalar(u8, after[1..], '"') orelse return after[1..];
+        const close = pu.indexOfChar(after[1..], '"') orelse return after[1..];
         return after[1 .. close + 1];
     }
 
@@ -199,4 +188,3 @@ fn firstWord(s: []const u8) []const u8 {
     const end = std.mem.indexOfAny(u8, trimmed, " \t") orelse trimmed.len;
     return trimmed[0..end];
 }
-

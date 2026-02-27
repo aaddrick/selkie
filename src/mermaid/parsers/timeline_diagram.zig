@@ -11,19 +11,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
     var model = TimelineModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
 
@@ -57,7 +46,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
         // Period entry: "period : event1 : event2"
         // Or just "period" with events on following indented lines
         // Check for colon-separated format
-        if (std.mem.indexOfScalar(u8, line, ':')) |_| {
+        if (pu.indexOfChar(line, ':')) |_| {
             // Split by ':'
             var parts = std.ArrayList([]const u8).init(allocator);
             defer parts.deinit();
@@ -109,4 +98,3 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
 
     return model;
 }
-

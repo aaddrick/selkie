@@ -11,19 +11,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !ERModel {
     var model = ERModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
     var current_entity: ?[]const u8 = null;
@@ -228,4 +217,3 @@ fn parseCardinalityStr(s: []const u8) Cardinality {
     if (pu.containsStr(s, "|o") or pu.containsStr(s, "o|")) return .zero_or_one;
     return .exactly_one; // || or other
 }
-

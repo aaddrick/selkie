@@ -10,19 +10,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !MindMapModel {
     var model = MindMapModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     // Stack of (node_ptr, indent_level) for tracking parent hierarchy
     var stack = std.ArrayList(StackEntry).init(allocator);
@@ -130,4 +119,3 @@ fn countIndent(line: []const u8) usize {
     }
     return count;
 }
-

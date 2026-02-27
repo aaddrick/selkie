@@ -39,12 +39,12 @@ pub fn splitLines(allocator: Allocator, source: []const u8) !std.ArrayList([]con
 
 /// Check if a string starts with a prefix.
 pub fn startsWith(s: []const u8, prefix: []const u8) bool {
-    return s.len >= prefix.len and std.mem.eql(u8, s[0..prefix.len], prefix);
+    return std.mem.startsWith(u8, s, prefix);
 }
 
 /// Check if a string ends with a suffix.
 pub fn endsWith(s: []const u8, suffix: []const u8) bool {
-    return s.len >= suffix.len and std.mem.eql(u8, s[s.len - suffix.len ..], suffix);
+    return std.mem.endsWith(u8, s, suffix);
 }
 
 /// Find the first occurrence of a scalar value in a slice.

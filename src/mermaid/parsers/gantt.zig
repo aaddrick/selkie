@@ -11,19 +11,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !GanttModel {
     var model = GanttModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
     var current_section_idx: ?usize = null;
@@ -241,4 +230,3 @@ fn isDateLike(s: []const u8) bool {
     }
     return false;
 }
-

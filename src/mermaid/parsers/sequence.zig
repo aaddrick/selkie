@@ -20,21 +20,10 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceModel {
         .allocator = allocator,
         .source = source,
         .model = SequenceModel.init(allocator),
-        .lines = std.ArrayList([]const u8).init(allocator),
+        .lines = try pu.splitLines(allocator, source),
     };
     errdefer parser.model.deinit();
     defer parser.lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try parser.lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try parser.lines.append(source[start..]);
-    }
 
     parser.line_idx = 0;
 
@@ -463,7 +452,6 @@ fn blockKeywordLen(block_type: BlockType) usize {
         .rect => 4,
     };
 }
-
 
 fn isIdentChar(ch: u8) bool {
     return (ch >= 'a' and ch <= 'z') or

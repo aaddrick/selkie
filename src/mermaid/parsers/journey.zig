@@ -10,19 +10,8 @@ pub fn parse(allocator: Allocator, source: []const u8) !JourneyModel {
     var model = JourneyModel.init(allocator);
     errdefer model.deinit();
 
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = try pu.splitLines(allocator, source);
     defer lines.deinit();
-
-    var start: usize = 0;
-    for (source, 0..) |ch, i| {
-        if (ch == '\n') {
-            try lines.append(source[start..i]);
-            start = i + 1;
-        }
-    }
-    if (start < source.len) {
-        try lines.append(source[start..]);
-    }
 
     var past_header = false;
 
@@ -116,4 +105,3 @@ fn parseTask(allocator: Allocator, line: []const u8) ?JourneyTask {
 
     return task;
 }
-
