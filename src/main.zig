@@ -22,6 +22,7 @@ test {
     _ = @import("menu_bar.zig");
     _ = @import("file_dialog.zig");
     _ = @import("app.zig");
+    _ = @import("asset_paths.zig");
     _ = @import("stdin_reader.zig");
     _ = @import("tab.zig");
     _ = @import("tab_bar.zig");

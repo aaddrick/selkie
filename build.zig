@@ -93,6 +93,18 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    // --- Install assets to share/selkie/ (FHS layout) ---
+    b.installDirectory(.{
+        .source_dir = b.path("assets/fonts"),
+        .install_dir = .{ .custom = "share/selkie/fonts" },
+        .install_subdir = "",
+    });
+    b.installDirectory(.{
+        .source_dir = b.path("assets/themes"),
+        .install_dir = .{ .custom = "share/selkie/themes" },
+        .install_subdir = "",
+    });
+
     // --- Run step ---
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

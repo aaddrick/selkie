@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
 
+const asset_paths = @import("asset_paths.zig");
 const ast = @import("parser/ast.zig");
 const Theme = @import("theme/theme.zig").Theme;
 const defaults = @import("theme/defaults.zig");
@@ -72,28 +73,39 @@ pub const App = struct {
         }
     }
 
-    const font_paths = .{
-        .{ "body", "assets/fonts/Inter-Regular.ttf" },
-        .{ "bold", "assets/fonts/Inter-Bold.ttf" },
-        .{ "italic", "assets/fonts/Inter-Italic.ttf" },
-        .{ "bold_italic", "assets/fonts/Inter-BoldItalic.ttf" },
-        .{ "mono", "assets/fonts/JetBrainsMono-Regular.ttf" },
+    const font_files = .{
+        .{ "body", "fonts/Inter-Regular.ttf" },
+        .{ "bold", "fonts/Inter-Bold.ttf" },
+        .{ "italic", "fonts/Inter-Italic.ttf" },
+        .{ "bold_italic", "fonts/Inter-BoldItalic.ttf" },
+        .{ "mono", "fonts/JetBrainsMono-Regular.ttf" },
     };
 
     pub fn loadFonts(self: *App) !void {
         const size = 32;
         var fonts: Fonts = undefined;
         var loaded_count: usize = 0;
+
+        // Resolve and store paths so we can free them after loading
+        var resolved: [font_files.len][:0]const u8 = undefined;
+        var resolved_count: usize = 0;
+        defer for (resolved[0..resolved_count]) |p| self.allocator.free(p);
+
         errdefer {
             var unload_idx: usize = 0;
-            inline for (font_paths) |entry| {
+            inline for (font_files) |entry| {
                 if (unload_idx >= loaded_count) break;
                 rl.unloadFont(@field(fonts, entry[0]));
                 unload_idx += 1;
             }
         }
-        inline for (font_paths) |entry| {
-            @field(fonts, entry[0]) = try rl.loadFontEx(entry[1], size, null);
+
+        inline for (font_files, 0..) |entry, idx| {
+            const path = try asset_paths.resolveAssetPath(self.allocator, entry[1]);
+            resolved[idx] = path;
+            resolved_count = idx + 1;
+
+            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, null);
             rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
             loaded_count += 1;
         }
@@ -102,7 +114,7 @@ pub const App = struct {
 
     pub fn unloadFonts(self: *App) void {
         const fonts = self.fonts orelse return;
-        inline for (font_paths) |entry| {
+        inline for (font_files) |entry| {
             rl.unloadFont(@field(fonts, entry[0]));
         }
         self.fonts = null;
