@@ -1,6 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const Allocator = std.mem.Allocator;
+const render_utils = @import("render_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
 pub const ImageRenderer = struct {
@@ -107,11 +108,8 @@ pub const ImageRenderer = struct {
                 const text_y = draw_y + (rect.height - measured.y) / 2.0;
 
                 // Need null-terminated string for raylib
-                var buf: [512]u8 = undefined;
-                const len = @min(text.len, buf.len - 1);
-                @memcpy(buf[0..len], text[0..len]);
-                buf[len] = 0;
-                const z_text: [:0]const u8 = buf[0..len :0];
+                var buf: [2048]u8 = undefined;
+                const z_text = render_utils.sliceToZ(&buf, text);
 
                 const font = fonts.selectFont(.{ .italic = true });
                 rl.drawTextEx(font, z_text, .{ .x = text_x, .y = text_y }, font_size, 1, rl.Color{ .r = 100, .g = 100, .b = 100, .a = 255 });

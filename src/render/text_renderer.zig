@@ -1,22 +1,12 @@
 const rl = @import("raylib");
 const lt = @import("../layout/layout_types.zig");
+const render_utils = @import("render_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
 fn drawTextSlice(font: rl.Font, text: []const u8, pos: rl.Vector2, font_size: f32, spacing: f32, color: rl.Color) void {
     if (text.len == 0) return;
-    // Check if naturally null-terminated
-    const maybe_sentinel: [*]const u8 = text.ptr;
-    if (maybe_sentinel[text.len] == 0) {
-        const z: [:0]const u8 = text.ptr[0..text.len :0];
-        rl.drawTextEx(font, z, pos, font_size, spacing, color);
-        return;
-    }
-    // Stack buffer fallback
-    var buf: [1024]u8 = undefined;
-    const len = @min(text.len, buf.len - 1);
-    @memcpy(buf[0..len], text[0..len]);
-    buf[len] = 0;
-    const z: [:0]const u8 = buf[0..len :0];
+    var buf: [2048]u8 = undefined;
+    const z = render_utils.sliceToZ(&buf, text);
     rl.drawTextEx(font, z, pos, font_size, spacing, color);
 }
 

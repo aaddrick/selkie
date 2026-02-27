@@ -1,6 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const lt = @import("../layout/layout_types.zig");
+const render_utils = @import("render_utils.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 
 pub const LinkHandler = struct {
@@ -52,10 +53,8 @@ fn openUrl(url: []const u8) void {
 
     // Need null-terminated string for execve
     var buf: [2048]u8 = undefined;
-    const len = @min(url.len, buf.len - 1);
-    @memcpy(buf[0..len], url[0..len]);
-    buf[len] = 0;
-    const z_ptr: [*:0]const u8 = @ptrCast(buf[0..len].ptr);
+    const z = render_utils.sliceToZ(&buf, url);
+    const z_ptr: [*:0]const u8 = z.ptr;
 
     const pid = std.posix.fork() catch return;
     if (pid == 0) {
