@@ -52,6 +52,16 @@ pub const DetectResult = union(enum) {
     journey: JourneyModel,
     timeline: TimelineModel,
     unsupported: []const u8,
+
+    /// Deinit the contained model. Call this when the DetectResult is not
+    /// transferred to a heap-allocated model pointer (i.e. on error paths
+    /// or when the caller decides not to use the result).
+    pub fn deinit(self: *DetectResult) void {
+        switch (self.*) {
+            .unsupported => {},
+            inline else => |*model| model.deinit(),
+        }
+    }
 };
 
 pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {

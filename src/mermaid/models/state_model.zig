@@ -50,11 +50,18 @@ pub const StateModel = struct {
 
     pub fn deinit(self: *StateModel) void {
         for (self.states.items) |*s| {
-            s.children.deinit();
+            deinitStateRecursive(s);
         }
         self.states.deinit();
         self.transitions.deinit();
         self.graph.deinit();
+    }
+
+    fn deinitStateRecursive(state: *State) void {
+        for (state.children.items) |*child| {
+            deinitStateRecursive(child);
+        }
+        state.children.deinit();
     }
 
     pub fn findStateMut(self: *StateModel, id: []const u8) ?*State {

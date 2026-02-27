@@ -69,6 +69,7 @@ pub const LayoutNodeKind = enum {
 pub const LayoutNode = struct {
     kind: LayoutNodeKind,
     rect: Rect,
+    allocator: Allocator,
     text_runs: std.ArrayList(TextRun),
     // Code block content
     code_text: ?[]const u8 = null,
@@ -101,6 +102,7 @@ pub const LayoutNode = struct {
         return .{
             .kind = .text_block,
             .rect = std.mem.zeroes(Rect),
+            .allocator = allocator,
             .text_runs = std.ArrayList(TextRun).init(allocator),
         };
     }
@@ -108,7 +110,10 @@ pub const LayoutNode = struct {
     pub fn deinit(self: *LayoutNode) void {
         self.text_runs.deinit();
 
-        // Deinit all optional mermaid diagram models
+        // Deinit and destroy all optional mermaid diagram model pointers.
+        // Each model was heap-allocated with allocator.create() in mermaid_layout.zig.
+        // We must call model.deinit() to free internal ArrayLists, then
+        // allocator.destroy() to free the model struct itself.
         inline for (.{
             "mermaid_flowchart",
             "mermaid_sequence",
@@ -122,7 +127,10 @@ pub const LayoutNode = struct {
             "mermaid_journey",
             "mermaid_timeline",
         }) |field_name| {
-            if (@field(self, field_name)) |model| model.deinit();
+            if (@field(self, field_name)) |model| {
+                model.deinit();
+                self.allocator.destroy(model);
+            }
         }
     }
 };
