@@ -459,3 +459,117 @@ fn isIdentChar(ch: u8) bool {
         (ch >= '0' and ch <= '9') or
         ch == '_';
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "sequence parse participants and message" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    participant Alice
+        \\    participant Bob
+        \\    Alice->>Bob: Hello
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 2), model.participants.items.len);
+    try testing.expectEqualStrings("Alice", model.participants.items[0].id);
+    try testing.expectEqualStrings("Bob", model.participants.items[1].id);
+    try testing.expectEqual(@as(usize, 1), model.events.items.len);
+    try testing.expectEqualStrings("Hello", model.events.items[0].message.text);
+}
+
+test "sequence parse actor" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    actor User
+        \\    User->>System: Login
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(sm.ParticipantKind.actor, model.participants.items[0].kind);
+}
+
+test "sequence parse participant alias" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    participant A as Alice
+        \\    A->>A: Self message
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqualStrings("A", model.participants.items[0].id);
+    try testing.expectEqualStrings("Alice", model.participants.items[0].alias);
+}
+
+test "sequence parse dotted arrow" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    Alice-->Bob: Response
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.events.items.len);
+    try testing.expectEqual(sm.ArrowType.dotted, model.events.items[0].message.arrow_type);
+}
+
+test "sequence parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.events.items.len);
+}
+
+test "sequence parse note" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    Alice->>Bob: Hi
+        \\    Note right of Bob: thinking
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    // Should have message + note events
+    try testing.expectEqual(@as(usize, 2), model.events.items.len);
+    try testing.expectEqual(sm.NotePosition.right_of, model.events.items[1].note.position);
+}
+
+test "sequence parse autonumber" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    autonumber
+        \\    Alice->>Bob: Test
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expect(model.autonumber);
+}
+
+test "sequence parse loop block" {
+    const allocator = testing.allocator;
+    const source =
+        \\sequenceDiagram
+        \\    loop Every minute
+        \\        Alice->>Bob: Ping
+        \\    end
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.events.items.len);
+    try testing.expectEqual(sm.BlockType.loop_block, model.events.items[0].block.block_type);
+}

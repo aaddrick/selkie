@@ -138,6 +138,11 @@ pub const GanttModel = struct {
 
     /// Compute the min/max day range across all tasks.
     pub fn computeDateRange(self: *GanttModel) void {
+        if (self.tasks.items.len == 0) {
+            self.min_day = 0;
+            self.max_day = 1;
+            return;
+        }
         for (self.tasks.items) |task| {
             self.min_day = @min(self.min_day, task.start_day);
             self.max_day = @max(self.max_day, task.end_day);
@@ -156,3 +161,75 @@ pub const GanttModel = struct {
         return null;
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "SimpleDate.toDayNumber and fromDayNumber roundtrip" {
+    const date = SimpleDate{ .year = 2024, .month = 6, .day = 15 };
+    const dn = date.toDayNumber();
+    const restored = SimpleDate.fromDayNumber(dn);
+    try testing.expectEqual(date.year, restored.year);
+    try testing.expectEqual(date.month, restored.month);
+    try testing.expectEqual(date.day, restored.day);
+}
+
+test "SimpleDate.toDayNumber ordering" {
+    const d1 = SimpleDate{ .year = 2024, .month = 1, .day = 1 };
+    const d2 = SimpleDate{ .year = 2024, .month = 6, .day = 15 };
+    try testing.expect(d1.toDayNumber() < d2.toDayNumber());
+}
+
+test "SimpleDate.format produces YYYY-MM-DD" {
+    const date = SimpleDate{ .year = 2024, .month = 3, .day = 7 };
+    var buf: [32]u8 = undefined;
+    const result = date.format(&buf);
+    try testing.expectEqualStrings("2024-03-07", result);
+}
+
+test "parseDate valid date" {
+    const date = parseDate("2024-06-15") orelse unreachable;
+    try testing.expectEqual(@as(i32, 2024), date.year);
+    try testing.expectEqual(@as(u8, 6), date.month);
+    try testing.expectEqual(@as(u8, 15), date.day);
+}
+
+test "parseDate invalid formats" {
+    try testing.expect(parseDate("not-a-date") == null);
+    try testing.expect(parseDate("2024/06/15") == null);
+    try testing.expect(parseDate("short") == null);
+    try testing.expect(parseDate("2024-13-01") == null); // invalid month
+    try testing.expect(parseDate("2024-00-01") == null); // zero month
+}
+
+test "parseDuration days and weeks" {
+    try testing.expectEqual(@as(?i32, 5), parseDuration("5d"));
+    try testing.expectEqual(@as(?i32, 14), parseDuration("2w"));
+    try testing.expect(parseDuration("abc") == null);
+    try testing.expect(parseDuration("5") == null);
+    try testing.expect(parseDuration("") == null);
+}
+
+test "GanttModel computeDateRange" {
+    const allocator = testing.allocator;
+    var model = GanttModel.init(allocator);
+    defer model.deinit();
+
+    var t1 = GanttTask{
+        .id = "t1",
+        .name = "Task 1",
+        .tags = std.ArrayList(TaskTag).init(allocator),
+        .start_day = 10,
+        .end_day = 20,
+    };
+    // Don't need to deinit t1 separately since model.deinit handles it
+    _ = &t1;
+    try model.tasks.append(t1);
+
+    model.computeDateRange();
+    try testing.expectEqual(@as(i32, 10), model.min_day);
+    try testing.expectEqual(@as(i32, 20), model.max_day);
+}

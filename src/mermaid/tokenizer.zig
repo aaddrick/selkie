@@ -324,3 +324,124 @@ fn isKeyword(word: []const u8) bool {
     }
     return false;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "tokenize empty input produces only eof" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "");
+    defer tokens.deinit();
+    try testing.expectEqual(@as(usize, 1), tokens.items.len);
+    try testing.expectEqual(TokenType.eof, tokens.items[0].type);
+}
+
+test "tokenize keyword graph" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "graph TD");
+    defer tokens.deinit();
+    try testing.expect(tokens.items.len >= 3); // graph, TD, eof
+    try testing.expectEqual(TokenType.keyword, tokens.items[0].type);
+    try testing.expectEqualStrings("graph", tokens.items[0].text);
+    try testing.expectEqual(TokenType.keyword, tokens.items[1].type);
+    try testing.expectEqualStrings("TD", tokens.items[1].text);
+}
+
+test "tokenize solid arrow -->" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "A --> B");
+    defer tokens.deinit();
+    // A, -->, B, eof
+    try testing.expect(tokens.items.len >= 4);
+    try testing.expectEqual(TokenType.identifier, tokens.items[0].type);
+    try testing.expectEqual(TokenType.arrow, tokens.items[1].type);
+    try testing.expectEqual(ArrowStyle.solid, tokens.items[1].arrow_style);
+    try testing.expectEqual(ArrowHeadType.arrow, tokens.items[1].arrow_head);
+    try testing.expectEqual(TokenType.identifier, tokens.items[2].type);
+}
+
+test "tokenize thick arrow ==>" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "A ==> B");
+    defer tokens.deinit();
+    var found_thick = false;
+    for (tokens.items) |tok| {
+        if (tok.type == .arrow and tok.arrow_style == .thick) {
+            found_thick = true;
+            break;
+        }
+    }
+    try testing.expect(found_thick);
+}
+
+test "tokenize dotted arrow -.->  " {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "A -.-> B");
+    defer tokens.deinit();
+    var found_dotted = false;
+    for (tokens.items) |tok| {
+        if (tok.type == .arrow and tok.arrow_style == .dotted) {
+            found_dotted = true;
+            break;
+        }
+    }
+    try testing.expect(found_dotted);
+}
+
+test "tokenize string literal" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "\"hello world\"");
+    defer tokens.deinit();
+    try testing.expect(tokens.items.len >= 2);
+    try testing.expectEqual(TokenType.string_literal, tokens.items[0].type);
+    try testing.expectEqualStrings("\"hello world\"", tokens.items[0].text);
+}
+
+test "tokenize comment" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "%% this is a comment\nA");
+    defer tokens.deinit();
+    try testing.expectEqual(TokenType.comment, tokens.items[0].type);
+    try testing.expectEqual(TokenType.newline, tokens.items[1].type);
+    try testing.expectEqual(TokenType.identifier, tokens.items[2].type);
+}
+
+test "tokenize brackets" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "[hello]");
+    defer tokens.deinit();
+    try testing.expect(tokens.items.len >= 4); // [, hello, ], eof
+    try testing.expectEqual(TokenType.open_bracket, tokens.items[0].type);
+    try testing.expectEqual(BracketKind.square, tokens.items[0].bracket_kind);
+    try testing.expectEqual(TokenType.close_bracket, tokens.items[2].type);
+}
+
+test "tokenize colon semicolon pipe" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, ":;|");
+    defer tokens.deinit();
+    try testing.expectEqual(TokenType.colon, tokens.items[0].type);
+    try testing.expectEqual(TokenType.semicolon, tokens.items[1].type);
+    try testing.expectEqual(TokenType.pipe, tokens.items[2].type);
+}
+
+test "tokenize number" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "42");
+    defer tokens.deinit();
+    try testing.expectEqual(TokenType.number, tokens.items[0].type);
+    try testing.expectEqualStrings("42", tokens.items[0].text);
+}
+
+test "tokenize newlines and carriage returns" {
+    const allocator = testing.allocator;
+    var tokens = try tokenize(allocator, "A\r\nB");
+    defer tokens.deinit();
+    // A, newline, B, eof — \r is skipped
+    try testing.expectEqual(TokenType.identifier, tokens.items[0].type);
+    try testing.expectEqual(TokenType.newline, tokens.items[1].type);
+    try testing.expectEqual(TokenType.identifier, tokens.items[2].type);
+}

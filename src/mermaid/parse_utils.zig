@@ -78,3 +78,106 @@ pub fn nullTerminate(text: []const u8, buf: []u8) [:0]const u8 {
     buf[len] = 0;
     return buf[0..len :0];
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "strip removes leading and trailing whitespace" {
+    try testing.expectEqualStrings("hello", strip("  hello  "));
+    try testing.expectEqualStrings("hello", strip("\thello\t"));
+    try testing.expectEqualStrings("", strip("   "));
+    try testing.expectEqualStrings("hello world", strip("  hello world  "));
+}
+
+test "strip preserves strings without whitespace" {
+    try testing.expectEqualStrings("hello", strip("hello"));
+    try testing.expectEqualStrings("", strip(""));
+}
+
+test "stripQuotes removes surrounding double quotes" {
+    try testing.expectEqualStrings("hello", stripQuotes("\"hello\""));
+    try testing.expectEqualStrings("hello", stripQuotes("hello"));
+    try testing.expectEqualStrings("\"", stripQuotes("\""));
+    try testing.expectEqualStrings("", stripQuotes("\"\""));
+    try testing.expectEqualStrings("", stripQuotes(""));
+}
+
+test "isComment detects mermaid comments" {
+    try testing.expect(isComment("%% this is a comment"));
+    try testing.expect(isComment("%%"));
+    try testing.expect(!isComment("% not a comment"));
+    try testing.expect(!isComment("hello"));
+    try testing.expect(!isComment(""));
+}
+
+test "splitLines splits on newlines" {
+    const allocator = testing.allocator;
+    var lines = try splitLines(allocator, "line1\nline2\nline3");
+    defer lines.deinit();
+    try testing.expectEqual(@as(usize, 3), lines.items.len);
+    try testing.expectEqualStrings("line1", lines.items[0]);
+    try testing.expectEqualStrings("line2", lines.items[1]);
+    try testing.expectEqualStrings("line3", lines.items[2]);
+}
+
+test "splitLines handles empty input" {
+    const allocator = testing.allocator;
+    var lines = try splitLines(allocator, "");
+    defer lines.deinit();
+    try testing.expectEqual(@as(usize, 0), lines.items.len);
+}
+
+test "splitLines handles trailing newline" {
+    const allocator = testing.allocator;
+    var lines = try splitLines(allocator, "a\nb\n");
+    defer lines.deinit();
+    try testing.expectEqual(@as(usize, 2), lines.items.len);
+    try testing.expectEqualStrings("a", lines.items[0]);
+    try testing.expectEqualStrings("b", lines.items[1]);
+}
+
+test "splitLines single line no newline" {
+    const allocator = testing.allocator;
+    var lines = try splitLines(allocator, "single");
+    defer lines.deinit();
+    try testing.expectEqual(@as(usize, 1), lines.items.len);
+    try testing.expectEqualStrings("single", lines.items[0]);
+}
+
+test "startsWith and endsWith" {
+    try testing.expect(startsWith("hello world", "hello"));
+    try testing.expect(!startsWith("hello world", "world"));
+    try testing.expect(endsWith("hello world", "world"));
+    try testing.expect(!endsWith("hello world", "hello"));
+}
+
+test "indexOfChar and indexOfCharFrom" {
+    try testing.expectEqual(@as(?usize, 5), indexOfChar("hello:world", ':'));
+    try testing.expectEqual(@as(?usize, null), indexOfChar("hello", ':'));
+    try testing.expectEqual(@as(?usize, 5), indexOfCharFrom("a:b:c:d", ':', 4));
+    try testing.expectEqual(@as(?usize, null), indexOfCharFrom("abc", ':', 10));
+}
+
+test "indexOfStr and containsStr" {
+    try testing.expectEqual(@as(?usize, 6), indexOfStr("hello world", "world"));
+    try testing.expectEqual(@as(?usize, null), indexOfStr("hello", "world"));
+    try testing.expect(containsStr("hello world", "world"));
+    try testing.expect(!containsStr("hello", "world"));
+}
+
+test "nullTerminate produces valid sentinel-terminated string" {
+    var buf: [32]u8 = undefined;
+    const result = nullTerminate("hello", &buf);
+    try testing.expectEqualStrings("hello", result);
+    try testing.expectEqual(@as(u8, 0), buf[5]);
+}
+
+test "nullTerminate truncates long input" {
+    var buf: [4]u8 = undefined;
+    const result = nullTerminate("hello", &buf);
+    try testing.expectEqualStrings("hel", result);
+    try testing.expectEqual(@as(u8, 0), buf[3]);
+}

@@ -119,3 +119,69 @@ fn countIndent(line: []const u8) usize {
     }
     return count;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "mindmap parse tree structure" {
+    const allocator = testing.allocator;
+    const source =
+        \\mindmap
+        \\    Root
+        \\        Child1
+        \\        Child2
+        \\            Grandchild
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expect(model.root != null);
+    try testing.expectEqualStrings("Root", model.root.?.label);
+    try testing.expectEqual(@as(usize, 2), model.root.?.children.items.len);
+    try testing.expectEqualStrings("Child1", model.root.?.children.items[0].label);
+    try testing.expectEqualStrings("Child2", model.root.?.children.items[1].label);
+    try testing.expectEqual(@as(usize, 1), model.root.?.children.items[1].children.items.len);
+}
+
+test "mindmap parse node shapes" {
+    const allocator = testing.allocator;
+    const source =
+        \\mindmap
+        \\    (Rounded)
+        \\        [Square]
+        \\        ((Circle))
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expect(model.root != null);
+    try testing.expectEqual(mm.NodeShape.rounded, model.root.?.shape);
+    try testing.expectEqual(mm.NodeShape.square, model.root.?.children.items[0].shape);
+    try testing.expectEqual(mm.NodeShape.circle, model.root.?.children.items[1].shape);
+}
+
+test "mindmap parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expect(model.root == null);
+}
+
+test "mindmap parse indentation determines hierarchy" {
+    const allocator = testing.allocator;
+    const source =
+        \\mindmap
+        \\    Root
+        \\        A
+        \\        B
+        \\        C
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expect(model.root != null);
+    try testing.expectEqual(@as(usize, 3), model.root.?.children.items.len);
+}

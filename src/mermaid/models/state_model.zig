@@ -88,3 +88,66 @@ pub const StateModel = struct {
         return &self.states.items[self.states.items.len - 1];
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "StateModel init and deinit" {
+    const allocator = testing.allocator;
+    var model = StateModel.init(allocator);
+    defer model.deinit();
+
+    _ = try model.ensureState("S1");
+    _ = try model.ensureState("S2");
+    try testing.expectEqual(@as(usize, 2), model.states.items.len);
+}
+
+test "StateModel ensureState deduplicates" {
+    const allocator = testing.allocator;
+    var model = StateModel.init(allocator);
+    defer model.deinit();
+
+    _ = try model.ensureState("S1");
+    _ = try model.ensureState("S1");
+    try testing.expectEqual(@as(usize, 1), model.states.items.len);
+}
+
+test "StateModel star state gets start type" {
+    const allocator = testing.allocator;
+    var model = StateModel.init(allocator);
+    defer model.deinit();
+
+    _ = try model.ensureState("[*]");
+    try testing.expectEqual(StateType.start, model.states.items[0].state_type);
+}
+
+test "StateModel recursive deinit with children" {
+    const allocator = testing.allocator;
+    var model = StateModel.init(allocator);
+    defer model.deinit();
+
+    var parent = try model.ensureState("Parent");
+    parent.state_type = .composite;
+
+    // Add a child state
+    var child = State{
+        .id = "Child",
+        .label = "Child",
+        .state_type = .normal,
+        .children = std.ArrayList(State).init(allocator),
+    };
+
+    // Add a grandchild
+    try child.children.append(.{
+        .id = "Grandchild",
+        .label = "Grandchild",
+        .state_type = .normal,
+        .children = std.ArrayList(State).init(allocator),
+    });
+
+    try parent.children.append(child);
+    // model.deinit() should recursively free all children without leaks
+}

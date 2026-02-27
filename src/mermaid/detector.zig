@@ -127,3 +127,107 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
 
     return .{ .unsupported = "unknown" };
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "detect flowchart" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "graph TD\nA --> B");
+    defer result.deinit();
+    try testing.expect(result == .flowchart);
+}
+
+test "detect flowchart keyword" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "flowchart LR\nA --> B");
+    defer result.deinit();
+    try testing.expect(result == .flowchart);
+}
+
+test "detect sequenceDiagram" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "sequenceDiagram\nAlice->>Bob: Hi");
+    defer result.deinit();
+    try testing.expect(result == .sequence);
+}
+
+test "detect pie" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "pie\n\"A\" : 50");
+    defer result.deinit();
+    try testing.expect(result == .pie);
+}
+
+test "detect gantt" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "gantt\ntitle Test\nTask :2024-01-01, 5d");
+    defer result.deinit();
+    try testing.expect(result == .gantt);
+}
+
+test "detect classDiagram" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "classDiagram\nA <|-- B");
+    defer result.deinit();
+    try testing.expect(result == .class_diagram);
+}
+
+test "detect erDiagram" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "erDiagram\nA ||--o{ B : has");
+    defer result.deinit();
+    try testing.expect(result == .er_diagram);
+}
+
+test "detect stateDiagram" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "stateDiagram\n[*] --> S1");
+    defer result.deinit();
+    try testing.expect(result == .state_diagram);
+}
+
+test "detect mindmap" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "mindmap\n  Root\n    Child");
+    defer result.deinit();
+    try testing.expect(result == .mindmap);
+}
+
+test "detect gitGraph" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "gitGraph\ncommit");
+    defer result.deinit();
+    try testing.expect(result == .gitgraph);
+}
+
+test "detect journey" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "journey\ntitle Test");
+    defer result.deinit();
+    try testing.expect(result == .journey);
+}
+
+test "detect timeline" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "timeline\ntitle Test");
+    defer result.deinit();
+    try testing.expect(result == .timeline);
+}
+
+test "detect unsupported diagram type" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "unknownDiagram\nfoo bar");
+    defer result.deinit();
+    try testing.expect(result == .unsupported);
+}
+
+test "detect empty input" {
+    const allocator = testing.allocator;
+    var result = try detect(allocator, "");
+    defer result.deinit();
+    try testing.expect(result == .unsupported);
+}

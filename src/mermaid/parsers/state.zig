@@ -211,3 +211,92 @@ fn tryParseTransition(line: []const u8, model: *StateModel) !bool {
 
     return true;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "state parse states and transitions" {
+    const allocator = testing.allocator;
+    const source =
+        \\stateDiagram-v2
+        \\    [*] --> Idle
+        \\    Idle --> Active : start
+        \\    Active --> [*]
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 3), model.transitions.items.len);
+    // [*], Idle, Active should all exist
+    try testing.expect(model.findStateMut("[*]") != null);
+    try testing.expect(model.findStateMut("Idle") != null);
+    try testing.expect(model.findStateMut("Active") != null);
+}
+
+test "state parse transition label" {
+    const allocator = testing.allocator;
+    const source =
+        \\stateDiagram-v2
+        \\    A --> B : go
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.transitions.items.len);
+    try testing.expectEqualStrings("go", model.transitions.items[0].label orelse "");
+}
+
+test "state parse state declaration with description" {
+    const allocator = testing.allocator;
+    const source =
+        \\stateDiagram-v2
+        \\    state "Waiting for input" as Wait
+        \\    Wait --> Done
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const wait = model.findStateMut("Wait") orelse unreachable;
+    try testing.expectEqualStrings("Waiting for input", wait.label);
+}
+
+test "state parse fork and join" {
+    const allocator = testing.allocator;
+    const source =
+        \\stateDiagram-v2
+        \\    state fork_state <<fork>>
+        \\    state join_state <<join>>
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const fork = model.findStateMut("fork_state") orelse unreachable;
+    try testing.expectEqual(sm.StateType.fork, fork.state_type);
+    const join = model.findStateMut("join_state") orelse unreachable;
+    try testing.expectEqual(sm.StateType.join, join.state_type);
+}
+
+test "state parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.states.items.len);
+}
+
+test "state parse nested states" {
+    const allocator = testing.allocator;
+    const source =
+        \\stateDiagram-v2
+        \\    state Outer {
+        \\        A --> B
+        \\    }
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const outer = model.findStateMut("Outer") orelse unreachable;
+    try testing.expectEqual(sm.StateType.composite, outer.state_type);
+}

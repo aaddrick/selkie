@@ -16,6 +16,24 @@ test {
     _ = @import("viewport/scroll.zig");
     _ = @import("render/syntax_highlight.zig");
     _ = @import("utils/slice_utils.zig");
+    // Mermaid subsystem tests
+    _ = @import("mermaid/parse_utils.zig");
+    _ = @import("mermaid/tokenizer.zig");
+    _ = @import("mermaid/detector.zig");
+    _ = @import("mermaid/parsers/flowchart.zig");
+    _ = @import("mermaid/parsers/sequence.zig");
+    _ = @import("mermaid/parsers/pie.zig");
+    _ = @import("mermaid/parsers/gantt.zig");
+    _ = @import("mermaid/parsers/class_diagram.zig");
+    _ = @import("mermaid/parsers/er.zig");
+    _ = @import("mermaid/parsers/state.zig");
+    _ = @import("mermaid/parsers/mindmap.zig");
+    _ = @import("mermaid/parsers/gitgraph.zig");
+    _ = @import("mermaid/parsers/journey.zig");
+    _ = @import("mermaid/parsers/timeline_diagram.zig");
+    _ = @import("mermaid/models/pie_model.zig");
+    _ = @import("mermaid/models/gantt_model.zig");
+    _ = @import("mermaid/models/state_model.zig");
 }
 
 pub fn main() !u8 {

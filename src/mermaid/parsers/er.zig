@@ -217,3 +217,66 @@ fn parseCardinalityStr(s: []const u8) Cardinality {
     if (pu.containsStr(s, "|o") or pu.containsStr(s, "o|")) return .zero_or_one;
     return .exactly_one; // || or other
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "er parse entities and relationship" {
+    const allocator = testing.allocator;
+    const source =
+        \\erDiagram
+        \\    CUSTOMER ||--o{ ORDER : places
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 2), model.entities.items.len);
+    try testing.expectEqual(@as(usize, 1), model.relationships.items.len);
+    try testing.expectEqualStrings("CUSTOMER", model.relationships.items[0].from);
+    try testing.expectEqualStrings("ORDER", model.relationships.items[0].to);
+    try testing.expectEqualStrings("places", model.relationships.items[0].label);
+}
+
+test "er parse entity with attributes" {
+    const allocator = testing.allocator;
+    const source =
+        \\erDiagram
+        \\    CUSTOMER {
+        \\        string name PK
+        \\        int age
+        \\    }
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.entities.items.len);
+    const entity = model.findEntityMut("CUSTOMER") orelse unreachable;
+    try testing.expectEqual(@as(usize, 2), entity.attributes.items.len);
+    try testing.expectEqualStrings("string", entity.attributes.items[0].attr_type);
+    try testing.expectEqualStrings("name", entity.attributes.items[0].name);
+    try testing.expectEqualStrings("PK", entity.attributes.items[0].key_type orelse "");
+}
+
+test "er parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.entities.items.len);
+}
+
+test "er parse multiple relationships" {
+    const allocator = testing.allocator;
+    const source =
+        \\erDiagram
+        \\    CUSTOMER ||--o{ ORDER : places
+        \\    ORDER ||--|{ LINE_ITEM : contains
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 3), model.entities.items.len);
+    try testing.expectEqual(@as(usize, 2), model.relationships.items.len);
+}

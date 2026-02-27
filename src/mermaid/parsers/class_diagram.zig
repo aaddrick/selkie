@@ -221,3 +221,80 @@ fn parseMember(line: []const u8) ClassMember {
         .is_method = is_method,
     };
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "class diagram parse classes and relationship" {
+    const allocator = testing.allocator;
+    const source =
+        \\classDiagram
+        \\    Animal <|-- Dog
+        \\    Animal <|-- Cat
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    // Animal, Dog, Cat
+    try testing.expectEqual(@as(usize, 3), model.classes.items.len);
+    try testing.expectEqual(@as(usize, 2), model.relationships.items.len);
+    try testing.expectEqual(cm.RelationshipType.inheritance, model.relationships.items[0].rel_type);
+}
+
+test "class diagram parse members via colon syntax" {
+    const allocator = testing.allocator;
+    const source =
+        \\classDiagram
+        \\    Animal : +name
+        \\    Animal : +eat()
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const cls = model.findClass("Animal") orelse unreachable;
+    try testing.expectEqual(@as(usize, 2), cls.members.items.len);
+    try testing.expectEqual(cm.Visibility.public, cls.members.items[0].visibility);
+    try testing.expect(!cls.members.items[0].is_method);
+    try testing.expect(cls.members.items[1].is_method);
+}
+
+test "class diagram parse class block" {
+    const allocator = testing.allocator;
+    const source =
+        \\classDiagram
+        \\    class Duck {
+        \\        +swim()
+        \\        -size
+        \\    }
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const cls = model.findClass("Duck") orelse unreachable;
+    try testing.expectEqual(@as(usize, 2), cls.members.items.len);
+    try testing.expectEqual(cm.Visibility.public, cls.members.items[0].visibility);
+    try testing.expectEqual(cm.Visibility.private, cls.members.items[1].visibility);
+}
+
+test "class diagram parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.classes.items.len);
+}
+
+test "class diagram parse relationship with label" {
+    const allocator = testing.allocator;
+    const source =
+        \\classDiagram
+        \\    Animal --> Food : eats
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.relationships.items.len);
+    try testing.expectEqualStrings("eats", model.relationships.items[0].label orelse "");
+}

@@ -60,3 +60,55 @@ pub const PieModel = struct {
         }
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "computePercentages with normal values" {
+    const allocator = testing.allocator;
+    var model = PieModel.init(allocator);
+    defer model.deinit();
+
+    try model.slices.append(.{ .label = "A", .value = 50 });
+    try model.slices.append(.{ .label = "B", .value = 50 });
+    model.computePercentages();
+
+    try testing.expectApproxEqAbs(@as(f64, 50.0), model.slices.items[0].percentage, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 50.0), model.slices.items[1].percentage, 0.01);
+}
+
+test "computePercentages with zero total leaves percentages at zero" {
+    const allocator = testing.allocator;
+    var model = PieModel.init(allocator);
+    defer model.deinit();
+
+    try model.slices.append(.{ .label = "A", .value = 0 });
+    model.computePercentages();
+
+    try testing.expectApproxEqAbs(@as(f64, 0.0), model.slices.items[0].percentage, 0.01);
+}
+
+test "computePercentages with empty slices does not panic" {
+    const allocator = testing.allocator;
+    var model = PieModel.init(allocator);
+    defer model.deinit();
+    model.computePercentages(); // should not panic
+}
+
+test "computePercentages assigns colors from palette" {
+    const allocator = testing.allocator;
+    var model = PieModel.init(allocator);
+    defer model.deinit();
+
+    try model.slices.append(.{ .label = "A", .value = 30 });
+    try model.slices.append(.{ .label = "B", .value = 70 });
+    model.computePercentages();
+
+    // First slice gets blue (76, 114, 176)
+    try testing.expectEqual(@as(u8, 76), model.slices.items[0].color.r);
+    // Second slice gets orange (221, 132, 82)
+    try testing.expectEqual(@as(u8, 221), model.slices.items[1].color.r);
+}

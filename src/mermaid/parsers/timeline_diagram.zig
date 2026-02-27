@@ -98,3 +98,65 @@ pub fn parse(allocator: Allocator, source: []const u8) !TimelineModel {
 
     return model;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "timeline parse sections and periods" {
+    const allocator = testing.allocator;
+    const source =
+        \\timeline
+        \\    title History
+        \\    section Ancient
+        \\    Rome : Founded : Expanded
+        \\    section Modern
+        \\    Internet : Created
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqualStrings("History", model.title);
+    try testing.expectEqual(@as(usize, 2), model.sections.items.len);
+    try testing.expectEqualStrings("Ancient", model.sections.items[0].name);
+    try testing.expectEqual(@as(usize, 1), model.sections.items[0].periods.items.len);
+    try testing.expectEqualStrings("Rome", model.sections.items[0].periods.items[0].label);
+    try testing.expectEqual(@as(usize, 2), model.sections.items[0].periods.items[0].events.items.len);
+}
+
+test "timeline parse period without events" {
+    const allocator = testing.allocator;
+    const source =
+        \\timeline
+        \\    JustAPeriod
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.sections.items.len);
+    try testing.expectEqual(@as(usize, 1), model.sections.items[0].periods.items.len);
+    try testing.expectEqualStrings("JustAPeriod", model.sections.items[0].periods.items[0].label);
+    try testing.expectEqual(@as(usize, 0), model.sections.items[0].periods.items[0].events.items.len);
+}
+
+test "timeline parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.sections.items.len);
+}
+
+test "timeline parse creates default section" {
+    const allocator = testing.allocator;
+    const source =
+        \\timeline
+        \\    Period1 : Event1
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.sections.items.len);
+    try testing.expectEqualStrings("", model.sections.items[0].name);
+}

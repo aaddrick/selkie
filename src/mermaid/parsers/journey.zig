@@ -105,3 +105,83 @@ fn parseTask(allocator: Allocator, line: []const u8) ?JourneyTask {
 
     return task;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "journey parse tasks and scores" {
+    const allocator = testing.allocator;
+    const source =
+        \\journey
+        \\    title My Journey
+        \\    section Getting Started
+        \\    Sign up: 5: Me
+        \\    Log in: 3: Me
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqualStrings("My Journey", model.title);
+    try testing.expectEqual(@as(usize, 1), model.sections.items.len);
+    try testing.expectEqualStrings("Getting Started", model.sections.items[0].name);
+    try testing.expectEqual(@as(usize, 2), model.sections.items[0].tasks.items.len);
+
+    const task1 = model.sections.items[0].tasks.items[0];
+    try testing.expectEqualStrings("Sign up", task1.description);
+    try testing.expectEqual(@as(u8, 5), task1.score);
+    try testing.expectEqual(@as(usize, 1), task1.actors.items.len);
+    try testing.expectEqualStrings("Me", task1.actors.items[0]);
+}
+
+test "journey parse score clamping" {
+    const allocator = testing.allocator;
+    const source =
+        \\journey
+        \\    section Test
+        \\    Task: 3: Actor
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(u8, 3), model.sections.items[0].tasks.items[0].score);
+}
+
+test "journey parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.sections.items.len);
+}
+
+test "journey parse creates default section for orphan tasks" {
+    const allocator = testing.allocator;
+    const source =
+        \\journey
+        \\    Orphan task: 4: Nobody
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.sections.items.len);
+    try testing.expectEqualStrings("Default", model.sections.items[0].name);
+}
+
+test "journey parse multiple actors" {
+    const allocator = testing.allocator;
+    const source =
+        \\journey
+        \\    section S
+        \\    Do thing: 3: Alice, Bob, Charlie
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    const task = model.sections.items[0].tasks.items[0];
+    try testing.expectEqual(@as(usize, 3), task.actors.items.len);
+    try testing.expectEqualStrings("Alice", task.actors.items[0]);
+    try testing.expectEqualStrings("Bob", task.actors.items[1]);
+    try testing.expectEqualStrings("Charlie", task.actors.items[2]);
+}

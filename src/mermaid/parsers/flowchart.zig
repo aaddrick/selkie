@@ -362,3 +362,83 @@ const Parser = struct {
         };
     }
 };
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "flowchart parse basic nodes and edge" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "graph TD\nA --> B");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    try testing.expect(model.graph.nodes.contains("A"));
+    try testing.expect(model.graph.nodes.contains("B"));
+    try testing.expectEqual(@as(usize, 1), model.graph.edges.items.len);
+    try testing.expectEqualStrings("A", model.graph.edges.items[0].from);
+    try testing.expectEqualStrings("B", model.graph.edges.items[0].to);
+}
+
+test "flowchart parse direction LR" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "graph LR\nA --> B");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    try testing.expectEqual(Direction.lr, model.graph.direction);
+}
+
+test "flowchart parse node with label" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "graph TD\nA[Hello]");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    const node = model.graph.nodes.get("A") orelse unreachable;
+    try testing.expectEqualStrings("Hello", node.label);
+    try testing.expectEqual(NodeShape.rectangle, node.shape);
+}
+
+test "flowchart parse round brackets as rounded shape" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "graph TD\nA(Rounded)");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    const node = model.graph.nodes.get("A") orelse unreachable;
+    try testing.expectEqual(NodeShape.rounded, node.shape);
+}
+
+test "flowchart parse empty input" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 0), model.graph.edges.items.len);
+}
+
+test "flowchart parse subgraph" {
+    const allocator = testing.allocator;
+    var tokens = try tokenizer.tokenize(allocator, "graph TD\nsubgraph SG\nA --> B\nend");
+    defer tokens.deinit();
+
+    var model = try parse(allocator, tokens);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.subgraphs.items.len);
+    try testing.expectEqualStrings("SG", model.subgraphs.items[0].id);
+}

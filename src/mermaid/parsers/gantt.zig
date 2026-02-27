@@ -230,3 +230,78 @@ fn isDateLike(s: []const u8) bool {
     }
     return false;
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "gantt parse basic tasks" {
+    const allocator = testing.allocator;
+    const source =
+        \\gantt
+        \\    title Project
+        \\    dateFormat YYYY-MM-DD
+        \\    section Phase 1
+        \\    Task A :2024-01-01, 10d
+        \\    Task B :2024-01-11, 5d
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqualStrings("Project", model.title);
+    try testing.expectEqual(@as(usize, 1), model.sections.items.len);
+    try testing.expectEqual(@as(usize, 2), model.tasks.items.len);
+    try testing.expectEqualStrings("Task A", model.tasks.items[0].name);
+    try testing.expectEqualStrings("Task B", model.tasks.items[1].name);
+}
+
+test "gantt parse task tags" {
+    const allocator = testing.allocator;
+    const source =
+        \\gantt
+        \\    Task :done, crit, 2024-01-01, 5d
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.tasks.items.len);
+    try testing.expect(model.tasks.items[0].hasTag(.done));
+    try testing.expect(model.tasks.items[0].hasTag(.crit));
+}
+
+test "gantt parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.tasks.items.len);
+}
+
+test "gantt parse date handling" {
+    const allocator = testing.allocator;
+    const source =
+        \\gantt
+        \\    Task :2024-06-15, 2024-06-25
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.tasks.items.len);
+    // Verify start_day corresponds to 2024-06-15
+    const expected_start = gm.SimpleDate{ .year = 2024, .month = 6, .day = 15 };
+    try testing.expectEqual(expected_start.toDayNumber(), model.tasks.items[0].start_day);
+}
+
+test "gantt parse excludes weekends" {
+    const allocator = testing.allocator;
+    const source =
+        \\gantt
+        \\    excludes weekends
+        \\    Task :2024-01-01, 5d
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expect(model.excludes_weekends);
+}

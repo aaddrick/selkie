@@ -188,3 +188,96 @@ fn firstWord(s: []const u8) []const u8 {
     const end = std.mem.indexOfAny(u8, trimmed, " \t") orelse trimmed.len;
     return trimmed[0..end];
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "gitgraph parse commits" {
+    const allocator = testing.allocator;
+    const source =
+        \\gitGraph
+        \\    commit
+        \\    commit
+        \\    commit
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 3), model.commits.items.len);
+    try testing.expectEqualStrings("main", model.commits.items[0].branch);
+}
+
+test "gitgraph parse branch and checkout" {
+    const allocator = testing.allocator;
+    const source =
+        \\gitGraph
+        \\    commit
+        \\    branch develop
+        \\    commit
+        \\    checkout main
+        \\    commit
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 3), model.commits.items.len);
+    try testing.expectEqualStrings("main", model.commits.items[0].branch);
+    try testing.expectEqualStrings("develop", model.commits.items[1].branch);
+    try testing.expectEqualStrings("main", model.commits.items[2].branch);
+    try testing.expectEqual(@as(usize, 2), model.branches.items.len);
+}
+
+test "gitgraph parse merge" {
+    const allocator = testing.allocator;
+    const source =
+        \\gitGraph
+        \\    commit
+        \\    branch feature
+        \\    commit
+        \\    checkout main
+        \\    merge feature
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.merges.items.len);
+    try testing.expectEqualStrings("feature", model.merges.items[0].from_branch);
+    try testing.expectEqualStrings("main", model.merges.items[0].to_branch);
+}
+
+test "gitgraph parse commit with attributes" {
+    const allocator = testing.allocator;
+    const source =
+        \\gitGraph
+        \\    commit id: "abc" msg: "Initial" tag: "v1.0"
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(@as(usize, 1), model.commits.items.len);
+    try testing.expectEqualStrings("abc", model.commits.items[0].id);
+    try testing.expectEqualStrings("Initial", model.commits.items[0].message);
+    try testing.expectEqualStrings("v1.0", model.commits.items[0].tag);
+}
+
+test "gitgraph parse empty input" {
+    const allocator = testing.allocator;
+    var model = try parse(allocator, "");
+    defer model.deinit();
+    try testing.expectEqual(@as(usize, 0), model.commits.items.len);
+}
+
+test "gitgraph parse orientation TB" {
+    const allocator = testing.allocator;
+    const source =
+        \\gitGraph TB
+        \\    commit
+    ;
+    var model = try parse(allocator, source);
+    defer model.deinit();
+
+    try testing.expectEqual(gg.Orientation.tb, model.orientation);
+}
