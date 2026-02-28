@@ -9,10 +9,10 @@ const Fonts = @import("../layout/text_measurer.zig").Fonts;
 /// Each visible layout node with a non-zero source_line gets a line number.
 /// Multi-line elements (source_end_line > source_line) show "N+" format.
 /// `left_offset` accounts for sidebar width (gutter is drawn starting there).
-pub fn drawGutter(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, content_top_y: f32, left_offset: f32) void {
+pub fn drawGutter(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, content_top_y: f32, left_offset: f32, viewport_h: f32) void {
     if (tree.gutter_width == 0) return;
 
-    const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+    const screen_h: f32 = viewport_h;
     const view_top = scroll_y;
     const view_bottom = scroll_y + screen_h;
     const font_size = theme.mono_font_size;

@@ -362,7 +362,7 @@ pub const App = struct {
 
     fn exportToPdf(self: *App) void {
         const tab = self.activeTab() orelse return;
-        const tree = &(tab.layout_tree orelse {
+        const document = &(tab.document orelse {
             std.log.warn("No document to export", .{});
             return;
         });
@@ -382,9 +382,10 @@ pub const App = struct {
 
         pdf_exporter.exportPdf(
             self.allocator,
-            tree,
+            document,
             self.theme,
             &fonts_val,
+            &tab.image_renderer,
             output_path,
         ) catch |err| {
             std.log.err("PDF export failed: {}", .{err});
@@ -682,7 +683,9 @@ pub const App = struct {
 
         if (self.activeTab()) |tab| {
             if (tab.layout_tree) |*tree| {
-                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url);
+                const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+                const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, screen_w, screen_h);
 
                 // Search highlights drawn over document content
                 search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);

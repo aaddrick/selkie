@@ -33,8 +33,8 @@ pub fn drawTableBorder(node: *const LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw text runs within a table cell. Link runs matching the hover state use hover color.
-pub fn drawTableCell(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32, hover: ?text_renderer.LinkHoverState) void {
+pub fn drawTableCell(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32, hover: ?text_renderer.LinkHoverState, viewport_h: f32) void {
     for (node.text_runs.items) |*run| {
-        text_renderer.drawTextRun(run, fonts, scroll_y, hover);
+        text_renderer.drawTextRun(run, fonts, scroll_y, hover, viewport_h);
     }
 }

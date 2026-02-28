@@ -20,12 +20,12 @@ fn drawTextSlice(font: rl.Font, text: []const u8, pos: rl.Vector2, font_size: f3
 }
 
 /// Draw a single text run. When `hover` is set, links matching the hovered URL use the hover color.
-pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hover: ?LinkHoverState) void {
+pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hover: ?LinkHoverState, viewport_h: f32) void {
     const draw_y = run.rect.y - scroll_y;
 
     // Skip if off screen
     if (draw_y + run.rect.height < 0) return;
-    if (draw_y > @as(f32, @floatFromInt(rl.getScreenHeight()))) return;
+    if (draw_y > viewport_h) return;
 
     const font = fonts.selectFont(.{
         .bold = run.style.bold,

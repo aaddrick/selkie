@@ -6,7 +6,7 @@ const text_renderer = @import("text_renderer.zig");
 const ImageRenderer = @import("image_renderer.zig").ImageRenderer;
 
 /// Draw a code block: rounded background rectangle, line number gutter, and syntax-highlighted text.
-pub fn drawCodeBlock(node: *const LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawCodeBlock(node: *const LayoutNode, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, viewport_h: f32) void {
     const code = node.data.code_block;
     const bg = code.bg_color orelse theme.code_background;
     const draw_y = node.rect.y - scroll_y;
@@ -38,7 +38,7 @@ pub fn drawCodeBlock(node: *const LayoutNode, theme: *const Theme, fonts: *const
 
     // Code blocks don't contain links; skip hover
     for (node.text_runs.items) |*run| {
-        text_renderer.drawTextRun(run, fonts, scroll_y, null);
+        text_renderer.drawTextRun(run, fonts, scroll_y, null, viewport_h);
     }
 }
 
@@ -68,9 +68,9 @@ pub fn drawBlockQuoteBorder(node: *const LayoutNode, scroll_y: f32) void {
 }
 
 /// Draw text runs for a text block or heading. Link runs matching the hover state use hover color.
-pub fn drawTextBlock(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32, hover: ?text_renderer.LinkHoverState) void {
+pub fn drawTextBlock(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32, hover: ?text_renderer.LinkHoverState, viewport_h: f32) void {
     for (node.text_runs.items) |*run| {
-        text_renderer.drawTextRun(run, fonts, scroll_y, hover);
+        text_renderer.drawTextRun(run, fonts, scroll_y, hover, viewport_h);
     }
 }
 
