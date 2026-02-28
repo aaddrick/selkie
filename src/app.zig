@@ -753,21 +753,14 @@ pub const App = struct {
         tab.setBaseDir(dir) catch |err| {
             std.log.err("Failed to set base dir: {}", .{err});
         };
+        tab.setFilePath(selected) catch |err| {
+            std.log.err("Failed to set file path: {}", .{err});
+        };
         tab.loadMarkdown(content) catch |err| {
             std.log.err("Failed to parse markdown: {}", .{err});
             return;
         };
         tab.scroll.y = 0;
-
-        if (!new_tab) {
-            // Disable file watching for dialog-opened files
-            if (tab.file_watcher) |*watcher| {
-                watcher.deinit();
-                tab.file_watcher = null;
-            }
-            if (tab.file_path) |p| self.allocator.free(p);
-            tab.file_path = null;
-        }
 
         if (self.fonts) |*f| {
             tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {

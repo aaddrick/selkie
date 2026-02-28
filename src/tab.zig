@@ -275,6 +275,22 @@ test "Tab.title returns basename of file path" {
     try testing.expectEqualStrings("readme.md", tab.title());
 }
 
+test "Tab.title returns basename of relative path" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("docs/readme.md");
+    try testing.expectEqualStrings("readme.md", tab.title());
+}
+
+test "Tab.title returns bare filename unchanged" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("readme.md");
+    try testing.expectEqualStrings("readme.md", tab.title());
+}
+
 test "Tab.setFilePath dupes and owns the path" {
     var tab = Tab.init(testing.allocator);
     defer tab.deinit();
