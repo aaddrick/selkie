@@ -1,0 +1,354 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+        description: 'Release tag (e.g. v0.1.0)'
+
+permissions:
+  contents: write
+
+jobs:
+  # --- Build stage ---
+  build-amd64:
+    uses: ./.github/workflows/build.yml
+    with:
+      arch: amd64
+      version: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+  build-arm64:
+    uses: ./.github/workflows/build.yml
+    with:
+      arch: arm64
+      version: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+  # --- Compute version ---
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  # --- Package stage ---
+  package-deb-amd64:
+    needs: [prepare, build-amd64]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-amd64
+          path: staging/
+      - name: Build .deb
+        run: ./packaging/build-deb.sh staging/ "$VERSION" amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-deb-amd64
+          path: '*.deb'
+          if-no-files-found: error
+
+  package-deb-arm64:
+    needs: [prepare, build-arm64]
+    runs-on: ubuntu-22.04-arm
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-arm64
+          path: staging/
+      - name: Build .deb
+        run: ./packaging/build-deb.sh staging/ "$VERSION" arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-deb-arm64
+          path: '*.deb'
+          if-no-files-found: error
+
+  package-rpm-amd64:
+    needs: [prepare, build-amd64]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-amd64
+          path: staging/
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Build .rpm
+        run: ./packaging/build-rpm.sh staging/ "$VERSION" amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-rpm-amd64
+          path: '*.rpm'
+          if-no-files-found: error
+
+  package-rpm-arm64:
+    needs: [prepare, build-arm64]
+    runs-on: ubuntu-22.04-arm
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-arm64
+          path: staging/
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Build .rpm
+        run: ./packaging/build-rpm.sh staging/ "$VERSION" arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-rpm-arm64
+          path: '*.rpm'
+          if-no-files-found: error
+
+  package-appimage-amd64:
+    needs: [prepare, build-amd64]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-amd64
+          path: staging/
+      - name: Install FUSE
+        run: sudo apt-get update && sudo apt-get install -y libfuse2
+      - name: Build AppImage
+        run: ./packaging/build-appimage.sh staging/ "$VERSION" amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-appimage-amd64
+          path: |
+            *.AppImage
+            *.zsync
+          if-no-files-found: error
+
+  package-appimage-arm64:
+    needs: [prepare, build-arm64]
+    runs-on: ubuntu-22.04-arm
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: selkie-staging-arm64
+          path: staging/
+      - name: Install FUSE
+        run: sudo apt-get update && sudo apt-get install -y libfuse2
+      - name: Build AppImage
+        run: ./packaging/build-appimage.sh staging/ "$VERSION" arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selkie-appimage-arm64
+          path: |
+            *.AppImage
+            *.zsync
+          if-no-files-found: error
+
+  # --- Release stage ---
+  release:
+    needs:
+      - prepare
+      - package-deb-amd64
+      - package-deb-arm64
+      - package-rpm-amd64
+      - package-rpm-arm64
+      - package-appimage-amd64
+      - package-appimage-arm64
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: false
+
+      - name: Collect release files
+        run: |
+          mkdir release-files
+          find artifacts/ -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.zsync' \) \
+            -exec cp {} release-files/ \;
+          ls -lh release-files/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" release-files/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Selkie $TAG" \
+            --generate-notes
+
+  # --- Repository update stage ---
+  update-package-repos:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y reprepro createrepo-c rpm
+
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.SELKIE_GPG_PRIVATE_KEY }}
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: false
+
+      # --- APT repository ---
+      - name: Update APT repository
+        working-directory: gh-pages
+        run: |
+          # Remove old versions
+          for pkg in $(reprepro -b . list stable | awk '{print $2}' | sort -u); do
+            reprepro -b . remove stable "$pkg" || true
+          done
+          # Add new .deb files
+          for deb in ../artifacts/selkie-deb-*/*.deb; do
+            reprepro -b . includedeb stable "$deb"
+          done
+
+      # --- DNF repository ---
+      - name: Update DNF repository
+        working-directory: gh-pages
+        env:
+          GPG_KEY_ID: ${{ steps.import_gpg.outputs.keyid }}
+        run: |
+          mkdir -p rpm/x86_64 rpm/aarch64
+          # Copy RPMs
+          for rpm_file in ../artifacts/selkie-rpm-*/*.rpm; do
+            if echo "$rpm_file" | grep -q 'x86_64'; then
+              cp "$rpm_file" rpm/x86_64/
+            elif echo "$rpm_file" | grep -q 'aarch64'; then
+              cp "$rpm_file" rpm/aarch64/
+            fi
+          done
+          # Configure RPM macros for non-interactive signing
+          printf '%s\n' \
+            "%_gpg_name ${GPG_KEY_ID}" \
+            '%__gpg_sign_cmd %{__gpg} gpg --batch --yes --no-armor --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}' \
+            > ~/.rpmmacros
+          # Sign RPMs
+          for rpm_file in rpm/*/*.rpm; do
+            rpmsign --addsign "$rpm_file" || true
+          done
+          # Update repo metadata
+          for dir in rpm/x86_64 rpm/aarch64; do
+            if [ -d "$dir" ] && ls "$dir"/*.rpm >/dev/null 2>&1; then
+              createrepo_c --update "$dir"
+              gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor "$dir/repodata/repomd.xml"
+            fi
+          done
+          # Generate repo file
+          printf '%s\n' \
+            '[selkie]' \
+            'name=Selkie Markdown Viewer' \
+            'baseurl=https://aaddrick.github.io/selkie/rpm/$basearch/' \
+            'enabled=1' \
+            'gpgcheck=1' \
+            'gpgkey=https://aaddrick.github.io/selkie/KEY.gpg' \
+            > rpm/selkie.repo
+
+      - name: Commit and push
+        working-directory: gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Update repositories for ${TAG}"
+          # Retry push up to 3 times (in case of concurrent updates)
+          for i in 1 2 3; do
+            git push && break
+            echo "Push attempt $i failed, pulling and retrying..."
+            git pull --rebase
+          done
+
+  # --- AUR update stage ---
+  update-aur:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Set up SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          printf '%s\n' \
+            'Host aur.archlinux.org' \
+            '  IdentityFile ~/.ssh/aur' \
+            '  User aur' \
+            '  StrictHostKeyChecking accept-new' \
+            >> ~/.ssh/config
+
+      - name: Clone AUR repo
+        run: git clone ssh://aur@aur.archlinux.org/selkie.git aur-selkie
+
+      - name: Download source tarball and update PKGBUILD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${TAG#v}"
+
+          # Download source tarball and compute checksum
+          curl -fsSL -o source.tar.gz \
+            "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
+
+          cd aur-selkie
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${SHA256}')/" PKGBUILD
+
+          # Generate .SRCINFO
+          docker run --rm -v "$PWD:/pkg" -w /pkg archlinux:base \
+            bash -c 'pacman -Sy --noconfirm sudo && useradd -m build && \
+              echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+              su - build -c "cd /pkg && makepkg --printsrcinfo" > .SRCINFO'
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${VERSION}"
+          git push

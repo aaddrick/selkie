@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - 'deps/**'
+      - 'assets/**'
+      - 'data/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    name: test (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            wayland-scanner++ \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxkbcommon-dev \
+            libegl-dev \
+            libgl-dev
+
+      - name: Install Zig
+        run: |
+          ZIG_VERSION="0.14.1"
+          case "${{ matrix.arch }}" in
+            amd64) ZIG_ARCH="x86_64" ;;
+            arm64) ZIG_ARCH="aarch64" ;;
+          esac
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ --strip-components=1 -C /usr/local/bin
+
+      - name: Run tests
+        run: zig build test

@@ -1,0 +1,33 @@
+name: Cleanup Workflow Runs
+
+on:
+  schedule:
+    # Thursday midnight UTC
+    - cron: '0 0 * * 4'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CUTOFF=$(date -d '3 days ago' -u +%Y-%m-%dT%H:%M:%SZ)
+          REPO="${GITHUB_REPOSITORY}"
+
+          # Get all workflow runs, skip release workflows
+          gh api "repos/${REPO}/actions/runs" \
+            --paginate \
+            --jq ".workflow_runs[] |
+              select(.name != \"Release\") |
+              select(.created_at < \"${CUTOFF}\") |
+              .id" \
+          | while read -r run_id; do
+            echo "Deleting run $run_id"
+            gh api -X DELETE "repos/${REPO}/actions/runs/${run_id}" || true
+          done

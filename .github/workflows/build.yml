@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        required: true
+        type: string
+        description: 'Target architecture (amd64 or arm64)'
+      version:
+        required: true
+        type: string
+        description: 'Package version (e.g. 0.1.0)'
+      zig_version:
+        required: false
+        type: string
+        default: '0.14.1'
+        description: 'Zig compiler version'
+
+jobs:
+  build:
+    runs-on: ${{ inputs.arch == 'amd64' && 'ubuntu-latest' || 'ubuntu-22.04-arm' }}
+    name: build (${{ inputs.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            wayland-scanner++ \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxkbcommon-dev \
+            libegl-dev \
+            libgl-dev
+
+      - name: Install Zig
+        run: |
+          case "${{ inputs.arch }}" in
+            amd64) ZIG_ARCH="x86_64" ;;
+            arm64) ZIG_ARCH="aarch64" ;;
+          esac
+          curl -fsSL "https://ziglang.org/download/${{ inputs.zig_version }}/zig-linux-${ZIG_ARCH}-${{ inputs.zig_version }}.tar.xz" \
+            | tar -xJ --strip-components=1 -C /usr/local/bin
+
+      - name: Build release
+        run: zig build -Doptimize=ReleaseSafe --prefix staging/usr
+
+      - name: Upload staging artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: selkie-staging-${{ inputs.arch }}
+          path: staging/
+          retention-days: 1
+          if-no-files-found: error
