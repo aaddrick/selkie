@@ -51,7 +51,7 @@ jobs:
             amd64) ZIG_ARCH="x86_64" ;;
             arm64) ZIG_ARCH="aarch64" ;;
           esac
-          curl -fsSL "https://ziglang.org/download/${{ inputs.zig_version }}/zig-linux-${ZIG_ARCH}-${{ inputs.zig_version }}.tar.xz" \
+          curl -fsSL "https://ziglang.org/download/${{ inputs.zig_version }}/zig-${ZIG_ARCH}-linux-${{ inputs.zig_version }}.tar.xz" \
             | tar -xJ --strip-components=1 -C /usr/local/bin
 
       - name: Build release
