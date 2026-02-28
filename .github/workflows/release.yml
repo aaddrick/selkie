@@ -299,21 +299,83 @@ jobs:
           printf '\n---\n\nFull diffs (may be truncated):\n\n' >> prompt.txt
           cat changes-full.txt >> prompt.txt
 
-          # Call Claude API with file input
-          BODY=$(jq -n --rawfile prompt prompt.txt \
+          # Build API request payload
+          jq -n --rawfile prompt prompt.txt \
             '{
               model: "claude-sonnet-4-6-20250514",
               max_tokens: 2048,
               messages: [{role: "user", content: $prompt}]
-            }' | curl -fsSL \
+            }' > api-request.json
+
+          # Call Claude API with retry logic (rate limits, transient errors)
+          MAX_RETRIES=3
+          RETRY_WAIT=30
+          API_SUCCESS=false
+
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "API attempt $attempt/$MAX_RETRIES..."
+
+            HTTP_CODE=$(curl -sS -w '%{http_code}' -o api-response.json \
+              --max-time 120 \
               -X POST "https://api.anthropic.com/v1/messages" \
               -H "content-type: application/json" \
               -H "x-api-key: ${ANTHROPIC_API_KEY}" \
               -H "anthropic-version: 2023-06-01" \
-              -d @- | jq -r '.content[0].text')
+              -d @api-request.json 2>api-error.txt) || HTTP_CODE="000"
 
-          if [ -z "$BODY" ] || [ "$BODY" = "null" ]; then
-            echo "::warning::AI release notes generation failed, falling back to git log"
+            echo "HTTP status: $HTTP_CODE"
+
+            # Success
+            if [ "$HTTP_CODE" = "200" ]; then
+              # Validate response structure
+              BODY=$(jq -r '.content[0].text // empty' api-response.json 2>/dev/null)
+              if [ -n "$BODY" ]; then
+                API_SUCCESS=true
+                break
+              else
+                echo "::warning::API returned 200 but response structure is unexpected:"
+                cat api-response.json | head -5
+              fi
+            fi
+
+            # Rate limited (429) or server error (5xx) — retry
+            if [ "$HTTP_CODE" = "429" ] || [ "${HTTP_CODE:0:1}" = "5" ]; then
+              # Try to extract retry-after header value
+              WAIT=$RETRY_WAIT
+              RETRY_AFTER=$(grep -oi 'retry-after[": ]*[0-9]*' api-response.json 2>/dev/null | grep -o '[0-9]*' | head -1)
+              if [ -n "$RETRY_AFTER" ] && [ "$RETRY_AFTER" -gt 0 ] 2>/dev/null; then
+                WAIT=$((RETRY_AFTER + 10))
+              fi
+              if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+                echo "Retrying in ${WAIT}s (HTTP $HTTP_CODE)..."
+                sleep "$WAIT"
+                RETRY_WAIT=$((RETRY_WAIT * 2))
+                continue
+              fi
+            fi
+
+            # Client error (4xx, not 429) — don't retry
+            if [ "${HTTP_CODE:0:1}" = "4" ] && [ "$HTTP_CODE" != "429" ]; then
+              echo "::warning::API returned $HTTP_CODE, not retrying:"
+              cat api-response.json | head -10
+              break
+            fi
+
+            # Connection failure — retry
+            if [ "$HTTP_CODE" = "000" ]; then
+              echo "::warning::Connection failed: $(cat api-error.txt)"
+              if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+                echo "Retrying in ${RETRY_WAIT}s..."
+                sleep "$RETRY_WAIT"
+                RETRY_WAIT=$((RETRY_WAIT * 2))
+                continue
+              fi
+            fi
+          done
+
+          # Fallback to commit list if API failed
+          if [ "$API_SUCCESS" != "true" ]; then
+            echo "::warning::AI release notes generation failed after $MAX_RETRIES attempts, falling back to git log"
             BODY=$(git log "$RANGE" --pretty=format:'- %s' --no-merges)
           fi
 

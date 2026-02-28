@@ -41,20 +41,35 @@ cp "$APPDIR/usr/share/applications/${COMPONENT_ID}.desktop" "$APPDIR/${COMPONENT
 # Copy 256px icon to AppDir root (appimagetool requirement)
 cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/selkie.png" "$APPDIR/selkie.png"
 
-# Download appimagetool if not present
+# Download appimagetool if not present (with retry)
 APPIMAGETOOL="./appimagetool"
 if [ ! -x "$APPIMAGETOOL" ]; then
     TOOL_ARCH="$APPIMAGE_ARCH"
-    curl -fsSL -o "$APPIMAGETOOL" \
-        "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${TOOL_ARCH}.AppImage"
+    for i in 1 2 3; do
+        curl -fsSL -o "$APPIMAGETOOL" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${TOOL_ARCH}.AppImage" && break
+        echo "appimagetool download attempt $i failed, retrying in 10s..."
+        sleep 10
+    done
     chmod +x "$APPIMAGETOOL"
+fi
+
+# Pre-download runtime (with retry — GitHub CDN can return 502)
+RUNTIME="./runtime-${APPIMAGE_ARCH}"
+if [ ! -f "$RUNTIME" ]; then
+    for i in 1 2 3; do
+        curl -fsSL -o "$RUNTIME" \
+            "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${APPIMAGE_ARCH}" && break
+        echo "Runtime download attempt $i failed, retrying in 10s..."
+        sleep 10
+    done
 fi
 
 OUTPUT="${PKG_NAME}-${VERSION}-${APPIMAGE_ARCH}.AppImage"
 
 # Build AppImage
 # In CI, embed zsync update info for delta updates
-EXTRA_ARGS=()
+EXTRA_ARGS=(--runtime-file "$RUNTIME")
 if [ "${CI:-}" = "true" ]; then
     EXTRA_ARGS+=(-u "gh-releases-zsync|aaddrick|selkie|latest|selkie-*-${APPIMAGE_ARCH}.AppImage.zsync")
 fi
