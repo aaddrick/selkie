@@ -56,6 +56,8 @@ test {
     _ = @import("mermaid/parsers/gitgraph.zig");
     _ = @import("mermaid/parsers/journey.zig");
     _ = @import("mermaid/parsers/timeline_diagram.zig");
+    // Editor subsystem tests
+    _ = @import("editor/editor_state.zig");
 }
 
 pub fn main() !u8 {
