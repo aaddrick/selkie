@@ -58,6 +58,8 @@ test {
     _ = @import("mermaid/parsers/timeline_diagram.zig");
     // Editor subsystem tests
     _ = @import("editor/editor_state.zig");
+    // Modal dialog tests
+    _ = @import("modal_dialog.zig");
 }
 
 pub fn main() !u8 {
@@ -176,7 +178,10 @@ pub fn main() !u8 {
         }
     }
 
-    while (!rl.windowShouldClose()) {
+    while (!app.should_quit) {
+        if (rl.windowShouldClose()) {
+            app.requestClose();
+        }
         app.update();
         app.draw();
     }

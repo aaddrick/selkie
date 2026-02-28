@@ -227,6 +227,17 @@ pub const FileWatcher = struct {
         };
     }
 
+    /// Refresh last_mtime from disk and clear pending_change. Used after saving
+    /// a file to sync the watcher with the newly written mtime, avoiding a
+    /// spurious "file changed" notification without tearing down inotify.
+    pub fn updateMtime(self: *FileWatcher) void {
+        self.last_mtime = switch (getFileMtime(self.file_path)) {
+            .mtime => |m| m,
+            else => self.last_mtime,
+        };
+        self.pending_change = false;
+    }
+
     /// Best-effort mtime for initialization; returns 0 if file is inaccessible.
     fn initialMtime(path: []const u8) i128 {
         return switch (getFileMtime(path)) {
@@ -471,4 +482,50 @@ test "debounce suppresses rapid changes" {
     try testing.expectEqual(.no_change, result);
     // pending_change should still be true (not consumed)
     try testing.expect(watcher.pending_change);
+}
+
+test "updateMtime refreshes mtime and clears pending_change" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try createTempFile(testing.allocator, &tmp_dir, "initial");
+    defer testing.allocator.free(path);
+
+    var watcher = FileWatcher.initPolling(
+        path,
+        std.fs.path.dirname(path) orelse ".",
+        std.fs.path.basename(path),
+    );
+    defer watcher.deinit();
+
+    // Simulate a pending change
+    watcher.pending_change = true;
+    watcher.last_mtime = 0;
+
+    watcher.updateMtime();
+
+    // pending_change should be cleared
+    try testing.expect(!watcher.pending_change);
+    // mtime should be updated to a real value (not 0)
+    try testing.expect(watcher.last_mtime > 0);
+}
+
+test "updateMtime preserves mtime when file is missing" {
+    var watcher = FileWatcher{
+        .file_path = "/tmp/__selkie_nonexistent_updateMtime_test__",
+        .dir_path = "/tmp",
+        .file_name = "__selkie_nonexistent_updateMtime_test__",
+        .mode = .polling,
+        .last_mtime = 42,
+        .last_poll_ms = 0,
+        .last_event_ms = 0,
+        .pending_change = true,
+    };
+
+    watcher.updateMtime();
+
+    // mtime should be preserved (file doesn't exist)
+    try testing.expectEqual(@as(i128, 42), watcher.last_mtime);
+    // pending_change should still be cleared
+    try testing.expect(!watcher.pending_change);
 }
