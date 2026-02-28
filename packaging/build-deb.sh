@@ -21,6 +21,9 @@ mkdir -p "$PKG_DIR/DEBIAN"
 # Copy staged FHS tree
 cp -a "$STAGING_DIR/usr" "$PKG_DIR/usr"
 
+# Ensure binary is executable (artifact download may strip permissions)
+chmod 0755 "$PKG_DIR/usr/bin/selkie"
+
 # Calculate installed size in KB
 INSTALLED_SIZE=$(du -sk "$PKG_DIR/usr" | cut -f1)
 

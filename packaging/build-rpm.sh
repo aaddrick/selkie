@@ -68,8 +68,8 @@ mkdir -p %{buildroot}/usr
 cp -a ${RPMBUILD_DIR}/SOURCES/usr/* %{buildroot}/usr/
 
 %files
-%defattr(-,root,root,-)
-/usr/bin/selkie
+%defattr(0644,root,root,0755)
+%attr(0755,root,root) /usr/bin/selkie
 /usr/share/selkie/
 /usr/share/applications/io.github.aaddrick.selkie.desktop
 /usr/share/metainfo/io.github.aaddrick.selkie.metainfo.xml

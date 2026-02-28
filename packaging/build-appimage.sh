@@ -28,6 +28,9 @@ mkdir -p "$APPDIR/usr"
 # Copy staged FHS tree
 cp -a "$STAGING_DIR/usr/"* "$APPDIR/usr/"
 
+# Ensure binary is executable (artifact download may strip permissions)
+chmod 0755 "$APPDIR/usr/bin/selkie"
+
 # Create AppRun
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
