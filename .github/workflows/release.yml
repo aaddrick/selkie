@@ -345,6 +345,7 @@ jobs:
           docker run --rm -v "$PWD:/pkg" -w /pkg archlinux:base \
             bash -c 'pacman -Sy --noconfirm sudo && useradd -m build && \
               echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+              chown -R build:build /pkg && \
               su - build -c "cd /pkg && makepkg --printsrcinfo" > .SRCINFO'
 
           git config user.name "github-actions[bot]"
