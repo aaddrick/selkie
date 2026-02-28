@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const xdg = @import("xdg.zig");
+
 pub const AssetPathError = error{
     AssetNotFound,
     OutOfMemory,
@@ -8,7 +10,8 @@ pub const AssetPathError = error{
 
 /// Resolve an asset path by searching a fallback chain:
 /// 1. Exe-relative: <exe_dir>/../share/selkie/<relative_path>  (FHS install)
-/// 2. CWD-relative: assets/<relative_path>                      (development)
+/// 2. XDG data home: $XDG_DATA_HOME/selkie/<relative_path>     (user overrides)
+/// 3. CWD-relative: assets/<relative_path>                      (development)
 ///
 /// Returns a null-terminated path string owned by the caller.
 /// The caller must free the returned slice with the same allocator.
@@ -18,7 +21,12 @@ pub fn resolveAssetPath(allocator: Allocator, relative_path: []const u8) AssetPa
         return path;
     }
 
-    // 2. Try CWD-relative: assets/<relative_path>
+    // 2. Try XDG data home: $XDG_DATA_HOME/selkie/<relative_path>
+    if (tryXdgDataHome(allocator, relative_path)) |path| {
+        return path;
+    }
+
+    // 3. Try CWD-relative: assets/<relative_path>
     if (tryCwdRelative(allocator, relative_path)) |path| {
         return path;
     }
@@ -32,6 +40,20 @@ fn tryExeRelative(allocator: Allocator, relative_path: []const u8) ?[:0]const u8
 
     // Build: <exe_dir>/../share/selkie/<relative_path>
     const full_path = std.fs.path.resolve(allocator, &.{ exe_dir_path, "../share/selkie", relative_path }) catch return null;
+    defer allocator.free(full_path);
+
+    // Check if the file exists
+    std.fs.cwd().access(full_path, .{}) catch return null;
+
+    // Return as null-terminated
+    return allocator.dupeZ(u8, full_path) catch return null;
+}
+
+fn tryXdgDataHome(allocator: Allocator, relative_path: []const u8) ?[:0]const u8 {
+    const data_home = xdg.getDataHome(allocator) catch return null;
+    defer allocator.free(data_home);
+
+    const full_path = std.fs.path.join(allocator, &.{ data_home, relative_path }) catch return null;
     defer allocator.free(full_path);
 
     // Check if the file exists

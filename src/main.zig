@@ -6,6 +6,8 @@ const App = @import("app.zig").App;
 const Theme = @import("theme/theme.zig").Theme;
 const theme_loader = @import("theme/theme_loader.zig");
 const stdin_reader = @import("stdin_reader.zig");
+const xdg = @import("xdg.zig");
+const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
 
 // Test imports: ensure the test runner discovers tests in all subsystems.
 // These are only referenced at comptime during `zig build test`.
@@ -25,6 +27,8 @@ test {
     _ = @import("file_dialog.zig");
     _ = @import("app.zig");
     _ = @import("asset_paths.zig");
+    _ = @import("xdg.zig");
+    _ = @import("scroll_positions.zig");
     _ = @import("stdin_reader.zig");
     _ = @import("tab.zig");
     _ = @import("tab_bar.zig");
@@ -167,6 +171,45 @@ pub fn main() !u8 {
 
     var app = App.init(allocator);
     defer app.deinit();
+
+    // Load saved scroll positions from XDG data directory (heap-allocated for stable pointer)
+    const scroll_store: ?*ScrollPositionStore = blk: {
+        const data_home = xdg.getDataHome(allocator) catch |err| {
+            std.log.warn("Could not resolve XDG data home: {}", .{err});
+            break :blk null;
+        };
+        defer allocator.free(data_home);
+
+        xdg.ensureDir(data_home) catch |err| {
+            std.log.warn("Could not create data directory '{s}': {}", .{ data_home, err });
+            break :blk null;
+        };
+
+        const positions_path = std.fs.path.join(allocator, &.{ data_home, "positions.json" }) catch {
+            std.log.warn("Could not allocate path for scroll positions", .{});
+            break :blk null;
+        };
+        defer allocator.free(positions_path);
+
+        const store = allocator.create(ScrollPositionStore) catch {
+            std.log.warn("Could not allocate scroll position store", .{});
+            break :blk null;
+        };
+        store.* = ScrollPositionStore.load(allocator, positions_path) catch |err| {
+            std.log.warn("Could not load scroll positions: {}", .{err});
+            allocator.destroy(store);
+            break :blk null;
+        };
+        break :blk store;
+    };
+    defer if (scroll_store) |s| {
+        s.deinit();
+        allocator.destroy(s);
+    };
+
+    if (scroll_store) |s| {
+        app.setScrollPositions(s);
+    }
 
     app.setTheme(custom_theme, use_dark);
 

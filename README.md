@@ -15,7 +15,8 @@ A Zig-based markdown viewer with GFM support, native Mermaid chart rendering, an
 ## Building
 
 ```bash
-zig build
+zig build                                # Debug build
+zig build -Doptimize=ReleaseSafe         # Optimized + stripped binary
 ```
 
 ## Usage

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.aaddrick.selkie</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Selkie</name>
+  <summary>A markdown viewer with GFM support and Mermaid chart rendering</summary>
+  <description>
+    <p>
+      Selkie is a Zig-based GUI markdown viewer that supports GitHub Flavored
+      Markdown (tables, task lists, strikethrough, autolinks), natively renders
+      Mermaid diagram syntax, and offers customizable theming. It uses raylib for
+      hardware-accelerated rendering and cmark-gfm for standards-compliant
+      markdown parsing.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.aaddrick.selkie.desktop</launchable>
+  <url type="homepage">https://github.com/aaddrick/selkie</url>
+  <url type="bugtracker">https://github.com/aaddrick/selkie/issues</url>
+  <provides>
+    <mediatype>text/markdown</mediatype>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-02-28"/>
+  </releases>
+</component>

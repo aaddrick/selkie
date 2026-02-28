@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    // Keep in sync with build.zig.zon and data/selkie.1
+    // Keep in sync with build.zig.zon, data/selkie.1, and metainfo.xml
     const version = "0.1.0";
 
     const target = b.standardTargetOptions(.{});
@@ -88,6 +88,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Strip debug symbols in release builds
+    exe.root_module.strip = if (optimize != .Debug) true else null;
+
     // Link dependencies
     exe.linkLibrary(raylib_artifact);
     exe.linkLibrary(cmark_lib);
@@ -113,8 +116,9 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "",
     });
 
-    // --- Install data files (desktop entry, man page, icons) ---
-    b.installFile("data/selkie.desktop", "share/applications/selkie.desktop");
+    // --- Install data files (desktop entry, metainfo, man page, icons) ---
+    b.installFile("data/io.github.aaddrick.selkie.desktop", "share/applications/io.github.aaddrick.selkie.desktop");
+    b.installFile("data/io.github.aaddrick.selkie.metainfo.xml", "share/metainfo/io.github.aaddrick.selkie.metainfo.xml");
     b.installFile("data/selkie.1", "share/man/man1/selkie.1");
 
     // Freedesktop hicolor icon theme — scalable SVG

@@ -28,6 +28,7 @@ const command_renderer = @import("render/command_renderer.zig");
 const CommandState = @import("command/command_state.zig").CommandState;
 const EditorState = @import("editor/editor_state.zig").EditorState;
 const ModalDialog = @import("modal_dialog.zig").ModalDialog;
+const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
@@ -58,6 +59,9 @@ pub const App = struct {
 
     // Source line numbers gutter
     show_line_numbers: bool = false,
+
+    // Scroll position persistence
+    scroll_store: ?*ScrollPositionStore = null,
 
     // Modal dialog state
     active_dialog: ?ModalDialog = null,
@@ -102,6 +106,12 @@ pub const App = struct {
             self.base_theme = &defaults.light;
         }
         self.rebuildActiveTheme();
+    }
+
+    /// Set the scroll position store for persisting scroll positions across sessions.
+    /// The store is owned externally (by main.zig); App does not free it.
+    pub fn setScrollPositions(self: *App, store: *ScrollPositionStore) void {
+        self.scroll_store = store;
     }
 
     const font_files = .{
@@ -198,6 +208,15 @@ pub const App = struct {
             };
         }
 
+        // Restore saved scroll position if available
+        if (self.scroll_store) |store| {
+            if (tab.file_path) |fp| {
+                if (store.getPosition(fp)) |saved_y| {
+                    tab.scroll.y = saved_y;
+                }
+            }
+        }
+
         self.updateWindowTitle();
         self.rebuildToc();
     }
@@ -205,6 +224,9 @@ pub const App = struct {
     pub fn closeTab(self: *App, index: usize) void {
         if (self.tabs.items.len <= 1) return; // Don't close last tab
         if (index >= self.tabs.items.len) return;
+
+        // Save scroll position before closing
+        self.saveTabScrollPosition(index);
 
         var tab = self.tabs.orderedRemove(index);
         tab.deinit();
@@ -1462,11 +1484,33 @@ pub const App = struct {
     // =========================================================================
 
     pub fn deinit(self: *App) void {
+        // Persist scroll positions for all open tabs before shutdown
+        if (self.scroll_store) |store| {
+            for (0..self.tabs.items.len) |i| {
+                self.saveTabScrollPosition(i);
+            }
+            store.save() catch |err| {
+                std.log.err("Failed to save scroll positions: {}", .{err});
+            };
+        }
+
         for (self.tabs.items) |*tab| {
             tab.deinit();
         }
         self.tabs.deinit();
         self.toc_sidebar.deinit();
+    }
+
+    /// Save the scroll position for a tab at the given index.
+    fn saveTabScrollPosition(self: *App, index: usize) void {
+        const store = self.scroll_store orelse return;
+        if (index >= self.tabs.items.len) return;
+        const tab = &self.tabs.items[index];
+        if (tab.file_path) |fp| {
+            store.setPosition(fp, tab.scroll.y) catch |err| {
+                std.log.err("Failed to store scroll position for '{s}': {}", .{ fp, err });
+            };
+        }
     }
 };
 
