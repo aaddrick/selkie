@@ -4,44 +4,44 @@ Hash: SHA512
 Origin: Selkie
 Label: Selkie
 Codename: stable
-Date: Sat, 28 Feb 2026 19:10:08 UTC
+Date: Sat, 28 Feb 2026 19:55:54 UTC
 Architectures: amd64 arm64
 Components: main
 Description: Selkie Markdown Viewer
 MD5Sum:
- 6e77a4889fa8e13dc1e4ab0e0d9ee0a5 816 main/binary-amd64/Packages
- 8b8b68ea6b5e27bfe07438e2183de0b6 525 main/binary-amd64/Packages.gz
+ 37521726923f869cffdbb7d5fe2ffe0b 816 main/binary-amd64/Packages
+ 22d510add476f5694cc5673f3cd6c83b 522 main/binary-amd64/Packages.gz
  cbf821706234b6cde351b0fcee19c7eb 101 main/binary-amd64/Release
- e5b5e24ddaad013147543677eb80ade9 816 main/binary-arm64/Packages
- 52ef743b93c2fdbf70b90ff01c36d3fc 524 main/binary-arm64/Packages.gz
+ f31c136cbe11a2592b2ebcda477074ca 816 main/binary-arm64/Packages
+ aa0496125b5cdc963f63b9d4d43eb19b 521 main/binary-arm64/Packages.gz
  54a16c1cc35a2e6897cca73485cc7670 101 main/binary-arm64/Release
 SHA1:
- 4951545f6a64a7c25432152ca82e9b2454024677 816 main/binary-amd64/Packages
- 83456a245e3f228a724eb5280b120816e826305a 525 main/binary-amd64/Packages.gz
+ 58d7729721a9077abeed161acab986121eecc216 816 main/binary-amd64/Packages
+ a86a8f50c5f0b1fb61da4c2d1693d77edf02ca5a 522 main/binary-amd64/Packages.gz
  9f2ba077410d4d204f4885c4299429a9b9c77f55 101 main/binary-amd64/Release
- 7040e2fc4377ecca7a5d5201b56a5d74d875e40c 816 main/binary-arm64/Packages
- acbbe450f3acd76f12c19d3b2dbccf8d3a780bfe 524 main/binary-arm64/Packages.gz
+ a1845d1253941e25ddca4c7f5359b567d2544fe8 816 main/binary-arm64/Packages
+ e808544816f1d147928e22a593a9dc47c536c8ef 521 main/binary-arm64/Packages.gz
  7ae4b1f83338c179780bc8436f77442e46b576b2 101 main/binary-arm64/Release
 SHA256:
- 16e1807c2ab15c400f6c8af2956b9862043be70e5a700710f71279164901192e 816 main/binary-amd64/Packages
- dd272af4865c7973b34b813662418a2ef5239883dd24eb1ceb535b23d458e4da 525 main/binary-amd64/Packages.gz
+ 757d4ddf9ddbbb72185b38ad12b1e30ffdd26144483990454b5d5315d2fdc729 816 main/binary-amd64/Packages
+ 25b6e519a5b72174da191b6a3d34643339ce504832d8fc4439a9b7bb56897818 522 main/binary-amd64/Packages.gz
  e0bb9432e1991cddae5ccb1e916ad603a5fb768f17fecd184dfa902b5a54ecb6 101 main/binary-amd64/Release
- 8539e6355460c4557bc8b842a435ee413c5ca68d6cefed10692cbeb8b46d32d1 816 main/binary-arm64/Packages
- b2c043cdd3aaa35fab64f759b8a14c2a9976c0089582fba691f14562916cb384 524 main/binary-arm64/Packages.gz
+ 3716fc8bb493fefc33e1d5e1e9ddc0e9cfd6596905b6b0e93e26c23e01b57bb8 816 main/binary-arm64/Packages
+ 372dff606b7c556ece65c397eb0a56b331c92a1456162765eb496ac541f63216 521 main/binary-arm64/Packages.gz
  86b396ebf4919bb6137ec0e67ca358ca2425607f59ea112768e174502c7a1320 101 main/binary-arm64/Release
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjPZAACgkQfNLLggsY
-QuLqRBAAhMykIR0bgDygN+L+YaeDZ/D7NDiT98ME0hVGmzHKMQKdlMX4YxuKpPBG
-TYmqU4Rt66ECbZXxlEROCLAm5EmrsE+Iho7tDogP7WADxominRo0LuHLdsWLAhNt
-ZZwEBjTjBhybqeTyRW37L0Da8KFj7PlPPRuRCkWaVsWXK+uf+PpkRnOPaXP2YfIa
-2/VKSwaJznORme3UWzuBU6W8IyZPH12m86BM6cdRMu6yAtLyBPa48o+4gWqTKDHG
-O3/hkHc4rXhm8AMdYU5kWw6GtJYQRfU0eByIb8aO67tep4oFbEEUoSCbaeHymByf
-BABN1JB76Ben6YylQ2PkeT6sCFVLYYwJ3JGI9a4AoiLHgOtgjlybCT6HPuWTv25k
-nU1Y9P/1daQsU87KNkLTvj4d0GEndYjLBVTQuB+5X411J3HMeOZ7EwxxJACaQnWj
-qqxedUFBUSYruUwZiMwmniqzxTxyD0heLu/0VxUA1lJMJ2bFNzPrFkgYXLYokuVQ
-Y0sZ5YhzJIyoxLdvsyqHo3upQrf7B8iXISYOnBPzemQqf0mA2FKAuxu4oLXx305u
-Ko47Zg/JuQzNyJ66M6yoR/kPbQzKujJQZ/8dIO1phqfZIfPATrT6xUa67ME30g0w
-bM+PMokQJ6gn0XKpOH+80/w1iPafxkxFLfMILFIeISZB1reGMxY=
-=MH8m
+iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjSEoACgkQfNLLggsY
+QuIRmQ/9F7obIRClHmdLkkIrIKJwDiD7LLNivhY7YJ0JAcbfh4qxP8NAav9PBhtT
+OfAgqVxE01gpwuzS2TsV6qKhuMgdJjfJw1iDZwnd/oDeoCyWy60U6Y3uCOWSW/jO
+Rq/vZGVtTPWS4SoJ34pYtlPtuBAzMXBsTQWs4AR/sc+E6bm4wjrLFXB4++Fw4fMo
+sHg7kBlqeuMvlOfz8YcWQdgZ57DoByzHtfJGp8OYodGCH42a0XSogkUrfm9B/lwx
+L2dCIigwup07o8ZRBS0P8yr6X6ByBOEi1BKpEXgqRzI00Hi8uXa5tLijinhuCpcA
+tAF1/pAMeY+xH90VYjnWi0miIUXFd1HkZXDTp9C2Z0FqOET7I5XNbUeYK0SSL33U
+n8FSjFW3/jjde8jlCWHvD33lwPJn959PCKZAT/mgKJQQuHyLs9DhFQZy01A2VBom
+dmPgbcXC7eU2KbZMDbgfz2R1FbSbFaPukwiqIPk+R2uPBRInFd0TymtRzLo+0uq+
+yAOH7yGRxwGWXYG6doaN9Obn4E49PPeOvHi9d4s0KU8rurisdggizGOqeM+wvQmE
+kfDE76YjBh6RaOS0lmZiiXNcJsRycqDDM76Oh3utdw6eSTKx2LOImrvyug0VeSel
+VhT5ztdhYKuKXa3wmBST9sdSKswo1qOBI6efBqlroUjvsZpRlBw=
+=LucC
 -----END PGP SIGNATURE-----
