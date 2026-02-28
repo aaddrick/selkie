@@ -322,6 +322,70 @@ pub const App = struct {
         };
     }
 
+    const editor_page_size = 20;
+
+    /// Handle all editor input: character insertion, cursor movement, special keys.
+    /// Must only be called when `isEditorActive()` returns true.
+    /// Ctrl+key shortcuts (save, undo, copy, etc.) are intentionally not handled
+    /// here yet — they will be added as those features are implemented.
+    fn updateEditor(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        var editor = &(tab.editor orelse return);
+
+        // Helper to check for key press or held-key repeat.
+        const pressedOrRepeat = struct {
+            fn check(key: rl.KeyboardKey) bool {
+                return rl.isKeyPressed(key) or rl.isKeyPressedRepeat(key);
+            }
+        }.check;
+
+        // Special keys (checked before char input so backspace doesn't produce a char)
+        if (pressedOrRepeat(.backspace)) {
+            editor.deleteCharBefore() catch |err| {
+                std.log.err("Editor backspace failed: {}", .{err});
+            };
+        } else if (pressedOrRepeat(.delete)) {
+            editor.deleteCharAt() catch |err| {
+                std.log.err("Editor delete failed: {}", .{err});
+            };
+        } else if (pressedOrRepeat(.enter) or pressedOrRepeat(.kp_enter)) {
+            editor.insertNewline() catch |err| {
+                std.log.err("Editor newline failed: {}", .{err});
+            };
+        } else if (pressedOrRepeat(.tab)) {
+            editor.insertTab() catch |err| {
+                std.log.err("Editor tab failed: {}", .{err});
+            };
+        } else if (pressedOrRepeat(.left)) {
+            editor.moveCursorLeft();
+        } else if (pressedOrRepeat(.right)) {
+            editor.moveCursorRight();
+        } else if (pressedOrRepeat(.up)) {
+            editor.moveCursorUp();
+        } else if (pressedOrRepeat(.down)) {
+            editor.moveCursorDown();
+        } else if (pressedOrRepeat(.home)) {
+            editor.moveCursorHome();
+        } else if (pressedOrRepeat(.end)) {
+            editor.moveCursorEnd();
+        } else if (pressedOrRepeat(.page_up)) {
+            editor.moveCursorPageUp(editor_page_size);
+        } else if (pressedOrRepeat(.page_down)) {
+            editor.moveCursorPageDown(editor_page_size);
+        }
+
+        // Character input — drain the queue (Unicode codepoints)
+        var char = rl.getCharPressed();
+        while (char > 0) {
+            if (char >= 32) {
+                editor.insertChar(@intCast(char)) catch |err| {
+                    std.log.err("Editor insert failed: {}", .{err});
+                };
+            }
+            char = rl.getCharPressed();
+        }
+    }
+
     // =========================================================================
     // File dialogs
     // =========================================================================
@@ -510,7 +574,7 @@ pub const App = struct {
             } else if (editor_active) {
                 // Editor is active — suppress all other keyboard input
                 // (including Ctrl+F search). Only Ctrl+E above can exit.
-                // TODO(#58): call updateEditor() here to handle text input.
+                self.updateEditor();
             } else if (ctrl_held and rl.isKeyPressed(.f)) {
                 // Ctrl+F opens search
                 tab.search.open();
