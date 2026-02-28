@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const build_options = @import("build_options");
 
 const App = @import("app.zig").App;
 const Theme = @import("theme/theme.zig").Theme;
@@ -82,13 +83,22 @@ pub fn main() !u8 {
     defer file_paths.deinit();
 
     var theme_path: ?[]const u8 = null;
-    var use_dark: bool = false;
-    var explicit_stdin: bool = false;
+    var use_dark = false;
+    var explicit_stdin = false;
+
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "--theme")) {
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            stdout.writeAll(usage_text) catch {}; // broken pipe is fine
+            return 0;
+        } else if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-V")) {
+            stdout.print("selkie {s}\n", .{build_options.version}) catch {}; // broken pipe is fine
+            return 0;
+        } else if (std.mem.eql(u8, arg, "--theme")) {
             i += 1;
             if (i < args.len) {
                 theme_path = args[i];
@@ -100,7 +110,11 @@ pub fn main() !u8 {
             use_dark = true;
         } else if (std.mem.eql(u8, arg, "-")) {
             explicit_stdin = true;
-        } else if (arg.len > 0 and arg[0] != '-') {
+        } else if (std.mem.startsWith(u8, arg, "-")) {
+            stderr.print("selkie: unknown option '{s}'\n", .{arg}) catch return 1;
+            stderr.writeAll("Try 'selkie --help' for more information.\n") catch return 1;
+            return 1;
+        } else {
             try file_paths.append(arg);
         }
     }
@@ -190,3 +204,20 @@ pub fn main() !u8 {
 
     return 0;
 }
+
+const usage_text =
+    \\Usage: selkie [OPTIONS] [FILE...]
+    \\
+    \\A markdown viewer with GFM support and Mermaid chart rendering.
+    \\
+    \\Arguments:
+    \\  FILE...           Markdown files to open (opens in tabs)
+    \\  -                 Read markdown from stdin
+    \\
+    \\Options:
+    \\  --theme PATH      Load a custom theme JSON file
+    \\  --dark            Use the built-in dark theme
+    \\  -h, --help        Show this help message and exit
+    \\  -V, --version     Show version and exit
+    \\
+;

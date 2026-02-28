@@ -1,0 +1,142 @@
+.TH SELKIE 1 "2026-02-28" "selkie 0.1.0" "User Commands"
+.SH NAME
+selkie \- a markdown viewer with GFM support and Mermaid chart rendering
+.SH SYNOPSIS
+.B selkie
+[\fIOPTIONS\fR] [\fIFILE\fR...]
+.SH DESCRIPTION
+.B selkie
+is a graphical markdown viewer built with Zig and raylib. It supports
+GitHub Flavored Markdown (GFM) via cmark-gfm including tables, task lists,
+strikethrough, autolinks, and footnotes. It natively renders Mermaid
+diagram types including flowcharts, sequence diagrams, class diagrams,
+state diagrams, ER diagrams, Gantt charts, pie charts, mindmaps, gitgraph,
+journey maps, and timelines.
+.PP
+Multiple files can be opened simultaneously in tabs. Markdown can also be
+read from standard input by piping content to selkie or using the
+.B \-
+argument.
+.SH OPTIONS
+.TP
+.BI \-\-theme " PATH"
+Load a custom theme from a JSON file.
+.TP
+.B \-\-dark
+Use the built-in dark theme.
+.TP
+.BR \-h ", " \-\-help
+Show a brief help message and exit.
+.TP
+.BR \-V ", " \-\-version
+Show the version number and exit.
+.TP
+.B \-
+Read markdown from standard input.
+.SH KEYBINDINGS
+.SS Navigation
+.TP
+.BR j / k
+Scroll down/up by line.
+.TP
+.BR d / u
+Scroll down/up by half a page.
+.TP
+.B G
+Jump to the bottom of the document.
+.TP
+.B gg
+Jump to the top of the document.
+.TP
+.BR PageUp / PageDown
+Scroll by a full page.
+.TP
+.BR Home / End
+Jump to the top/bottom of the document.
+.TP
+.I numeric prefixes
+Type a number before a navigation key to repeat it (e.g., 10j scrolls down
+10 lines).
+.SS Tabs
+.TP
+.B Ctrl+O
+Open a file in the current tab (requires zenity).
+.TP
+.B Ctrl+T
+Open a file in a new tab (requires zenity).
+.TP
+.B Ctrl+W
+Close the current tab.
+.TP
+.BR Ctrl+Tab / Ctrl+Shift+Tab
+Cycle to the next/previous tab.
+.TP
+.B Ctrl+1\fR through \fBCtrl+9
+Switch directly to tab 1\-9.
+.SS View
+.TP
+.BR Ctrl+= / Ctrl+\- / Ctrl+0
+Zoom in, zoom out, or reset zoom level.
+.TP
+.B Ctrl+L
+Toggle source line numbers in the gutter.
+.TP
+.B T
+Toggle between light and dark themes.
+.TP
+.B Ctrl+Shift+T
+Toggle the table of contents sidebar.
+.SS Search
+.TP
+.BR / " or " Ctrl+F
+Open the search bar.
+.TP
+.BR Enter / Shift+Enter
+Jump to the next/previous search match.
+.TP
+.B Escape
+Close the search bar.
+.SS Command Mode
+.TP
+.B :
+Enter command mode (vim-style).
+.TP
+.B Enter
+Execute the command.
+.TP
+.B Escape
+Close the command bar.
+.SS Editing
+.TP
+.B Ctrl+E
+Toggle edit mode.
+.TP
+.B Ctrl+S
+Save the current file.
+.SS Export
+.TP
+.B Ctrl+P
+Export the document to PDF.
+.SH FILES
+.TP
+.I ~/.local/share/selkie/themes/
+User theme files.
+.SH ENVIRONMENT
+.TP
+.B PATH
+Used to locate the
+.BR zenity (1)
+binary for file dialogs.
+.SH DEPENDENCIES
+.B zenity
+is an optional runtime dependency used for native file open dialogs
+(Ctrl+O, Ctrl+T). If zenity is not installed, a notification is shown
+and the file dialog is skipped. Install it with your package manager
+(e.g.,
+.B sudo dnf install zenity
+or
+.BR "sudo apt install zenity" ).
+.SH BUGS
+Report bugs at <https://github.com/aaddrick/selkie/issues>.
+.SH AUTHORS
+Selkie contributors.

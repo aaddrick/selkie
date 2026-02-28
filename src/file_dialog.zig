@@ -73,9 +73,30 @@ pub fn openFileDialog(allocator: Allocator) (DialogError || Allocator.Error)!?[]
     return try allocator.dupe(u8, trimmed);
 }
 
+/// Check whether the `zenity` binary is available on PATH.
+/// Returns true if zenity can be found and accessed, false otherwise.
+pub fn isZenityAvailable() bool {
+    const path_env = std.posix.getenv("PATH") orelse return false;
+    var it = std.mem.splitScalar(u8, path_env, ':');
+    while (it.next()) |dir| {
+        if (dir.len == 0) continue;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const full = std.fmt.bufPrint(&buf, "{s}/zenity", .{dir}) catch continue;
+        std.fs.cwd().access(full, .{}) catch continue;
+        return true;
+    }
+    return false;
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
 
 // NOTE: openFileDialog spawns zenity and requires a display server. It cannot
 // be unit tested. Integration testing requires a live desktop environment.
+
+test "isZenityAvailable executes without error" {
+    // Return value depends on host system; we verify the function
+    // completes without panic or undefined behavior.
+    _ = isZenityAvailable();
+}

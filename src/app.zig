@@ -31,7 +31,8 @@ const ModalDialog = @import("modal_dialog.zig").ModalDialog;
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
-    const fade_duration: i64 = 1500;
+    const reload_indicator_duration: i64 = 1500;
+    const notification_duration: i64 = 3000;
 
     allocator: Allocator,
     theme: *const Theme,
@@ -62,6 +63,11 @@ pub const App = struct {
     active_dialog: ?ModalDialog = null,
     should_quit: bool = false,
     close_requested: bool = false,
+
+    // Notification overlay (e.g. "zenity not installed")
+    /// Static string literal -- not owned, do not allocate.
+    notification_text: ?[:0]const u8 = null,
+    notification_start_ms: i64 = 0,
 
     /// Create an App with default light theme. Caller MUST call `setTheme()`
     /// before reading `self.theme`, as `init()` returns by value and cannot
@@ -731,6 +737,11 @@ pub const App = struct {
     }
 
     fn openFileDialogImpl(self: *App, new_tab: bool) void {
+        if (!file_dialog.isZenityAvailable()) {
+            self.showNotification("File dialog requires zenity (not installed)");
+            return;
+        }
+
         const selected = file_dialog.openFileDialog(self.allocator) catch |err| {
             std.log.err("File dialog error: {}", .{err});
             return;
@@ -1040,7 +1051,7 @@ pub const App = struct {
         // Expire reload indicator on active tab
         if (tab.reload_indicator_ms != 0) {
             const elapsed = std.time.milliTimestamp() - tab.reload_indicator_ms;
-            if (elapsed >= fade_duration) {
+            if (elapsed >= reload_indicator_duration) {
                 tab.reload_indicator_ms = 0;
             }
         }
@@ -1243,6 +1254,9 @@ pub const App = struct {
             // Draw reload/deletion indicator
             self.drawReloadIndicator(tab, content_top_y);
 
+            // Draw notification overlay (e.g. missing zenity)
+            self.drawNotification(content_top_y);
+
             // Search bar drawn above document but below menu
             search_renderer.drawSearchBar(&tab.search, self.theme, &fonts_val, content_top_y);
 
@@ -1269,10 +1283,10 @@ pub const App = struct {
         if (tab.reload_indicator_ms == 0) return;
 
         const elapsed = std.time.milliTimestamp() - tab.reload_indicator_ms;
-        if (elapsed >= fade_duration) return;
+        if (elapsed >= reload_indicator_duration) return;
 
         const t: f32 = @floatFromInt(elapsed);
-        const d: f32 = @floatFromInt(fade_duration);
+        const d: f32 = @floatFromInt(reload_indicator_duration);
         const alpha: u8 = @intFromFloat((1.0 - t / d) * 255.0);
 
         const text: [:0]const u8 = if (tab.file_deleted) "File deleted" else "Reloaded";
@@ -1285,6 +1299,39 @@ pub const App = struct {
         const screen_w = rl.getScreenWidth();
         const text_w = rl.measureText(text, font_size);
         const indicator_y: i32 = @intFromFloat(content_top_y + 8);
+        rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
+    }
+
+    /// Set the notification text and record the current timestamp.
+    /// The notification will fade out over `notification_duration` milliseconds.
+    fn showNotification(self: *App, text: [:0]const u8) void {
+        self.notification_text = text;
+        self.notification_start_ms = std.time.milliTimestamp();
+    }
+
+    /// Draw the notification overlay if one is active and has not expired.
+    /// Clears stale notification state once the duration elapses.
+    fn drawNotification(self: *App, content_top_y: f32) void {
+        const text = self.notification_text orelse return;
+        if (self.notification_start_ms == 0) return;
+
+        const elapsed = std.time.milliTimestamp() - self.notification_start_ms;
+        if (elapsed < 0 or elapsed >= notification_duration) {
+            self.notification_text = null;
+            self.notification_start_ms = 0;
+            return;
+        }
+
+        const t: f32 = @floatFromInt(elapsed);
+        const d: f32 = @floatFromInt(notification_duration);
+        const alpha: u8 = @intFromFloat(@max(0.0, (1.0 - t / d)) * 255.0);
+
+        const color: rl.Color = .{ .r = 220, .g = 60, .b = 60, .a = alpha };
+
+        const font_size: i32 = 16;
+        const screen_w = rl.getScreenWidth();
+        const text_w = rl.measureText(text, font_size);
+        const indicator_y: i32 = @intFromFloat(content_top_y + 28);
         rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
     }
 
@@ -1916,4 +1963,18 @@ test "App zoom persists across theme toggle round-trip" {
     app.toggleTheme(); // back to light
     try testing.expectApproxEqAbs(@as(f32, 1.1), app.font_size_scale, 0.001);
     try testing.expectApproxEqAbs(defaults.light.body_font_size * 1.1, app.theme.body_font_size, 0.01);
+}
+
+test "App.showNotification sets notification fields" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    try testing.expect(app.notification_text == null);
+    try testing.expectEqual(@as(i64, 0), app.notification_start_ms);
+
+    app.showNotification("test message");
+    try testing.expect(app.notification_text != null);
+    try testing.expect(app.notification_start_ms > 0);
+    try testing.expectEqualStrings("test message", app.notification_text.?);
 }

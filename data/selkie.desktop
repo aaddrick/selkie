@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Selkie
+GenericName=Markdown Viewer
+Comment=View Markdown files with GFM support and Mermaid chart rendering
+Exec=selkie %F
+Icon=selkie
+Terminal=false
+Categories=Utility;Viewer;
+MimeType=text/markdown;text/x-markdown;

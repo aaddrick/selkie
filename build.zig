@@ -1,14 +1,21 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    // Keep in sync with build.zig.zon and data/selkie.1
+    const version = "0.1.0";
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    // --- Build options (version string, etc.) ---
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
 
     // --- raylib-zig dependency ---
     const raylib_dep = b.dependency("raylib_zig", .{
         .target = target,
         .optimize = optimize,
-        .linux_display_backend = .X11,
+        .linux_display_backend = .Both,
     });
     const raylib = raylib_dep.module("raylib");
     const raylib_artifact = raylib_dep.artifact("raylib");
@@ -85,6 +92,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(raylib_artifact);
     exe.linkLibrary(cmark_lib);
     exe.root_module.addImport("raylib", raylib);
+    exe.root_module.addOptions("build_options", options);
 
     // cmark-gfm include paths for @cImport
     exe.addIncludePath(b.path("deps/cmark-gfm-config"));
@@ -105,6 +113,10 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "",
     });
 
+    // --- Install data files (desktop entry, man page) ---
+    b.installFile("data/selkie.desktop", "share/applications/selkie.desktop");
+    b.installFile("data/selkie.1", "share/man/man1/selkie.1");
+
     // --- Run step ---
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -124,6 +136,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.linkLibrary(cmark_lib);
     unit_tests.linkLibrary(raylib_artifact);
     unit_tests.root_module.addImport("raylib", raylib);
+    unit_tests.root_module.addOptions("build_options", options);
     unit_tests.addIncludePath(b.path("deps/cmark-gfm-config"));
     unit_tests.addIncludePath(b.path("deps/cmark-gfm/src"));
     unit_tests.addIncludePath(b.path("deps/cmark-gfm/extensions"));
