@@ -11,6 +11,7 @@ const ScrollState = @import("viewport/scroll.zig").ScrollState;
 const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const SearchState = @import("search/search_state.zig").SearchState;
+const CommandState = @import("command/command_state.zig").CommandState;
 const LinkHandler = @import("render/link_handler.zig").LinkHandler;
 const EditorState = @import("editor/editor_state.zig").EditorState;
 const defaults = @import("theme/defaults.zig");
@@ -28,6 +29,7 @@ pub const Tab = struct {
     base_dir: ?[]const u8,
     image_renderer: ImageRenderer,
     search: SearchState,
+    command: CommandState,
     link_handler: LinkHandler,
     reload_indicator_ms: i64,
     file_deleted: bool,
@@ -47,6 +49,7 @@ pub const Tab = struct {
             .base_dir = null,
             .image_renderer = ImageRenderer.init(allocator),
             .search = SearchState.init(allocator),
+            .command = .{},
             .link_handler = LinkHandler.init(&defaults.light),
             .reload_indicator_ms = 0,
             .file_deleted = false,

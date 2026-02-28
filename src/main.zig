@@ -58,6 +58,8 @@ test {
     _ = @import("mermaid/parsers/timeline_diagram.zig");
     // Editor subsystem tests
     _ = @import("editor/editor_state.zig");
+    // Command subsystem tests
+    _ = @import("command/command_state.zig");
     // Modal dialog tests
     _ = @import("modal_dialog.zig");
 }

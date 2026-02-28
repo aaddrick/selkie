@@ -24,6 +24,8 @@ const save_dialog = @import("export/save_dialog.zig");
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
 const editor_renderer = @import("render/editor_renderer.zig");
+const command_renderer = @import("render/command_renderer.zig");
+const CommandState = @import("command/command_state.zig").CommandState;
 const EditorState = @import("editor/editor_state.zig").EditorState;
 const ModalDialog = @import("modal_dialog.zig").ModalDialog;
 
@@ -923,12 +925,15 @@ pub const App = struct {
                 // Ctrl+=/Ctrl+-/Ctrl+0 (zoom) above pass through.
                 self.updateEditor();
             } else if (ctrl_held and rl.isKeyPressed(.f)) {
-                // Ctrl+F opens search
+                // Ctrl+F opens search (close command bar if open)
+                tab.command.close();
                 tab.search.open();
+            } else if (tab.command.is_open) {
+                self.updateCommand();
             } else if (tab.search.is_open) {
                 self.updateSearch();
             } else {
-                // Normal keyboard shortcuts when search and editor are closed
+                // Normal keyboard shortcuts when search, command, and editor are closed
                 if (!ctrl_held and !shift_held) {
                     if (rl.isKeyPressed(.t)) {
                         self.toggleTheme();
@@ -980,6 +985,12 @@ pub const App = struct {
                 if (!ctrl_held and !shift_held and rl.isKeyPressed(.slash)) {
                     tab.search.open();
                 }
+
+                // Vim ':' opens command bar (Shift+semicolon)
+                if (!ctrl_held and shift_held and rl.isKeyPressed(.semicolon)) {
+                    tab.search.close();
+                    tab.command.open();
+                }
             }
         }
 
@@ -1016,8 +1027,8 @@ pub const App = struct {
                             ed.applyScrollDelta(-wheel * editor_scroll_speed, total_h, vh - content_y);
                         }
                     }
-                } else if (tab.search.is_open) {
-                    // Search active — only allow mouse wheel scrolling,
+                } else if (tab.search.is_open or tab.command.is_open) {
+                    // Search/command active — only allow mouse wheel scrolling,
                     // suppress vim keys (j/k/d/u/g) that scroll.update() handles.
                     tab.scroll.handleMouseWheel();
                 } else {
@@ -1234,6 +1245,9 @@ pub const App = struct {
 
             // Search bar drawn above document but below menu
             search_renderer.drawSearchBar(&tab.search, self.theme, &fonts_val, content_top_y);
+
+            // Command bar drawn at bottom of viewport
+            command_renderer.drawCommandBar(&tab.command, self.theme, &fonts_val);
         }
 
         // ToC sidebar
@@ -1341,6 +1355,59 @@ pub const App = struct {
         const visible_h = screen_h - chrome_height;
         const target_y = rect.y - chrome_height - visible_h / 2.0 + rect.height / 2.0;
         tab.scroll.y = @max(0, @min(target_y, tab.scroll.maxScroll()));
+    }
+
+    // =========================================================================
+    // Command bar (`:` go-to-line)
+    // =========================================================================
+
+    fn updateCommand(self: *App) void {
+        const tab = self.activeTab() orelse return;
+
+        if (rl.isKeyPressed(.escape)) {
+            tab.command.close();
+            return;
+        }
+
+        if (rl.isKeyPressed(.enter)) {
+            self.executeCommand();
+            tab.command.close();
+            return;
+        }
+
+        if (rl.isKeyPressed(.backspace)) {
+            _ = tab.command.backspace();
+            return;
+        }
+
+        // Feed printable ASCII digits to command state
+        var char = rl.getCharPressed();
+        while (char > 0) {
+            if (char >= '0' and char <= '9') {
+                _ = tab.command.appendChar(@intCast(char));
+            }
+            char = rl.getCharPressed();
+        }
+    }
+
+    fn executeCommand(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        const target_line = tab.command.lineNumber() orelse return;
+        if (target_line == 0) return; // source lines are 1-based
+        const tree = tab.layout_tree orelse return;
+
+        // Find first node whose source_line >= target (nodes are in document order)
+        for (tree.nodes.items) |node| {
+            if (node.source_line > 0 and node.source_line >= target_line) {
+                // Scroll so the node is vertically centered in the visible area
+                const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                const chrome_height = self.computeContentYOffset();
+                const visible_h = screen_h - chrome_height;
+                tab.scroll.y = node.rect.y - chrome_height - visible_h / 2.0 + node.rect.height / 2.0;
+                tab.scroll.clamp();
+                return;
+            }
+        }
     }
 
     // =========================================================================
