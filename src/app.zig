@@ -353,6 +353,8 @@ pub const App = struct {
     }
 
     /// Toggle edit mode on the active tab, closing search if entering.
+    /// When leaving edit mode with unsaved edits, re-parses the editor buffer
+    /// so view mode shows the current edited content (live preview, see #65).
     fn toggleEditMode(self: *App) void {
         const tab = self.activeTab() orelse return;
         // Close search bar when entering edit mode (mutual exclusion).
@@ -361,9 +363,18 @@ pub const App = struct {
         if (entering) {
             tab.search.close();
         }
+        // toggleEditMode only flips is_open, does not destroy the editor.
+        const leaving_dirty = !entering and tab.isDirty();
         tab.toggleEditMode() catch |err| {
             std.log.err("Failed to toggle edit mode: {}", .{err});
+            return;
         };
+        if (leaving_dirty) {
+            tab.reparseFromEditor() catch |err| {
+                std.log.err("Failed to re-parse editor buffer for preview: {}", .{err});
+            };
+            self.relayoutActiveTab();
+        }
     }
 
     const editor_page_size = 20;

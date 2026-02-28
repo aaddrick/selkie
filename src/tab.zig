@@ -198,6 +198,24 @@ pub const Tab = struct {
         editor.is_dirty = false;
     }
 
+    /// Re-parse the document from the current editor buffer contents.
+    /// Used for live preview: view mode shows the edited content, not the on-disk file.
+    /// Does NOT update source_text — that only changes on save.
+    pub fn reparseFromEditor(self: *Tab) !void {
+        const editor = self.editor orelse return;
+        const source = try editor.toSource(self.allocator);
+        defer self.allocator.free(source);
+
+        var new_doc = try markdown_parser.parse(self.allocator, source);
+        // defensive: no try below, but guards against future edits
+        errdefer new_doc.deinit();
+
+        if (self.layout_tree) |*tree| tree.deinit();
+        self.layout_tree = null;
+        if (self.document) |*doc| doc.deinit();
+        self.document = new_doc;
+    }
+
     /// Return a display title for the tab (basename of file path, or "Untitled").
     pub fn title(self: *const Tab) []const u8 {
         const path = self.file_path orelse return "Untitled";
@@ -582,3 +600,55 @@ test "Tab.save returns error for non-existent file path" {
     // Dirty flag should NOT be cleared on error
     try testing.expect(tab.isDirty());
 }
+
+test "Tab.reparseFromEditor updates document from editor buffer" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Original");
+    try tab.toggleEditMode();
+
+    // Edit the buffer
+    tab.editor.?.setCursor(0, 10);
+    try tab.editor.?.insertBytes(" Edited");
+
+    // Re-parse from editor
+    try tab.reparseFromEditor();
+
+    // Document should reflect the edited content
+    try testing.expect(tab.document != null);
+    const heading = tab.document.?.root.children.items[0];
+    try testing.expectEqual(ast.NodeType.heading, heading.node_type);
+    const text_node = heading.children.items[0];
+    try testing.expectEqualStrings("Original Edited", text_node.literal.?);
+
+    // source_text should NOT change (only save updates it)
+    try testing.expectEqualStrings("# Original", tab.source_text.?);
+}
+
+test "Tab.reparseFromEditor is a no-op when no editor" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    // No editor — should succeed silently
+    try tab.reparseFromEditor();
+    try testing.expect(tab.document != null);
+}
+
+test "Tab.reparseFromEditor preserves editor buffer after re-parse" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Start");
+    try tab.toggleEditMode();
+    tab.editor.?.setCursor(0, 7);
+    try tab.editor.?.insertBytes(" End");
+
+    try tab.reparseFromEditor();
+
+    // Editor buffer should be unchanged
+    try testing.expectEqualStrings("# Start End", tab.editor.?.getLineText(0).?);
+    try testing.expect(tab.isDirty());
+}
+
