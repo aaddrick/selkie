@@ -420,6 +420,17 @@ pub const App = struct {
                     };
                 }
                 handled = true;
+            } else if (rl.isKeyPressed(.z)) {
+                if (shift_held) {
+                    _ = editor.redo() catch |err| {
+                        std.log.err("Editor redo failed: {}", .{err});
+                    };
+                } else {
+                    _ = editor.undo() catch |err| {
+                        std.log.err("Editor undo failed: {}", .{err});
+                    };
+                }
+                handled = true;
             }
             // Drain char queue when ctrl is held to prevent stray insertions
             while (rl.getCharPressed() > 0) {}

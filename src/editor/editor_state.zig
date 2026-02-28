@@ -17,10 +17,56 @@ pub const EditorState = struct {
     /// Selection anchor point (where selection started). When non-null,
     /// the selection spans from this anchor to the current cursor position.
     selection_anchor: ?Position = null,
+    /// Undo history stack.
+    undo_stack: std.ArrayList(UndoEntry),
+    /// Redo history stack.
+    redo_stack: std.ArrayList(UndoEntry),
+    /// When false, mutations do not push undo entries (used during undo/redo replay).
+    recording_undo: bool = true,
+
+    /// Maximum number of entries in each undo/redo stack.
+    const max_undo_stack_size: usize = 1000;
 
     pub const Position = struct {
         line: usize,
         col: usize,
+    };
+
+    /// An undo entry captures the inverse of a text mutation so it can be reversed.
+    pub const UndoEntry = struct {
+        kind: Kind,
+        /// Cursor position before the mutation.
+        cursor_before: Position,
+        /// Cursor position after the mutation.
+        cursor_after: Position,
+
+        pub const Kind = union(enum) {
+            /// Undo: delete `text` starting at `pos`. Redo: re-insert it.
+            insert: struct {
+                pos: Position,
+                text: []const u8, // owned
+            },
+            /// Undo: insert `text` at `pos`. Redo: re-delete it.
+            delete: struct {
+                pos: Position,
+                text: []const u8, // owned
+            },
+            /// A group of entries applied together.
+            compound: struct {
+                entries: []UndoEntry, // owned slice of owned entries
+            },
+        };
+
+        pub fn deinit(self: *UndoEntry, allocator: Allocator) void {
+            switch (self.kind) {
+                .insert => |*ins| allocator.free(ins.text),
+                .delete => |*del| allocator.free(del.text),
+                .compound => |*comp| {
+                    for (comp.entries) |*entry| entry.deinit(allocator);
+                    allocator.free(comp.entries);
+                },
+            }
+        }
     };
 
     /// Ordered selection range from start to end. Both are cursor positions (byte offsets).
@@ -57,11 +103,17 @@ pub const EditorState = struct {
             .scroll_y = 0,
             .scroll_x = 0,
             .selection_anchor = null,
+            .undo_stack = std.ArrayList(UndoEntry).init(allocator),
+            .redo_stack = std.ArrayList(UndoEntry).init(allocator),
         };
     }
 
-    /// Free all owned lines and the line array.
+    /// Free all owned lines, the line array, and undo/redo stacks.
     pub fn deinit(self: *EditorState) void {
+        for (self.undo_stack.items) |*entry| entry.deinit(self.allocator);
+        self.undo_stack.deinit();
+        for (self.redo_stack.items) |*entry| entry.deinit(self.allocator);
+        self.redo_stack.deinit();
         for (self.lines) |line| self.allocator.free(line);
         self.allocator.free(self.lines);
         self.* = undefined;
@@ -159,11 +211,151 @@ pub const EditorState = struct {
     }
 
     // =========================================================================
-    // Text mutation
+    // Undo / Redo
     // =========================================================================
 
-    /// Insert UTF-8 bytes at cursor position in the current line, advance cursor.
-    pub fn insertBytes(self: *EditorState, bytes: []const u8) Allocator.Error!void {
+    /// Clear the redo stack, freeing all entries. Called when a new edit is made.
+    fn clearRedoStack(self: *EditorState) void {
+        for (self.redo_stack.items) |*entry| entry.deinit(self.allocator);
+        self.redo_stack.clearRetainingCapacity();
+    }
+
+    /// Push an entry onto a stack, evicting the oldest entry if at capacity.
+    /// Note: orderedRemove(0) is O(n) but acceptable for max_undo_stack_size of 1000.
+    fn pushToStack(self: *EditorState, stack: *std.ArrayList(UndoEntry), entry: UndoEntry) Allocator.Error!void {
+        if (stack.items.len >= max_undo_stack_size) {
+            var oldest = stack.orderedRemove(0);
+            oldest.deinit(self.allocator);
+        }
+        try stack.append(entry);
+    }
+
+    /// Record an undo entry for a just-completed insertion (the undo action is
+    /// "delete the inserted text"). Supports coalescing adjacent single-char inserts.
+    fn recordInsert(self: *EditorState, pos: Position, text: []const u8, cursor_before: Position, cursor_after: Position) Allocator.Error!void {
+        if (!self.recording_undo) return;
+        self.clearRedoStack();
+
+        // Attempt to coalesce with the previous entry if it was a single-char
+        // insert at the adjacent position on the same line.
+        if (text.len == 1 and text[0] != '\n' and text[0] != '\t') {
+            if (self.tryCoalesceInsert(pos, text, cursor_after)) return;
+        }
+
+        const owned_text = try self.allocator.dupe(u8, text);
+        try self.pushToStack(&self.undo_stack, .{
+            .kind = .{ .insert = .{ .pos = pos, .text = owned_text } },
+            .cursor_before = cursor_before,
+            .cursor_after = cursor_after,
+        });
+    }
+
+    /// Try to extend the last undo entry with an adjacent single-char insert.
+    /// Returns true if coalescing succeeded.
+    fn tryCoalesceInsert(self: *EditorState, pos: Position, text: []const u8, cursor_after: Position) bool {
+        const items = self.undo_stack.items;
+        if (items.len == 0) return false;
+        const last = &items[items.len - 1];
+        if (last.kind != .insert) return false;
+        const last_ins = &last.kind.insert;
+        // Adjacent if the last insert ended where this one starts.
+        if (last_ins.pos.line != pos.line or
+            last_ins.pos.col + last_ins.text.len != pos.col) return false;
+
+        // Extend the existing entry's text by appending the new character.
+        // OOM here is non-fatal: caller will create a separate undo entry.
+        const old_text = last_ins.text;
+        const new_text = self.allocator.alloc(u8, old_text.len + text.len) catch return false;
+        @memcpy(new_text[0..old_text.len], old_text);
+        @memcpy(new_text[old_text.len..], text);
+        self.allocator.free(old_text);
+        last_ins.text = new_text;
+        last.cursor_after = cursor_after;
+        return true;
+    }
+
+    /// Record an undo entry for a just-completed deletion (the undo action is
+    /// "re-insert the deleted text").
+    fn recordDelete(self: *EditorState, pos: Position, text: []const u8, cursor_before: Position, cursor_after: Position) Allocator.Error!void {
+        if (!self.recording_undo) return;
+        self.clearRedoStack();
+
+        const owned_text = try self.allocator.dupe(u8, text);
+        try self.pushToStack(&self.undo_stack, .{
+            .kind = .{ .delete = .{ .pos = pos, .text = owned_text } },
+            .cursor_before = cursor_before,
+            .cursor_after = cursor_after,
+        });
+    }
+
+    /// Apply an undo entry's action without recording a new undo entry.
+    /// Returns the inverse entry to push onto the opposite stack.
+    fn applyEntry(self: *EditorState, entry: *const UndoEntry, comptime is_undo: bool) Allocator.Error!UndoEntry {
+        const kind: UndoEntry.Kind = switch (entry.kind) {
+            .insert => |ins| blk: {
+                self.cursor_line = ins.pos.line;
+                self.cursor_col = ins.pos.col;
+                // Undo an insert by deleting; redo by re-inserting.
+                if (is_undo) try self.rawDeleteText(ins.pos, ins.text.len) else try self.rawInsertText(ins.text);
+                break :blk .{ .insert = .{ .pos = ins.pos, .text = try self.allocator.dupe(u8, ins.text) } };
+            },
+            .delete => |del| blk: {
+                self.cursor_line = del.pos.line;
+                self.cursor_col = del.pos.col;
+                // Undo a delete by re-inserting; redo by re-deleting.
+                if (is_undo) try self.rawInsertText(del.text) else try self.rawDeleteText(del.pos, del.text.len);
+                break :blk .{ .delete = .{ .pos = del.pos, .text = try self.allocator.dupe(u8, del.text) } };
+            },
+            .compound => |comp| blk: {
+                // Apply sub-entries in reverse order for undo, forward for redo.
+                // Inverse entries are stored in reversed order so the opposite
+                // operation applies them in the correct sequence.
+                const n = comp.entries.len;
+                var inverse_entries = try self.allocator.alloc(UndoEntry, n);
+                var applied: usize = 0;
+                errdefer {
+                    for (inverse_entries[0..applied]) |*e| e.deinit(self.allocator);
+                    self.allocator.free(inverse_entries);
+                }
+
+                for (0..n) |fwd_idx| {
+                    // For undo: iterate backwards, store at mirrored position.
+                    // For redo: iterate forwards, store at mirrored position.
+                    const src = if (is_undo) n - 1 - fwd_idx else fwd_idx;
+                    const dst = if (is_undo) src else n - 1 - fwd_idx;
+                    inverse_entries[dst] = try self.applyEntry(&comp.entries[src], is_undo);
+                    applied += 1;
+                }
+
+                break :blk .{ .compound = .{ .entries = inverse_entries } };
+            },
+        };
+
+        return .{
+            .kind = kind,
+            .cursor_before = entry.cursor_before,
+            .cursor_after = entry.cursor_after,
+        };
+    }
+
+    /// Insert text at the current cursor position without recording undo.
+    /// Handles embedded newlines by splitting lines.
+    fn rawInsertText(self: *EditorState, text: []const u8) Allocator.Error!void {
+        var iter = std.mem.splitScalar(u8, text, '\n');
+        var first = true;
+        while (iter.next()) |segment| {
+            if (!first) {
+                try self.rawInsertNewline();
+            }
+            if (segment.len > 0) {
+                try self.rawInsertBytes(segment);
+            }
+            first = false;
+        }
+    }
+
+    /// Insert bytes at cursor on the current line (no newline handling).
+    fn rawInsertBytes(self: *EditorState, bytes: []const u8) Allocator.Error!void {
         if (bytes.len == 0) return;
         if (self.cursor_line >= self.lines.len) return;
         const line = self.lines[self.cursor_line];
@@ -180,6 +372,161 @@ pub const EditorState = struct {
         self.is_dirty = true;
     }
 
+    /// Insert a newline at cursor without recording undo.
+    fn rawInsertNewline(self: *EditorState) Allocator.Error!void {
+        if (self.cursor_line >= self.lines.len) return;
+        const line = self.lines[self.cursor_line];
+        const col = @min(self.cursor_col, line.len);
+
+        const before = try self.allocator.dupe(u8, line[0..col]);
+        errdefer self.allocator.free(before);
+        const after = try self.allocator.dupe(u8, line[col..]);
+        errdefer self.allocator.free(after);
+
+        const new_lines = try self.allocator.alloc([]u8, self.lines.len + 1);
+        @memcpy(new_lines[0..self.cursor_line], self.lines[0..self.cursor_line]);
+        new_lines[self.cursor_line] = before;
+        new_lines[self.cursor_line + 1] = after;
+        if (self.cursor_line + 1 < self.lines.len) {
+            @memcpy(new_lines[self.cursor_line + 2 ..], self.lines[self.cursor_line + 1 ..]);
+        }
+
+        self.allocator.free(line);
+        self.allocator.free(self.lines);
+        self.lines = new_lines;
+        self.cursor_line += 1;
+        self.cursor_col = 0;
+        self.is_dirty = true;
+    }
+
+    /// Delete `byte_count` bytes of text starting at `pos`, handling newlines
+    /// (merging lines as needed). Used by undo/redo replay.
+    fn rawDeleteText(self: *EditorState, pos: Position, byte_count: usize) Allocator.Error!void {
+        self.cursor_line = pos.line;
+        self.cursor_col = pos.col;
+        var remaining = byte_count;
+        while (remaining > 0) {
+            if (self.cursor_line >= self.lines.len) break;
+            const line = self.lines[self.cursor_line];
+            const col = @min(self.cursor_col, line.len);
+            const avail = line.len - col;
+            if (avail > 0) {
+                const to_delete = @min(remaining, avail);
+                const new_line = try self.allocator.alloc(u8, line.len - to_delete);
+                @memcpy(new_line[0..col], line[0..col]);
+                @memcpy(new_line[col..], line[col + to_delete ..]);
+                self.allocator.free(line);
+                self.lines[self.cursor_line] = new_line;
+                remaining -= to_delete;
+            } else if (self.cursor_line + 1 < self.lines.len) {
+                // At end of line — consume one newline byte by merging with next line.
+                try self.rawMergeLineWithNext();
+                remaining -= 1; // the newline character
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Merge the next line into the current cursor line (no undo recording).
+    fn rawMergeLineWithNext(self: *EditorState) Allocator.Error!void {
+        const line_idx = self.cursor_line + 1;
+        if (line_idx >= self.lines.len) return;
+
+        const curr = self.lines[self.cursor_line];
+        const next = self.lines[line_idx];
+
+        const new_lines = try self.allocator.alloc([]u8, self.lines.len - 1);
+        errdefer self.allocator.free(new_lines);
+
+        const merged = try self.allocator.alloc(u8, curr.len + next.len);
+        @memcpy(merged[0..curr.len], curr);
+        @memcpy(merged[curr.len..], next);
+
+        self.allocator.free(curr);
+        self.allocator.free(next);
+
+        @memcpy(new_lines[0..self.cursor_line], self.lines[0..self.cursor_line]);
+        new_lines[self.cursor_line] = merged;
+        if (line_idx < new_lines.len) {
+            @memcpy(new_lines[line_idx..], self.lines[line_idx + 1 ..]);
+        }
+        self.allocator.free(self.lines);
+        self.lines = new_lines;
+        // cursor_col stays at current position (end of old curr line)
+        self.is_dirty = true;
+    }
+
+    /// Undo the last edit. Returns true if an undo was performed.
+    /// May return `Allocator.Error` if building the inverse entry fails (OOM).
+    pub fn undo(self: *EditorState) Allocator.Error!bool {
+        return self.applyUndoRedo(&self.undo_stack, &self.redo_stack, true);
+    }
+
+    /// Redo the last undone edit. Returns true if a redo was performed.
+    /// May return `Allocator.Error` if building the inverse entry fails (OOM).
+    pub fn redo(self: *EditorState) Allocator.Error!bool {
+        return self.applyUndoRedo(&self.redo_stack, &self.undo_stack, false);
+    }
+
+    /// Shared implementation for undo and redo: pop from `from_stack`, apply the
+    /// entry, restore cursor, and push the inverse onto `to_stack`.
+    fn applyUndoRedo(
+        self: *EditorState,
+        from_stack: *std.ArrayList(UndoEntry),
+        to_stack: *std.ArrayList(UndoEntry),
+        comptime is_undo: bool,
+    ) Allocator.Error!bool {
+        if (from_stack.items.len == 0) return false;
+
+        var entry = from_stack.pop().?;
+        defer entry.deinit(self.allocator);
+
+        const was_recording = self.recording_undo;
+        self.recording_undo = false;
+        defer self.recording_undo = was_recording;
+
+        var inverse = try self.applyEntry(&entry, is_undo);
+        errdefer inverse.deinit(self.allocator);
+
+        const restore = if (is_undo) entry.cursor_before else entry.cursor_after;
+        self.cursor_line = restore.line;
+        self.cursor_col = restore.col;
+        self.selection_anchor = null;
+
+        try self.pushToStack(to_stack, inverse);
+        return true;
+    }
+
+    // =========================================================================
+    // Text mutation
+    // =========================================================================
+
+    /// Insert UTF-8 bytes at cursor position in the current line, advance cursor.
+    pub fn insertBytes(self: *EditorState, bytes: []const u8) Allocator.Error!void {
+        if (bytes.len == 0) return;
+        if (self.cursor_line >= self.lines.len) return;
+
+        const cursor_before = Position{ .line = self.cursor_line, .col = @min(self.cursor_col, self.lines[self.cursor_line].len) };
+        const insert_pos = cursor_before;
+
+        const line = self.lines[self.cursor_line];
+        const col = @min(self.cursor_col, line.len);
+
+        const new_line = try self.allocator.alloc(u8, line.len + bytes.len);
+        @memcpy(new_line[0..col], line[0..col]);
+        @memcpy(new_line[col..][0..bytes.len], bytes);
+        @memcpy(new_line[col + bytes.len ..], line[col..]);
+
+        self.allocator.free(line);
+        self.lines[self.cursor_line] = new_line;
+        self.cursor_col = col + bytes.len;
+        self.is_dirty = true;
+
+        const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+        try self.recordInsert(insert_pos, bytes, cursor_before, cursor_after);
+    }
+
     /// Insert a Unicode codepoint (encoded as UTF-8) at cursor, advance cursor.
     pub fn insertChar(self: *EditorState, codepoint: u21) Allocator.Error!void {
         const encoded = encodeCodepoint(codepoint);
@@ -191,11 +538,17 @@ pub const EditorState = struct {
     pub fn deleteCharBefore(self: *EditorState) Allocator.Error!void {
         if (self.cursor_line >= self.lines.len) return;
 
+        const cursor_before = Position{ .line = self.cursor_line, .col = @min(self.cursor_col, self.lines[self.cursor_line].len) };
+
         if (self.cursor_col > 0) {
             const line = self.lines[self.cursor_line];
             const col = @min(self.cursor_col, line.len);
             const char_len = charLenBefore(line, col);
             const start = col - char_len;
+
+            // Capture the deleted text before mutation.
+            const deleted_text = try self.allocator.dupe(u8, line[start..col]);
+            errdefer self.allocator.free(deleted_text);
 
             const new_line = try self.allocator.alloc(u8, line.len - char_len);
             @memcpy(new_line[0..start], line[0..start]);
@@ -205,9 +558,19 @@ pub const EditorState = struct {
             self.lines[self.cursor_line] = new_line;
             self.cursor_col = start;
             self.is_dirty = true;
+
+            const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+            const delete_pos = cursor_after; // text was at the new cursor position
+            defer self.allocator.free(deleted_text);
+            try self.recordDelete(delete_pos, deleted_text, cursor_before, cursor_after);
         } else if (self.cursor_line > 0) {
-            // Merge with previous line
+            // Merge with previous line — record a delete of the newline character.
+            const prev_len = self.lines[self.cursor_line - 1].len;
             try self.mergeLineWithPrevious(self.cursor_line);
+            const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+            // The deleted character is a newline. Position is at the merge point.
+            const delete_pos = Position{ .line = self.cursor_line, .col = prev_len };
+            try self.recordDelete(delete_pos, "\n", cursor_before, cursor_after);
         }
     }
 
@@ -216,11 +579,16 @@ pub const EditorState = struct {
     pub fn deleteCharAt(self: *EditorState) Allocator.Error!void {
         if (self.cursor_line >= self.lines.len) return;
 
+        const cursor_before = Position{ .line = self.cursor_line, .col = @min(self.cursor_col, self.lines[self.cursor_line].len) };
+
         const line = self.lines[self.cursor_line];
         const col = @min(self.cursor_col, line.len);
 
         if (col < line.len) {
             const char_len = charLenAt(line, col);
+            const deleted_text = try self.allocator.dupe(u8, line[col .. col + char_len]);
+            errdefer self.allocator.free(deleted_text);
+
             const new_line = try self.allocator.alloc(u8, line.len - char_len);
             @memcpy(new_line[0..col], line[0..col]);
             @memcpy(new_line[col..], line[col + char_len ..]);
@@ -228,9 +596,17 @@ pub const EditorState = struct {
             self.allocator.free(line);
             self.lines[self.cursor_line] = new_line;
             self.is_dirty = true;
+
+            const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+            const delete_pos = cursor_after; // text was at current cursor position
+            defer self.allocator.free(deleted_text);
+            try self.recordDelete(delete_pos, deleted_text, cursor_before, cursor_after);
         } else if (self.cursor_line + 1 < self.lines.len) {
-            // Merge next line into current
+            // Merge next line into current — delete the newline.
             try self.mergeLineWithPrevious(self.cursor_line + 1);
+            const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+            const delete_pos = Position{ .line = self.cursor_line, .col = col };
+            try self.recordDelete(delete_pos, "\n", cursor_before, cursor_after);
         }
     }
 
@@ -273,6 +649,9 @@ pub const EditorState = struct {
     pub fn insertNewline(self: *EditorState) Allocator.Error!void {
         if (self.cursor_line >= self.lines.len) return;
 
+        const cursor_before = Position{ .line = self.cursor_line, .col = @min(self.cursor_col, self.lines[self.cursor_line].len) };
+        const insert_pos = cursor_before;
+
         const line = self.lines[self.cursor_line];
         const col = @min(self.cursor_col, line.len);
 
@@ -300,6 +679,9 @@ pub const EditorState = struct {
         self.cursor_line += 1;
         self.cursor_col = 0;
         self.is_dirty = true;
+
+        const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+        try self.recordInsert(insert_pos, "\n", cursor_before, cursor_after);
     }
 
     /// Insert spaces for a tab at the cursor position.
@@ -524,6 +906,13 @@ pub const EditorState = struct {
     /// Delete the selected text. Cursor moves to start of selection.
     pub fn deleteSelection(self: *EditorState) Allocator.Error!void {
         const range = self.selectionRange() orelse return;
+
+        const cursor_before = Position{ .line = self.cursor_line, .col = self.cursor_col };
+
+        // Capture the selected text before deletion for undo.
+        const selected = try self.selectedText();
+        defer if (selected) |s| self.allocator.free(s);
+
         self.selection_anchor = null;
 
         if (range.start_line == range.end_line) {
@@ -539,48 +928,81 @@ pub const EditorState = struct {
             self.cursor_line = range.start_line;
             self.cursor_col = start;
             self.is_dirty = true;
-            return;
+        } else {
+            // Multi-line deletion: merge first and last line fragments, remove middle lines.
+            const first_line = self.lines[range.start_line];
+            const last_line = self.lines[range.end_line];
+            const keep_start = @min(range.start_col, first_line.len);
+            const keep_end_start = @min(range.end_col, last_line.len);
+
+            const lines_removed = range.end_line - range.start_line;
+            const new_lines = try self.allocator.alloc([]u8, self.lines.len - lines_removed);
+            errdefer self.allocator.free(new_lines);
+
+            const merged = try self.allocator.alloc(u8, keep_start + (last_line.len - keep_end_start));
+            @memcpy(merged[0..keep_start], first_line[0..keep_start]);
+            @memcpy(merged[keep_start..], last_line[keep_end_start..]);
+
+            for (range.start_line..range.end_line + 1) |i| {
+                self.allocator.free(self.lines[i]);
+            }
+
+            @memcpy(new_lines[0..range.start_line], self.lines[0..range.start_line]);
+            new_lines[range.start_line] = merged;
+            if (range.end_line + 1 < self.lines.len) {
+                @memcpy(new_lines[range.start_line + 1 ..], self.lines[range.end_line + 1 ..]);
+            }
+            self.allocator.free(self.lines);
+            self.lines = new_lines;
+
+            self.cursor_line = range.start_line;
+            self.cursor_col = keep_start;
+            self.is_dirty = true;
         }
 
-        // Multi-line deletion: merge first and last line fragments, remove middle lines.
-        // Allocate all new memory BEFORE freeing old lines (safe on OOM).
-        const first_line = self.lines[range.start_line];
-        const last_line = self.lines[range.end_line];
-        const keep_start = @min(range.start_col, first_line.len);
-        const keep_end_start = @min(range.end_col, last_line.len);
-
-        const lines_removed = range.end_line - range.start_line;
-        const new_lines = try self.allocator.alloc([]u8, self.lines.len - lines_removed);
-        errdefer self.allocator.free(new_lines);
-
-        const merged = try self.allocator.alloc(u8, keep_start + (last_line.len - keep_end_start));
-        @memcpy(merged[0..keep_start], first_line[0..keep_start]);
-        @memcpy(merged[keep_start..], last_line[keep_end_start..]);
-
-        // All allocations succeeded — now free old lines and commit.
-        for (range.start_line..range.end_line + 1) |i| {
-            self.allocator.free(self.lines[i]);
+        const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+        const delete_pos = cursor_after;
+        if (selected) |sel_text| {
+            try self.recordDelete(delete_pos, sel_text, cursor_before, cursor_after);
         }
-
-        @memcpy(new_lines[0..range.start_line], self.lines[0..range.start_line]);
-        new_lines[range.start_line] = merged;
-        if (range.end_line + 1 < self.lines.len) {
-            @memcpy(new_lines[range.start_line + 1 ..], self.lines[range.end_line + 1 ..]);
-        }
-        self.allocator.free(self.lines);
-        self.lines = new_lines;
-
-        self.cursor_line = range.start_line;
-        self.cursor_col = keep_start;
-        self.is_dirty = true;
     }
 
     /// Replace the selected text with new content. If no selection, inserts at cursor.
     pub fn replaceSelection(self: *EditorState, text: []const u8) Allocator.Error!void {
-        if (self.hasSelection()) {
-            try self.deleteSelection();
+        const has_sel = self.hasSelection();
+
+        if (!has_sel) {
+            // No selection — just insert. insertBytes/insertNewline record their own entries.
+            var iter = std.mem.splitScalar(u8, text, '\n');
+            var first = true;
+            while (iter.next()) |segment| {
+                if (!first) {
+                    try self.insertNewline();
+                }
+                if (segment.len > 0) {
+                    try self.insertBytes(segment);
+                }
+                first = false;
+            }
+            return;
         }
-        // Insert the replacement text, handling newlines
+
+        // Has selection — capture state, build compound undo entry.
+        const cursor_before = Position{ .line = self.cursor_line, .col = self.cursor_col };
+        const old_text = try self.selectedText();
+        const old_text_val = old_text orelse "";
+        defer if (old_text) |t| self.allocator.free(t);
+
+        const range = self.selectionRange().?;
+        const delete_pos = Position{ .line = range.start_line, .col = range.start_col };
+
+        // Disable recording so sub-operations don't push individual entries.
+        const was_recording = self.recording_undo;
+        self.recording_undo = false;
+        defer self.recording_undo = was_recording;
+
+        // Perform the actual operations.
+        try self.deleteSelection();
         var iter = std.mem.splitScalar(u8, text, '\n');
         var first = true;
         while (iter.next()) |segment| {
@@ -592,6 +1014,41 @@ pub const EditorState = struct {
             }
             first = false;
         }
+
+        const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
+
+        if (!was_recording) return;
+
+        // Build compound undo entry with two sub-entries:
+        // 1. An "insert" entry for the new text (undo = delete it)
+        // 2. A "delete" entry for the old text (undo = re-insert it)
+        // When undoing, sub-entries are applied in reverse order:
+        //   first delete the new text, then re-insert the old text.
+        var entries = try self.allocator.alloc(UndoEntry, 2);
+        errdefer self.allocator.free(entries);
+
+        const new_text_owned = try self.allocator.dupe(u8, text);
+        errdefer self.allocator.free(new_text_owned);
+        const old_text_owned = try self.allocator.dupe(u8, old_text_val);
+        errdefer self.allocator.free(old_text_owned);
+
+        entries[0] = .{
+            .kind = .{ .delete = .{ .pos = delete_pos, .text = old_text_owned } },
+            .cursor_before = cursor_before,
+            .cursor_after = cursor_after,
+        };
+        entries[1] = .{
+            .kind = .{ .insert = .{ .pos = delete_pos, .text = new_text_owned } },
+            .cursor_before = cursor_before,
+            .cursor_after = cursor_after,
+        };
+
+        self.clearRedoStack();
+        try self.pushToStack(&self.undo_stack, .{
+            .kind = .{ .compound = .{ .entries = entries } },
+            .cursor_before = cursor_before,
+            .cursor_after = cursor_after,
+        });
     }
 };
 
@@ -1709,4 +2166,367 @@ test "replaceSelection multi-line selection with multi-line text" {
     try testing.expectEqualStrings("YYc", state.lines[1]);
     try testing.expectEqual(@as(usize, 1), state.cursor_line);
     try testing.expectEqual(@as(usize, 2), state.cursor_col);
+}
+
+// =========================================================================
+// Undo / Redo tests
+// =========================================================================
+
+test "undo of character insert" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    state.setCursor(0, 1);
+    try state.insertChar('X');
+    try testing.expectEqualStrings("aXbc", state.getLineText(0).?);
+
+    const did_undo = try state.undo();
+    try testing.expect(did_undo);
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 1), state.cursor_col);
+}
+
+test "undo of character delete (backspace)" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    state.setCursor(0, 2);
+    try state.deleteCharBefore();
+    try testing.expectEqualStrings("ac", state.getLineText(0).?);
+
+    const did_undo = try state.undo();
+    try testing.expect(did_undo);
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 2), state.cursor_col);
+}
+
+test "undo of delete-at (delete key)" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    state.setCursor(0, 1);
+    try state.deleteCharAt();
+    try testing.expectEqualStrings("ac", state.getLineText(0).?);
+
+    const did_undo = try state.undo();
+    try testing.expect(did_undo);
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 1), state.cursor_col);
+}
+
+test "undo of newline insertion" {
+    var state = try EditorState.initFromSource(testing.allocator, "abcdef");
+    defer state.deinit();
+
+    state.setCursor(0, 3);
+    try state.insertNewline();
+    try testing.expectEqual(@as(usize, 2), state.lineCount());
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqualStrings("def", state.getLineText(1).?);
+
+    const did_undo = try state.undo();
+    try testing.expect(did_undo);
+    try testing.expectEqual(@as(usize, 1), state.lineCount());
+    try testing.expectEqualStrings("abcdef", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 3), state.cursor_col);
+}
+
+test "undo of line merge (backspace at start of line)" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc\ndef");
+    defer state.deinit();
+
+    state.setCursor(1, 0);
+    try state.deleteCharBefore();
+    try testing.expectEqual(@as(usize, 1), state.lineCount());
+    try testing.expectEqualStrings("abcdef", state.getLineText(0).?);
+
+    const did_undo = try state.undo();
+    try testing.expect(did_undo);
+    try testing.expectEqual(@as(usize, 2), state.lineCount());
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqualStrings("def", state.getLineText(1).?);
+    try testing.expectEqual(@as(usize, 1), state.cursor_line);
+    try testing.expectEqual(@as(usize, 0), state.cursor_col);
+}
+
+test "redo after undo" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    state.setCursor(0, 3);
+    try state.insertChar('X');
+    try testing.expectEqualStrings("abcX", state.getLineText(0).?);
+
+    _ = try state.undo();
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+
+    const did_redo = try state.redo();
+    try testing.expect(did_redo);
+    try testing.expectEqualStrings("abcX", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 4), state.cursor_col);
+}
+
+test "redo stack cleared on new edit after undo" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    try state.insertChar('X');
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 1), state.redo_stack.items.len);
+
+    // New edit should clear redo stack.
+    try state.insertChar('Y');
+    try testing.expectEqual(@as(usize, 0), state.redo_stack.items.len);
+
+    const did_redo = try state.redo();
+    try testing.expect(!did_redo);
+}
+
+test "multiple undo/redo in sequence" {
+    var state = try EditorState.initFromSource(testing.allocator, "");
+    defer state.deinit();
+
+    // Type 'a', 'b', 'c' one by one (but break coalescing with newlines between).
+    try state.insertChar('a');
+    try state.insertNewline();
+    try state.insertChar('b');
+
+    // Now: "a\nb"
+    try testing.expectEqual(@as(usize, 2), state.lineCount());
+    try testing.expectEqualStrings("a", state.getLineText(0).?);
+    try testing.expectEqualStrings("b", state.getLineText(1).?);
+
+    // Undo 'b'
+    _ = try state.undo();
+    try testing.expectEqualStrings("", state.getLineText(1).?);
+
+    // Undo newline
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 1), state.lineCount());
+    try testing.expectEqualStrings("a", state.getLineText(0).?);
+
+    // Undo 'a'
+    _ = try state.undo();
+    try testing.expectEqualStrings("", state.getLineText(0).?);
+
+    // Redo all three
+    _ = try state.redo(); // 'a'
+    try testing.expectEqualStrings("a", state.getLineText(0).?);
+    _ = try state.redo(); // newline
+    try testing.expectEqual(@as(usize, 2), state.lineCount());
+    _ = try state.redo(); // 'b'
+    try testing.expectEqualStrings("b", state.getLineText(1).?);
+}
+
+test "cursor position restored on undo/redo" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    state.setCursor(0, 5);
+    try state.insertChar('!');
+    try testing.expectEqual(@as(usize, 6), state.cursor_col);
+
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 5), state.cursor_col);
+
+    _ = try state.redo();
+    try testing.expectEqual(@as(usize, 6), state.cursor_col);
+}
+
+test "undo stack cap enforcement" {
+    var state = try EditorState.initFromSource(testing.allocator, "x");
+    defer state.deinit();
+
+    // Fill the undo stack beyond capacity. Each insertChar at position 0
+    // produces a single-char insert that would coalesce — to avoid that,
+    // alternate with newline insertions.
+    // Actually, simpler: insert at different positions by moving cursor.
+    for (0..EditorState.max_undo_stack_size + 50) |_| {
+        state.setCursor(0, 0);
+        try state.insertNewline(); // each newline is a separate entry
+    }
+
+    // Stack should be capped.
+    try testing.expect(state.undo_stack.items.len <= EditorState.max_undo_stack_size);
+}
+
+test "coalescing: multiple chars grouped into one undo" {
+    var state = try EditorState.initFromSource(testing.allocator, "");
+    defer state.deinit();
+
+    // Type "hello" character by character — should coalesce into one entry.
+    try state.insertChar('h');
+    try state.insertChar('e');
+    try state.insertChar('l');
+    try state.insertChar('l');
+    try state.insertChar('o');
+    try testing.expectEqualStrings("hello", state.getLineText(0).?);
+
+    // Should be a single undo entry.
+    try testing.expectEqual(@as(usize, 1), state.undo_stack.items.len);
+
+    _ = try state.undo();
+    try testing.expectEqualStrings("", state.getLineText(0).?);
+}
+
+test "coalescing breaks on newline" {
+    var state = try EditorState.initFromSource(testing.allocator, "");
+    defer state.deinit();
+
+    try state.insertChar('a');
+    try state.insertChar('b');
+    // These two should coalesce.
+    const entries_before_newline = state.undo_stack.items.len;
+    try testing.expectEqual(@as(usize, 1), entries_before_newline);
+
+    try state.insertNewline();
+    // Newline should be a separate entry.
+    try testing.expectEqual(@as(usize, 2), state.undo_stack.items.len);
+
+    try state.insertChar('c');
+    // 'c' is on a new line, cannot coalesce with the newline entry.
+    try testing.expectEqual(@as(usize, 3), state.undo_stack.items.len);
+}
+
+test "undo of selection delete" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.deleteSelection();
+    try testing.expectEqualStrings("hello", state.getLineText(0).?);
+
+    _ = try state.undo();
+    try testing.expectEqualStrings("hello world", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 11), state.cursor_col);
+}
+
+test "compound undo of replaceSelection" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+
+    state.selection_anchor = .{ .line = 0, .col = 6 };
+    state.cursor_col = 11;
+    try state.replaceSelection("zig");
+    try testing.expectEqualStrings("hello zig", state.getLineText(0).?);
+
+    _ = try state.undo();
+    try testing.expectEqualStrings("hello world", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 11), state.cursor_col);
+
+    _ = try state.redo();
+    try testing.expectEqualStrings("hello zig", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 9), state.cursor_col);
+}
+
+test "undo returns false when stack is empty" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    const did_undo = try state.undo();
+    try testing.expect(!did_undo);
+}
+
+test "redo returns false when stack is empty" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    const did_redo = try state.redo();
+    try testing.expect(!did_redo);
+}
+
+test "undo of delete key at end of line (line merge)" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc\ndef");
+    defer state.deinit();
+
+    state.setCursor(0, 3);
+    try state.deleteCharAt();
+    try testing.expectEqual(@as(usize, 1), state.lineCount());
+    try testing.expectEqualStrings("abcdef", state.getLineText(0).?);
+
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 2), state.lineCount());
+    try testing.expectEqualStrings("abc", state.getLineText(0).?);
+    try testing.expectEqualStrings("def", state.getLineText(1).?);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 3), state.cursor_col);
+}
+
+test "undo of multi-line selection delete" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+
+    state.selection_anchor = .{ .line = 0, .col = 1 };
+    state.cursor_line = 2;
+    state.cursor_col = 2;
+    try state.deleteSelection();
+    try testing.expectEqual(@as(usize, 1), state.lines.len);
+    try testing.expectEqualStrings("ac", state.lines[0]);
+
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 3), state.lines.len);
+    try testing.expectEqualStrings("aaa", state.lines[0]);
+    try testing.expectEqualStrings("bbb", state.lines[1]);
+    try testing.expectEqualStrings("ccc", state.lines[2]);
+    try testing.expectEqual(@as(usize, 2), state.cursor_line);
+    try testing.expectEqual(@as(usize, 2), state.cursor_col);
+}
+
+test "coalescing breaks when cursor moves between inserts" {
+    var state = try EditorState.initFromSource(testing.allocator, "abc");
+    defer state.deinit();
+
+    state.setCursor(0, 1);
+    try state.insertChar('X'); // "aXbc"
+    state.setCursor(0, 4);
+    try state.insertChar('Y'); // "aXbcY" — not adjacent to 'X'
+
+    // Should be two separate undo entries since positions are non-adjacent.
+    try testing.expectEqual(@as(usize, 2), state.undo_stack.items.len);
+}
+
+test "undo of insertBytes (multi-char paste)" {
+    var state = try EditorState.initFromSource(testing.allocator, "ac");
+    defer state.deinit();
+
+    state.setCursor(0, 1);
+    try state.insertBytes("XYZ");
+    try testing.expectEqualStrings("aXYZc", state.getLineText(0).?);
+
+    _ = try state.undo();
+    try testing.expectEqualStrings("ac", state.getLineText(0).?);
+    try testing.expectEqual(@as(usize, 1), state.cursor_col);
+}
+
+test "compound undo of replaceSelection with multi-line text" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+
+    state.selection_anchor = .{ .line = 0, .col = 1 };
+    state.cursor_line = 2;
+    state.cursor_col = 2;
+    try state.replaceSelection("XX\nYY");
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("aXX", state.lines[0]);
+    try testing.expectEqualStrings("YYc", state.lines[1]);
+
+    _ = try state.undo();
+    try testing.expectEqual(@as(usize, 3), state.lines.len);
+    try testing.expectEqualStrings("aaa", state.lines[0]);
+    try testing.expectEqualStrings("bbb", state.lines[1]);
+    try testing.expectEqualStrings("ccc", state.lines[2]);
+
+    _ = try state.redo();
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("aXX", state.lines[0]);
+    try testing.expectEqualStrings("YYc", state.lines[1]);
 }
