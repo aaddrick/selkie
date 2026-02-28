@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     // Keep in sync with build.zig.zon, data/selkie.1, and metainfo.xml
-    const version = "0.1.0";
+    const version = "0.1.2";
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
