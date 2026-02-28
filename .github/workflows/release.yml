@@ -302,7 +302,7 @@ jobs:
           # Build API request payload
           jq -n --rawfile prompt prompt.txt \
             '{
-              model: "claude-sonnet-4-6-20250514",
+              model: "claude-sonnet-4-5-20250929",
               max_tokens: 2048,
               messages: [{role: "user", content: $prompt}]
             }' > api-request.json
