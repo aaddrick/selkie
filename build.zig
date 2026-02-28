@@ -113,9 +113,21 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "",
     });
 
-    // --- Install data files (desktop entry, man page) ---
+    // --- Install data files (desktop entry, man page, icons) ---
     b.installFile("data/selkie.desktop", "share/applications/selkie.desktop");
     b.installFile("data/selkie.1", "share/man/man1/selkie.1");
+
+    // Freedesktop hicolor icon theme — scalable SVG
+    b.installFile("data/icons/selkie.svg", "share/icons/hicolor/scalable/apps/selkie.svg");
+
+    // Freedesktop hicolor icon theme — PNG at each standard size
+    const icon_sizes = [_][]const u8{ "16", "24", "32", "48", "64", "128", "256", "512" };
+    inline for (icon_sizes) |size| {
+        b.installFile(
+            "data/icons/selkie-" ++ size ++ ".png",
+            "share/icons/hicolor/" ++ size ++ "x" ++ size ++ "/apps/selkie.png",
+        );
+    }
 
     // --- Run step ---
     const run_cmd = b.addRunArtifact(exe);
