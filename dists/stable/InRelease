@@ -1,0 +1,47 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Selkie
+Label: Selkie
+Codename: stable
+Date: Sat, 28 Feb 2026 18:14:02 UTC
+Architectures: amd64 arm64
+Components: main
+Description: Selkie Markdown Viewer
+MD5Sum:
+ ea1dc37caee0d1573625c6086ebe5947 816 main/binary-amd64/Packages
+ 52d2295ada749f25283f9c6cc79b1bc2 525 main/binary-amd64/Packages.gz
+ cbf821706234b6cde351b0fcee19c7eb 101 main/binary-amd64/Release
+ 813c5c05cd62ca1d16237199db390975 816 main/binary-arm64/Packages
+ ae1053b882132d96e3c400a80aee8735 523 main/binary-arm64/Packages.gz
+ 54a16c1cc35a2e6897cca73485cc7670 101 main/binary-arm64/Release
+SHA1:
+ 2ccc25205e30e537def7daff6bea566e124fbcda 816 main/binary-amd64/Packages
+ 9219fd9ba20043f83aff3166eaac105a6d7f009a 525 main/binary-amd64/Packages.gz
+ 9f2ba077410d4d204f4885c4299429a9b9c77f55 101 main/binary-amd64/Release
+ 7152ee4277a6dba9fd1438c1ec71dd4e52c5f122 816 main/binary-arm64/Packages
+ d2957faeed0bb344a2aa403f573a4d54349fb171 523 main/binary-arm64/Packages.gz
+ 7ae4b1f83338c179780bc8436f77442e46b576b2 101 main/binary-arm64/Release
+SHA256:
+ fb6dfcf89b9ef984af4ee0d58c1e0433503c4774ec09edf41547468a358e32fa 816 main/binary-amd64/Packages
+ e6c138e739028cd1d0b1094c859c04eda89697b98b33e584b6cf1b486aac02b1 525 main/binary-amd64/Packages.gz
+ e0bb9432e1991cddae5ccb1e916ad603a5fb768f17fecd184dfa902b5a54ecb6 101 main/binary-amd64/Release
+ 82a76a640c482815d9ffbafdd5f576bbce3f2f803c3f9a885f61d4a7637acd3a 816 main/binary-arm64/Packages
+ f5df14afad40ef8e5f8b90bab30a64f15846877fc88e40ef4b07f29d75734dd5 523 main/binary-arm64/Packages.gz
+ 86b396ebf4919bb6137ec0e67ca358ca2425607f59ea112768e174502c7a1320 101 main/binary-arm64/Release
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjMGoACgkQfNLLggsY
+QuIZwQ/+OXIx5NZdRvAysrTqpyimrKapn1O/INCt8EU2vPe0T0bV/2wQi/i6oON7
+GkUI2vZ8AB66FJLSs1j9ZIM8kLT0R1306GZQw0zRo8jQVAxiqMXuD16C1R7dpro2
+3zBf8D6lHzXNR6+4/AWQoZtt7pi2lkRUBpEwpV+A/Ee2iSkZ5Zs+dASd86QtgrWp
+sSlf9Ijh3zhZi87lfUb5KdvkEgBv5L2lOuI6JXQLAPDZoTYEbsavndOCJYg46MQr
+CCGY5QXmHbR5GGpc23sDGCeJZ3WW0nfo65qIcK2Fkg+pEMaATHa07B3j03ipqytz
+VHrkCxRcB5rjOJEMUmCK9Ln0Xi0hMQfX8bFVLDXkAtMY4wUpkzb8Kpp2866Us1yl
+KzD4FacWb0g873BbKVLPzBLJh9gEkMogq1vvlcTIpl4umDHXWmpYPkx0mrWq1F98
+5iLZySbNNPfcYysrfN0pqXsRy+H1FQ+x8sw8YqjAn9guQ5EU1TxbGk26QtQFQO7O
+zesKhIlj6r4/6wKjrrE6NDAHYvHWPq7pwpAPPUZUN7oXcRLyg7SPivqVwy5Q20lL
+dn08HlDz2br1n0KxY+o1qDo8l9ficEsM/PDJmpE8XKUUybyGMuOBZznQ4KFaY1BO
+7URgOU+2XtyX+KFCQlGXVyW8A4QwkkqZH/wHECzkHLHFfd2fz/M=
+=ewSW
+-----END PGP SIGNATURE-----

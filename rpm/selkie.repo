@@ -1,0 +1,6 @@
+[selkie]
+name=Selkie Markdown Viewer
+baseurl=https://aaddrick.github.io/selkie/rpm/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=https://aaddrick.github.io/selkie/KEY.gpg

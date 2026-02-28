@@ -1,0 +1,5 @@
+Component: main
+Origin: Selkie
+Label: Selkie
+Architecture: amd64
+Description: Selkie Markdown Viewer
