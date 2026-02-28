@@ -14,6 +14,23 @@ pub const EditorState = struct {
     scroll_y: f32,
     /// Horizontal scroll offset in pixels for the editor view.
     scroll_x: f32,
+    /// Selection anchor point (where selection started). When non-null,
+    /// the selection spans from this anchor to the current cursor position.
+    selection_anchor: ?Position = null,
+
+    pub const Position = struct {
+        line: usize,
+        col: usize,
+    };
+
+    /// Ordered selection range from start to end. Both are cursor positions (byte offsets).
+    /// end_line is inclusive; end_col is exclusive (like a cursor between characters).
+    pub const SelectionRange = struct {
+        start_line: usize,
+        start_col: usize,
+        end_line: usize,
+        end_col: usize,
+    };
 
     /// Initialize from raw source text by splitting into owned lines.
     pub fn initFromSource(allocator: Allocator, source_text: []const u8) Allocator.Error!EditorState {
@@ -39,6 +56,7 @@ pub const EditorState = struct {
             .is_open = false,
             .scroll_y = 0,
             .scroll_x = 0,
+            .selection_anchor = null,
         };
     }
 
@@ -394,6 +412,186 @@ pub const EditorState = struct {
             self.scroll_y = cursor_y + line_height - viewport_height;
         }
         self.scroll_y = @max(0, self.scroll_y);
+    }
+
+    // =========================================================================
+    // Selection
+    // =========================================================================
+
+    /// Returns true if there is an active selection (anchor differs from cursor).
+    pub fn hasSelection(self: *const EditorState) bool {
+        const anchor = self.selection_anchor orelse return false;
+        return anchor.line != self.cursor_line or anchor.col != self.cursor_col;
+    }
+
+    /// Returns the ordered selection range (start <= end), or null if no selection.
+    pub fn selectionRange(self: *const EditorState) ?SelectionRange {
+        const anchor = self.selection_anchor orelse return null;
+        if (anchor.line == self.cursor_line and anchor.col == self.cursor_col) return null;
+
+        const a_before = anchor.line < self.cursor_line or
+            (anchor.line == self.cursor_line and anchor.col < self.cursor_col);
+
+        return if (a_before) .{
+            .start_line = anchor.line,
+            .start_col = anchor.col,
+            .end_line = self.cursor_line,
+            .end_col = self.cursor_col,
+        } else .{
+            .start_line = self.cursor_line,
+            .start_col = self.cursor_col,
+            .end_line = anchor.line,
+            .end_col = anchor.col,
+        };
+    }
+
+    /// Clear the selection anchor.
+    pub fn clearSelection(self: *EditorState) void {
+        self.selection_anchor = null;
+    }
+
+    /// Set the selection anchor to the current cursor position (if not already set).
+    pub fn startSelection(self: *EditorState) void {
+        if (self.selection_anchor == null) {
+            self.selection_anchor = .{ .line = self.cursor_line, .col = self.cursor_col };
+        }
+    }
+
+    /// Select all text: anchor at start, cursor at end.
+    pub fn selectAll(self: *EditorState) void {
+        self.selection_anchor = .{ .line = 0, .col = 0 };
+        if (self.lines.len > 0) {
+            self.cursor_line = self.lines.len - 1;
+            self.cursor_col = self.lines[self.cursor_line].len;
+        } else {
+            self.cursor_line = 0;
+            self.cursor_col = 0;
+        }
+    }
+
+    /// Extract the selected text as a newly allocated string, or null if no selection.
+    /// Caller owns the returned slice and must free it with `self.allocator`.
+    pub fn selectedText(self: *const EditorState) Allocator.Error!?[]u8 {
+        const range = self.selectionRange() orelse return null;
+
+        if (range.start_line == range.end_line) {
+            const line = self.lines[range.start_line];
+            const start = @min(range.start_col, line.len);
+            const end = @min(range.end_col, line.len);
+            return try self.allocator.dupe(u8, line[start..end]);
+        }
+
+        // Multi-line: compute total length
+        var total: usize = 0;
+        for (range.start_line..range.end_line + 1) |i| {
+            const line = self.lines[i];
+            if (i == range.start_line) {
+                total += line.len - @min(range.start_col, line.len);
+            } else if (i == range.end_line) {
+                total += @min(range.end_col, line.len);
+            } else {
+                total += line.len;
+            }
+            if (i < range.end_line) total += 1; // newline separator
+        }
+
+        const buf = try self.allocator.alloc(u8, total);
+        var pos: usize = 0;
+        for (range.start_line..range.end_line + 1) |i| {
+            const line = self.lines[i];
+            if (i == range.start_line) {
+                const start = @min(range.start_col, line.len);
+                const chunk = line[start..];
+                @memcpy(buf[pos..][0..chunk.len], chunk);
+                pos += chunk.len;
+            } else if (i == range.end_line) {
+                const end = @min(range.end_col, line.len);
+                @memcpy(buf[pos..][0..end], line[0..end]);
+                pos += end;
+            } else {
+                @memcpy(buf[pos..][0..line.len], line);
+                pos += line.len;
+            }
+            if (i < range.end_line) {
+                buf[pos] = '\n';
+                pos += 1;
+            }
+        }
+
+        return buf;
+    }
+
+    /// Delete the selected text. Cursor moves to start of selection.
+    pub fn deleteSelection(self: *EditorState) Allocator.Error!void {
+        const range = self.selectionRange() orelse return;
+        self.selection_anchor = null;
+
+        if (range.start_line == range.end_line) {
+            // Single-line deletion
+            const line = self.lines[range.start_line];
+            const start = @min(range.start_col, line.len);
+            const end = @min(range.end_col, line.len);
+            const new_line = try self.allocator.alloc(u8, line.len - (end - start));
+            @memcpy(new_line[0..start], line[0..start]);
+            @memcpy(new_line[start..], line[end..]);
+            self.allocator.free(line);
+            self.lines[range.start_line] = new_line;
+            self.cursor_line = range.start_line;
+            self.cursor_col = start;
+            self.is_dirty = true;
+            return;
+        }
+
+        // Multi-line deletion: merge first and last line fragments, remove middle lines.
+        // Allocate all new memory BEFORE freeing old lines (safe on OOM).
+        const first_line = self.lines[range.start_line];
+        const last_line = self.lines[range.end_line];
+        const keep_start = @min(range.start_col, first_line.len);
+        const keep_end_start = @min(range.end_col, last_line.len);
+
+        const lines_removed = range.end_line - range.start_line;
+        const new_lines = try self.allocator.alloc([]u8, self.lines.len - lines_removed);
+        errdefer self.allocator.free(new_lines);
+
+        const merged = try self.allocator.alloc(u8, keep_start + (last_line.len - keep_end_start));
+        @memcpy(merged[0..keep_start], first_line[0..keep_start]);
+        @memcpy(merged[keep_start..], last_line[keep_end_start..]);
+
+        // All allocations succeeded — now free old lines and commit.
+        for (range.start_line..range.end_line + 1) |i| {
+            self.allocator.free(self.lines[i]);
+        }
+
+        @memcpy(new_lines[0..range.start_line], self.lines[0..range.start_line]);
+        new_lines[range.start_line] = merged;
+        if (range.end_line + 1 < self.lines.len) {
+            @memcpy(new_lines[range.start_line + 1 ..], self.lines[range.end_line + 1 ..]);
+        }
+        self.allocator.free(self.lines);
+        self.lines = new_lines;
+
+        self.cursor_line = range.start_line;
+        self.cursor_col = keep_start;
+        self.is_dirty = true;
+    }
+
+    /// Replace the selected text with new content. If no selection, inserts at cursor.
+    pub fn replaceSelection(self: *EditorState, text: []const u8) Allocator.Error!void {
+        if (self.hasSelection()) {
+            try self.deleteSelection();
+        }
+        // Insert the replacement text, handling newlines
+        var iter = std.mem.splitScalar(u8, text, '\n');
+        var first = true;
+        while (iter.next()) |segment| {
+            if (!first) {
+                try self.insertNewline();
+            }
+            if (segment.len > 0) {
+                try self.insertBytes(segment);
+            }
+            first = false;
+        }
     }
 };
 
@@ -1269,4 +1467,246 @@ test "ensureCursorVisible ignores negative viewport_height" {
     state.scroll_y = 30;
     state.ensureCursorVisible(20, -100);
     try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+// =========================================================================
+// Selection tests
+// =========================================================================
+
+test "hasSelection returns false with no anchor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    try testing.expect(!state.hasSelection());
+}
+
+test "hasSelection returns false when anchor equals cursor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    try testing.expect(!state.hasSelection());
+}
+
+test "hasSelection returns true when anchor differs from cursor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    state.cursor_col = 3;
+    try testing.expect(state.hasSelection());
+}
+
+test "selectionRange orders anchor before cursor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    state.cursor_col = 3;
+    const range = state.selectionRange().?;
+    try testing.expectEqual(@as(usize, 0), range.start_col);
+    try testing.expectEqual(@as(usize, 3), range.end_col);
+}
+
+test "selectionRange orders cursor before anchor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 4 };
+    state.cursor_col = 1;
+    const range = state.selectionRange().?;
+    try testing.expectEqual(@as(usize, 1), range.start_col);
+    try testing.expectEqual(@as(usize, 4), range.end_col);
+}
+
+test "selectionRange multi-line ordering" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+    // Anchor on line 2, cursor on line 0
+    state.selection_anchor = .{ .line = 2, .col = 1 };
+    state.cursor_line = 0;
+    state.cursor_col = 2;
+    const range = state.selectionRange().?;
+    try testing.expectEqual(@as(usize, 0), range.start_line);
+    try testing.expectEqual(@as(usize, 2), range.start_col);
+    try testing.expectEqual(@as(usize, 2), range.end_line);
+    try testing.expectEqual(@as(usize, 1), range.end_col);
+}
+
+test "startSelection sets anchor only once" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.cursor_col = 2;
+    state.startSelection();
+    try testing.expectEqual(@as(usize, 2), state.selection_anchor.?.col);
+    state.cursor_col = 4;
+    state.startSelection(); // should not overwrite
+    try testing.expectEqual(@as(usize, 2), state.selection_anchor.?.col);
+}
+
+test "clearSelection removes anchor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    state.clearSelection();
+    try testing.expect(state.selection_anchor == null);
+}
+
+test "selectAll selects entire text" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+    state.selectAll();
+    try testing.expectEqual(@as(usize, 0), state.selection_anchor.?.line);
+    try testing.expectEqual(@as(usize, 0), state.selection_anchor.?.col);
+    try testing.expectEqual(@as(usize, 2), state.cursor_line);
+    try testing.expectEqual(@as(usize, 3), state.cursor_col);
+}
+
+test "selectedText single line" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    state.cursor_col = 5;
+    const text = (try state.selectedText()).?;
+    defer testing.allocator.free(text);
+    try testing.expectEqualStrings("hello", text);
+}
+
+test "selectedText multi-line" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 1 };
+    state.cursor_line = 2;
+    state.cursor_col = 2;
+    const text = (try state.selectedText()).?;
+    defer testing.allocator.free(text);
+    try testing.expectEqualStrings("aa\nbbb\ncc", text);
+}
+
+test "selectedText returns null with no selection" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    const text = try state.selectedText();
+    try testing.expect(text == null);
+}
+
+test "deleteSelection single line" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.deleteSelection();
+    try testing.expectEqualStrings("hello", state.lines[0]);
+    try testing.expectEqual(@as(usize, 5), state.cursor_col);
+    try testing.expect(state.is_dirty);
+    try testing.expect(state.selection_anchor == null);
+}
+
+test "deleteSelection multi-line" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc\nddd");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 1 };
+    state.cursor_line = 2;
+    state.cursor_col = 2;
+    try state.deleteSelection();
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("ac", state.lines[0]);
+    try testing.expectEqualStrings("ddd", state.lines[1]);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 1), state.cursor_col);
+}
+
+test "deleteSelection entire content" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb");
+    defer state.deinit();
+    state.selectAll();
+    try state.deleteSelection();
+    try testing.expectEqual(@as(usize, 1), state.lines.len);
+    try testing.expectEqualStrings("", state.lines[0]);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 0), state.cursor_col);
+}
+
+test "replaceSelection with text" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.replaceSelection("!");
+    try testing.expectEqualStrings("hello!", state.lines[0]);
+}
+
+test "replaceSelection with multi-line text" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.replaceSelection(" big\nwide");
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("hello big", state.lines[0]);
+    try testing.expectEqualStrings("wide", state.lines[1]);
+}
+
+test "replaceSelection without selection inserts at cursor" {
+    var state = try EditorState.initFromSource(testing.allocator, "helloworld");
+    defer state.deinit();
+    state.cursor_col = 5;
+    try state.replaceSelection(" ");
+    try testing.expectEqualStrings("hello world", state.lines[0]);
+}
+
+test "selectionRange returns null when anchor equals cursor" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 0 };
+    try testing.expect(state.selectionRange() == null);
+}
+
+test "selectAll on empty content selects nothing" {
+    var state = try EditorState.initFromSource(testing.allocator, "");
+    defer state.deinit();
+    state.selectAll();
+    // initFromSource("") produces one empty line, so anchor == cursor at (0,0)
+    try testing.expect(!state.hasSelection());
+}
+
+test "deleteSelection with no selection is no-op" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    try state.deleteSelection();
+    try testing.expectEqualStrings("hello", state.lines[0]);
+    try testing.expect(!state.is_dirty);
+}
+
+test "replaceSelection cursor position after single-line replacement" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.replaceSelection("!");
+    try testing.expectEqualStrings("hello!", state.lines[0]);
+    try testing.expectEqual(@as(usize, 0), state.cursor_line);
+    try testing.expectEqual(@as(usize, 6), state.cursor_col);
+}
+
+test "replaceSelection cursor position after multi-line replacement" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello world");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 5 };
+    state.cursor_col = 11;
+    try state.replaceSelection(" big\nwide");
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("hello big", state.lines[0]);
+    try testing.expectEqualStrings("wide", state.lines[1]);
+    try testing.expectEqual(@as(usize, 1), state.cursor_line);
+    try testing.expectEqual(@as(usize, 4), state.cursor_col);
+}
+
+test "replaceSelection multi-line selection with multi-line text" {
+    var state = try EditorState.initFromSource(testing.allocator, "aaa\nbbb\nccc");
+    defer state.deinit();
+    state.selection_anchor = .{ .line = 0, .col = 1 };
+    state.cursor_line = 2;
+    state.cursor_col = 2;
+    try state.replaceSelection("XX\nYY");
+    try testing.expectEqual(@as(usize, 2), state.lines.len);
+    try testing.expectEqualStrings("aXX", state.lines[0]);
+    try testing.expectEqualStrings("YYc", state.lines[1]);
+    try testing.expectEqual(@as(usize, 1), state.cursor_line);
+    try testing.expectEqual(@as(usize, 2), state.cursor_col);
 }

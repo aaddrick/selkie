@@ -18,6 +18,8 @@ const horizontal_scroll_margin: f32 = 40;
 const cursor_line_highlight_alpha: u8 = 20;
 /// Maximum line length (bytes) supported for rendering and cursor measurement.
 const max_line_bytes: usize = 8192;
+/// Extra width added past end-of-line to make trailing/full-line selections visible.
+const eol_selection_extend: f32 = 0.5; // multiplied by font_size
 
 /// Compute the width of the line number gutter based on the total number of lines.
 pub fn gutterWidth(line_count: usize, font: rl.Font, font_size: f32, spacing: f32) f32 {
@@ -98,17 +100,43 @@ pub fn drawEditor(
         @intFromFloat(@max(0, editor_height)),
     );
 
+    // Fetch once outside the loop to avoid per-line overhead.
+    const sel = editor.selectionRange();
+
     // Draw visible lines
     for (first_visible..last_visible) |i| {
         const y = content_top_y + lineY(i, line_height) - scroll_y;
         const line_text = editor.getLineText(i) orelse continue;
 
-        // Highlight cursor line
-        if (i == editor.cursor_line) {
+        // Highlight cursor line (only when no selection active)
+        if (sel == null and i == editor.cursor_line) {
             rl.drawRectangleRec(
                 .{ .x = text_area_x, .y = y, .width = screen_w - text_area_x, .height = line_height },
                 .{ .r = theme.code_text.r, .g = theme.code_text.g, .b = theme.code_text.b, .a = cursor_line_highlight_alpha },
             );
+        }
+
+        // Draw selection highlight for this line
+        if (sel) |s| {
+            if (i >= s.start_line and i <= s.end_line) {
+                const sel_start_col: usize = if (i == s.start_line) s.start_col else 0;
+                const sel_end_col: usize = if (i == s.end_line) s.end_col else line_text.len;
+
+                const sel_x_start = cursorPixelX(line_text, sel_start_col, font, font_size, spacing);
+                const sel_x_raw = cursorPixelX(line_text, sel_end_col, font, font_size, spacing);
+                const sel_x_end = if (i != s.end_line or sel_end_col >= line_text.len)
+                    sel_x_raw + font_size * eol_selection_extend
+                else
+                    sel_x_raw;
+
+                const sel_width = @max(0, sel_x_end - sel_x_start);
+                if (sel_width > 0) {
+                    rl.drawRectangleRec(
+                        .{ .x = text_area_x - scroll_x + sel_x_start, .y = y, .width = sel_width, .height = line_height },
+                        theme.search_highlight,
+                    );
+                }
+            }
         }
 
         if (line_text.len > 0) {

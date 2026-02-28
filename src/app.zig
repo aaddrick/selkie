@@ -24,6 +24,7 @@ const save_dialog = @import("export/save_dialog.zig");
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
 const editor_renderer = @import("render/editor_renderer.zig");
+const EditorState = @import("editor/editor_state.zig").EditorState;
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
@@ -380,60 +381,173 @@ pub const App = struct {
     const editor_page_size = 20;
     const editor_scroll_speed: f32 = 40;
 
-    /// Handle all editor input: character insertion, cursor movement, special keys.
-    /// Must only be called when `isEditorActive()` returns true.
-    /// Ctrl+key shortcuts (save, undo, copy, etc.) are intentionally not handled
-    /// here yet — they will be added as those features are implemented.
+    /// Handle all editor input: character insertion, cursor movement, selection,
+    /// clipboard operations, and special keys.
+    /// Returns early if no editor is active.
     fn updateEditor(self: *App) void {
         const tab = self.activeTab() orelse return;
-        var editor = &(tab.editor orelse return);
+        const editor = &(tab.editor orelse return);
 
-        // Helper to check for key press or held-key repeat.
         const pressedOrRepeat = struct {
-            fn check(key: rl.KeyboardKey) bool {
+            fn f(key: rl.KeyboardKey) bool {
                 return rl.isKeyPressed(key) or rl.isKeyPressedRepeat(key);
             }
-        }.check;
+        }.f;
 
-        // Special keys (checked before char input so backspace doesn't produce a char)
+        const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
+        const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+
+        // Ctrl+key shortcuts for clipboard and selection
+        if (ctrl_held) {
+            var handled = false;
+            if (rl.isKeyPressed(.a)) {
+                editor.selectAll();
+                handled = true;
+            } else if (rl.isKeyPressed(.c)) {
+                editorCopy(editor);
+                handled = true;
+            } else if (rl.isKeyPressed(.x)) {
+                editorCopy(editor);
+                editor.deleteSelection() catch |err| {
+                    std.log.err("Editor cut failed: {}", .{err});
+                };
+                handled = true;
+            } else if (rl.isKeyPressed(.v)) {
+                const clipboard: []const u8 = rl.getClipboardText();
+                if (clipboard.len > 0) {
+                    editor.replaceSelection(clipboard) catch |err| {
+                        std.log.err("Editor paste failed: {}", .{err});
+                    };
+                }
+                handled = true;
+            }
+            // Drain char queue when ctrl is held to prevent stray insertions
+            while (rl.getCharPressed() > 0) {}
+            if (handled) {
+                self.updateEditorScroll(editor);
+                return;
+            }
+        }
+
+        // Deletion keys — selection-aware
         if (pressedOrRepeat(.backspace)) {
-            editor.deleteCharBefore() catch |err| {
-                std.log.err("Editor backspace failed: {}", .{err});
-            };
+            if (editor.hasSelection()) {
+                editor.deleteSelection() catch |err| {
+                    std.log.err("Editor delete selection failed: {}", .{err});
+                };
+            } else {
+                editor.deleteCharBefore() catch |err| {
+                    std.log.err("Editor backspace failed: {}", .{err});
+                };
+            }
         } else if (pressedOrRepeat(.delete)) {
-            editor.deleteCharAt() catch |err| {
-                std.log.err("Editor delete failed: {}", .{err});
-            };
+            if (editor.hasSelection()) {
+                editor.deleteSelection() catch |err| {
+                    std.log.err("Editor delete selection failed: {}", .{err});
+                };
+            } else {
+                editor.deleteCharAt() catch |err| {
+                    std.log.err("Editor delete failed: {}", .{err});
+                };
+            }
         } else if (pressedOrRepeat(.enter) or pressedOrRepeat(.kp_enter)) {
+            if (editor.hasSelection()) {
+                editor.deleteSelection() catch |err| {
+                    std.log.err("Editor delete selection failed: {}", .{err});
+                };
+            }
             editor.insertNewline() catch |err| {
                 std.log.err("Editor newline failed: {}", .{err});
             };
         } else if (pressedOrRepeat(.tab)) {
+            if (editor.hasSelection()) {
+                editor.deleteSelection() catch |err| {
+                    std.log.err("Editor delete selection failed: {}", .{err});
+                };
+            }
             editor.insertTab() catch |err| {
                 std.log.err("Editor tab failed: {}", .{err});
             };
         } else if (pressedOrRepeat(.left)) {
-            editor.moveCursorLeft();
+            if (shift_held) {
+                editor.startSelection();
+                editor.moveCursorLeft();
+            } else if (editor.selectionRange()) |sel| {
+                editor.setCursor(sel.start_line, sel.start_col);
+                editor.clearSelection();
+            } else {
+                editor.moveCursorLeft();
+            }
         } else if (pressedOrRepeat(.right)) {
-            editor.moveCursorRight();
+            if (shift_held) {
+                editor.startSelection();
+                editor.moveCursorRight();
+            } else if (editor.selectionRange()) |sel| {
+                editor.setCursor(sel.end_line, sel.end_col);
+                editor.clearSelection();
+            } else {
+                editor.moveCursorRight();
+            }
         } else if (pressedOrRepeat(.up)) {
-            editor.moveCursorUp();
+            if (shift_held) {
+                editor.startSelection();
+                editor.moveCursorUp();
+            } else if (editor.selectionRange()) |sel| {
+                editor.setCursor(sel.start_line, sel.start_col);
+                editor.clearSelection();
+            } else {
+                editor.moveCursorUp();
+            }
         } else if (pressedOrRepeat(.down)) {
-            editor.moveCursorDown();
+            if (shift_held) {
+                editor.startSelection();
+                editor.moveCursorDown();
+            } else if (editor.selectionRange()) |sel| {
+                editor.setCursor(sel.end_line, sel.end_col);
+                editor.clearSelection();
+            } else {
+                editor.moveCursorDown();
+            }
         } else if (pressedOrRepeat(.home)) {
+            if (shift_held) {
+                editor.startSelection();
+            } else {
+                editor.clearSelection();
+            }
             editor.moveCursorHome();
         } else if (pressedOrRepeat(.end)) {
+            if (shift_held) {
+                editor.startSelection();
+            } else {
+                editor.clearSelection();
+            }
             editor.moveCursorEnd();
         } else if (pressedOrRepeat(.page_up)) {
+            if (shift_held) {
+                editor.startSelection();
+            } else {
+                editor.clearSelection();
+            }
             editor.moveCursorPageUp(editor_page_size);
         } else if (pressedOrRepeat(.page_down)) {
+            if (shift_held) {
+                editor.startSelection();
+            } else {
+                editor.clearSelection();
+            }
             editor.moveCursorPageDown(editor_page_size);
         }
 
         // Character input — drain the queue (Unicode codepoints)
+        // Typing with selection replaces the selected text.
         var char = rl.getCharPressed();
         while (char > 0) {
             if (char >= 32) {
+                if (editor.hasSelection()) {
+                    editor.deleteSelection() catch |err| {
+                        std.log.err("Editor delete selection failed: {}", .{err});
+                    };
+                }
                 editor.insertChar(@intCast(char)) catch |err| {
                     std.log.err("Editor insert failed: {}", .{err});
                 };
@@ -441,14 +555,32 @@ pub const App = struct {
             char = rl.getCharPressed();
         }
 
-        // Keep cursor visible after any movement or editing
+        self.updateEditorScroll(editor);
+    }
+
+    /// Copy selected text to system clipboard.
+    fn editorCopy(editor: *EditorState) void {
+        const text = editor.selectedText() catch |err| {
+            std.log.err("Editor copy failed: {}", .{err});
+            return;
+        } orelse return;
+        defer editor.allocator.free(text);
+        const z = editor.allocator.dupeZ(u8, text) catch |err| {
+            std.log.err("Editor copy failed: {}", .{err});
+            return;
+        };
+        defer editor.allocator.free(z);
+        rl.setClipboardText(z);
+    }
+
+    /// Update editor scroll to keep cursor visible (called at end of updateEditor).
+    fn updateEditorScroll(self: *App, editor: *EditorState) void {
         const font_size = self.theme.mono_font_size;
         const lh = font_size * self.theme.line_height;
         const content_y = self.computeContentYOffset();
         const vh: f32 = @floatFromInt(rl.getScreenHeight());
         editor.ensureCursorVisible(lh, vh - content_y);
 
-        // Update horizontal scroll to keep cursor visible
         const fonts_val = self.fonts orelse return;
         const spacing = font_size / 10.0;
         const cursor_px = editor_renderer.cursorPixelX(
