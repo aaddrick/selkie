@@ -335,7 +335,10 @@ pub const App = struct {
                 self.saveActiveTab();
             }
         }
-        self.active_tab = @min(original_active, if (self.tabs.items.len > 0) self.tabs.items.len - 1 else 0);
+        self.active_tab = if (self.tabs.items.len > 0)
+            @min(original_active, self.tabs.items.len - 1)
+        else
+            0;
     }
 
     /// Handle a request to close the application (e.g. window X button).
@@ -1005,60 +1008,48 @@ pub const App = struct {
     // =========================================================================
 
     fn handleDialogResponse(self: *App, kind: ModalDialog.Kind, target_tab: usize, response: ModalDialog.Response) void {
+        // Every handled response dismisses the dialog and resets close state
+        self.active_dialog = null;
+        self.close_requested = false;
+
         switch (kind) {
             .external_change => switch (response) {
                 .reload => {
-                    if (target_tab < self.tabs.items.len) {
-                        const tab = &self.tabs.items[target_tab];
-                        const f = &(self.fonts orelse {
-                            self.active_dialog = null;
-                            return;
-                        });
-                        tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers);
-                        // Clear editor dirty state after reload
-                        if (tab.editor) |*ed| {
-                            ed.is_dirty = false;
-                        }
-                        self.rebuildToc();
+                    if (target_tab >= self.tabs.items.len) return;
+                    const tab = &self.tabs.items[target_tab];
+                    const f = &(self.fonts orelse return);
+                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers);
+                    if (tab.editor) |*ed| {
+                        ed.is_dirty = false;
                     }
-                    self.active_dialog = null;
+                    self.rebuildToc();
                 },
-                .cancel => {
-                    // Keep editing — dismiss dialog, user keeps their edits
-                    self.active_dialog = null;
-                },
-                else => {},
+                .cancel, .save, .discard => {},
             },
             .close_tab => switch (response) {
                 .save => {
-                    // Save then close the target tab
                     const original = self.active_tab;
                     self.active_tab = target_tab;
                     self.saveActiveTab();
+                    // Only close if save succeeded (tab is no longer dirty)
+                    const saved = !self.tabs.items[target_tab].isDirty();
                     self.active_tab = original;
-                    self.active_dialog = null;
-                    self.closeTab(target_tab);
+                    if (saved) self.closeTab(target_tab);
                 },
-                .discard => {
-                    self.active_dialog = null;
-                    self.closeTab(target_tab);
-                },
-                .cancel => {
-                    self.active_dialog = null;
-                },
-                else => {},
+                .discard => self.closeTab(target_tab),
+                .cancel, .reload => {},
             },
             .close_app => switch (response) {
                 .save => {
                     self.saveAllDirtyTabs();
-                    self.active_dialog = null;
-                    self.should_quit = true;
+                    if (!self.hasAnyDirtyTab()) {
+                        self.should_quit = true;
+                    }
                 },
                 .discard => {
-                    self.active_dialog = null;
                     self.should_quit = true;
                 },
-                else => {},
+                .cancel, .reload => {},
             },
         }
     }
@@ -1176,7 +1167,7 @@ pub const App = struct {
 
         // Modal dialog drawn on top of everything
         if (self.active_dialog) |*dialog| {
-            dialog.draw();
+            dialog.draw(self.theme);
         }
     }
 
@@ -1646,4 +1637,46 @@ test "App.init has no active dialog" {
     try testing.expect(app.active_dialog == null);
     try testing.expect(!app.should_quit);
     try testing.expect(!app.close_requested);
+}
+
+test "App.requestCloseTab with out-of-bounds index is no-op" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    _ = try app.newTab();
+
+    app.requestCloseTab(5);
+    try testing.expectEqual(@as(usize, 2), app.tabs.items.len);
+    try testing.expect(app.active_dialog == null);
+}
+
+test "App.requestCloseTab on last remaining tab is no-op" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+
+    app.requestCloseTab(0);
+    try testing.expectEqual(@as(usize, 1), app.tabs.items.len);
+    try testing.expect(app.active_dialog == null);
+}
+
+test "App.requestClose is idempotent with dirty tabs" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    const tab = try app.newTab();
+    try tab.loadMarkdown("# Dirty");
+    try tab.toggleEditMode();
+    tab.editor.?.is_dirty = true;
+
+    app.requestClose();
+    try testing.expect(app.active_dialog != null);
+    try testing.expect(app.close_requested);
+
+    // Second call should be a no-op
+    app.requestClose();
+    try testing.expect(app.active_dialog != null);
+    try testing.expectEqual(ModalDialog.Kind.close_app, app.active_dialog.?.kind);
 }
