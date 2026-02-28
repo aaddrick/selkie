@@ -36,13 +36,9 @@ pub fn layoutTable(
         var col_idx: usize = 0;
         for (row.children.items) |*cell| {
             if (col_idx >= num_cols) break;
-            const measure_style = layout_types.TextStyle{
-                .font_size = font_size,
-                .color = theme.text,
-                .bold = row.is_header_row,
-            };
+            const style = cellTextStyle(theme, font_size, row.is_header_row);
             var content_w: f32 = 0;
-            try measureInlineRuns(cell, fonts, measure_style, &content_w);
+            try measureInlineRuns(cell, fonts, style, &content_w);
             const w = content_w + cell_pad * 2;
             col_widths[col_idx] = @max(col_widths[col_idx], w);
             col_idx += 1;
@@ -69,14 +65,38 @@ pub fn layoutTable(
         }
     }
 
-    // 3. Layout rows and cells
+    // 3. Compute per-row heights based on wrapped content
+    const num_rows = table_node.children.items.len;
+    var row_heights = try allocator.alloc(f32, num_rows);
+    defer allocator.free(row_heights);
+
+    for (table_node.children.items, 0..) |*row, ri| {
+        var max_lines: usize = 1;
+        var col_idx: usize = 0;
+        for (row.children.items) |*cell| {
+            if (col_idx >= num_cols) break;
+            const available_w = col_widths[col_idx] - cell_pad * 2;
+            const style = cellTextStyle(theme, font_size, row.is_header_row);
+
+            var line_count: usize = 1;
+            var cursor_x: f32 = 0;
+            // Uses relative coordinates: line_start=0, max=available_w
+            try walkInlineContent(cell, fonts, null, style, &cursor_x, null, 0, available_w, line_h, null, &line_count);
+
+            max_lines = @max(max_lines, line_count);
+            col_idx += 1;
+        }
+        row_heights[ri] = line_h * @as(f32, @floatFromInt(max_lines)) + cell_pad * 2;
+    }
+
+    // 4. Layout rows and cells with dynamic heights
     var y = cursor_y.*;
     var row_idx: usize = 0;
 
-    for (table_node.children.items) |*row| {
+    for (table_node.children.items, 0..) |*row, ri| {
         const row_y = y;
         const is_header = row.is_header_row;
-        const row_height = line_h + cell_pad * 2;
+        const row_height = row_heights[ri];
 
         // Row background: header gets header color, even body rows get alternating color
         const row_bg_color: ?rl.Color = if (is_header)
@@ -106,20 +126,13 @@ pub fn layoutTable(
             const col_w = col_widths[col_idx];
             const alignment: ast.Alignment = if (col_idx < alignments.len) alignments[col_idx] else .none;
 
-            // Create a text_block-like node for the cell
             var cell_node = layout_types.LayoutNode.init(allocator, .table_cell);
             errdefer cell_node.deinit();
 
-            // Layout inline content within the cell
             const text_x = cell_x + cell_pad;
-            const text_y = row_y + (row_height - font_size) / 2.0;
+            const text_y = row_y + cell_pad;
             const available_w = col_w - cell_pad * 2;
-
-            const style = layout_types.TextStyle{
-                .font_size = font_size,
-                .color = theme.text,
-                .bold = is_header,
-            };
+            const style = cellTextStyle(theme, font_size, is_header);
 
             try layoutCellInlineContent(
                 cell,
@@ -131,6 +144,7 @@ pub fn layoutTable(
                 text_y,
                 available_w,
                 alignment,
+                line_h,
             );
 
             cell_node.rect = .{
@@ -190,8 +204,35 @@ pub fn layoutTable(
     cursor_y.* = y + theme.paragraph_spacing;
 }
 
-/// Layout inline content within a table cell using a two-pass approach:
-/// first measures total width for alignment, then places text runs.
+/// Build a TextStyle for table cell text, bold if header row.
+fn cellTextStyle(theme: *const Theme, font_size: f32, is_header: bool) layout_types.TextStyle {
+    return .{
+        .font_size = font_size,
+        .color = theme.text,
+        .bold = is_header,
+    };
+}
+
+test "cellTextStyle returns bold for header rows" {
+    var theme = std.mem.zeroes(Theme);
+    theme.text = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const style = cellTextStyle(&theme, 16.0, true);
+    try std.testing.expect(style.bold);
+    try std.testing.expectEqual(@as(f32, 16.0), style.font_size);
+    try std.testing.expectEqual(theme.text, style.color);
+}
+
+test "cellTextStyle returns non-bold for body rows" {
+    var theme = std.mem.zeroes(Theme);
+    theme.text = .{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const style = cellTextStyle(&theme, 14.0, false);
+    try std.testing.expect(!style.bold);
+    try std.testing.expectEqual(@as(f32, 14.0), style.font_size);
+    try std.testing.expectEqual(theme.text, style.color);
+}
+
+/// Layout inline content within a table cell with word wrapping.
+/// Alignment offset applies only when content fits on a single line.
 fn layoutCellInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
@@ -202,21 +243,25 @@ fn layoutCellInlineContent(
     text_y: f32,
     available_w: f32,
     alignment: ast.Alignment,
+    line_h: f32,
 ) !void {
-    // First pass: measure total content width for alignment
     var total_w: f32 = 0;
     try measureInlineRuns(node, fonts, style, &total_w);
 
-    // Calculate alignment offset
-    const offset: f32 = switch (alignment) {
+    // Alignment offset only applies when content fits on a single line.
+    // The counting pass (in layoutTable step 3) uses relative coordinates without
+    // alignment offset. This is safe because offset is only non-zero when content
+    // fits in one line, meaning no wrapping occurs regardless of offset.
+    const max_x = text_x + available_w;
+    const offset: f32 = if (total_w <= available_w) switch (alignment) {
         .center => @max(0, (available_w - total_w) / 2.0),
         .right => @max(0, available_w - total_w),
         .none, .left => 0,
-    };
+    } else 0;
 
-    // Second pass: place runs
     var cursor_x = text_x + offset;
-    try placeInlineRuns(node, fonts, theme, layout_node, style, &cursor_x, text_y);
+    var cursor_y = text_y;
+    try walkInlineContent(node, fonts, theme, style, &cursor_x, &cursor_y, text_x, max_x, line_h, layout_node, null);
 }
 
 /// Recursively measure the total width of inline content within a node.
@@ -271,78 +316,128 @@ fn measureInlineRuns(
     }
 }
 
-/// Recursively place inline content as text runs on a layout node.
-fn placeInlineRuns(
+/// Unified recursive walk over inline content with word wrapping.
+/// When `layout_node` is non-null, creates text runs (placement pass).
+/// When `layout_node` is null, only advances cursors for line counting.
+/// `line_start_x` is the left margin for wrap resets; `max_x` is the right edge.
+/// All coordinates are in the same space (relative for counting, absolute for placing).
+fn walkInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
-    theme: *const Theme,
-    layout_node: *layout_types.LayoutNode,
+    theme: ?*const Theme,
     style: layout_types.TextStyle,
     cursor_x: *f32,
-    text_y: f32,
+    cursor_y: ?*f32,
+    line_start_x: f32,
+    max_x: f32,
+    line_h: f32,
+    layout_node: ?*layout_types.LayoutNode,
+    line_count: ?*usize,
 ) !void {
     for (node.children.items) |*child| {
         switch (child.node_type) {
             .text => {
                 if (child.literal) |text| {
-                    const m = fonts.measure(text, style.font_size, style.bold, style.italic, style.is_code);
-                    try layout_node.text_runs.append(.{
-                        .text = text,
-                        .style = style,
-                        .rect = .{ .x = cursor_x.*, .y = text_y, .width = m.x, .height = m.y },
-                    });
-                    cursor_x.* += m.x;
+                    try wrapText(text, fonts, style, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
                 }
             },
             .code => {
                 if (child.literal) |text| {
                     var code_style = style;
                     code_style.is_code = true;
-                    code_style.color = theme.code_text;
-                    code_style.code_bg = theme.code_background;
-                    const m = fonts.measure(text, style.font_size, false, false, true);
-                    try layout_node.text_runs.append(.{
-                        .text = text,
-                        .style = code_style,
-                        .rect = .{ .x = cursor_x.*, .y = text_y, .width = m.x, .height = m.y },
-                    });
-                    cursor_x.* += m.x;
+                    if (theme) |t| {
+                        code_style.color = t.code_text;
+                        code_style.code_bg = t.code_background;
+                    }
+                    try wrapText(text, fonts, code_style, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
                 }
             },
             .softbreak => {
                 const m = fonts.measure(" ", style.font_size, false, false, false);
-                try layout_node.text_runs.append(.{
-                    .text = " ",
-                    .style = style,
-                    .rect = .{ .x = cursor_x.*, .y = text_y, .width = m.x, .height = m.y },
-                });
+                // Apply same wrap check as regular text
+                if (cursor_x.* + m.x > max_x and cursor_x.* > line_start_x) {
+                    cursor_x.* = line_start_x;
+                    if (cursor_y) |cy| cy.* += line_h;
+                    if (line_count) |lc| lc.* += 1;
+                }
+                if (layout_node) |ln| {
+                    try ln.text_runs.append(.{
+                        .text = " ",
+                        .style = style,
+                        .rect = .{ .x = cursor_x.*, .y = if (cursor_y) |cy| cy.* else 0, .width = m.x, .height = m.y },
+                    });
+                }
                 cursor_x.* += m.x;
             },
             .strong => {
                 var s = style;
                 s.bold = true;
-                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
             },
             .emph => {
                 var s = style;
                 s.italic = true;
-                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
             },
             .strikethrough => {
                 var s = style;
                 s.strikethrough = true;
-                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
             },
             .link => {
                 var s = style;
-                s.color = theme.link;
+                if (theme) |t| {
+                    s.color = t.link;
+                }
                 s.underline = true;
                 s.link_url = child.url;
-                try placeInlineRuns(child, fonts, theme, layout_node, s, cursor_x, text_y);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
             },
             else => {
-                try placeInlineRuns(child, fonts, theme, layout_node, style, cursor_x, text_y);
+                try walkInlineContent(child, fonts, theme, style, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
             },
         }
+    }
+}
+
+/// Word-wrap a text string. When `layout_node` is non-null, also creates text runs.
+/// Words wider than `max_x - line_start_x` are placed without wrapping to avoid infinite loops.
+fn wrapText(
+    text: []const u8,
+    fonts: *const Fonts,
+    style: layout_types.TextStyle,
+    cursor_x: *f32,
+    cursor_y: ?*f32,
+    line_start_x: f32,
+    max_x: f32,
+    line_h: f32,
+    layout_node: ?*layout_types.LayoutNode,
+    line_count: ?*usize,
+) !void {
+    var remaining = text;
+    while (remaining.len > 0) {
+        var word_end: usize = 0;
+        while (word_end < remaining.len and remaining[word_end] != ' ') : (word_end += 1) {}
+        const chunk_end = if (word_end < remaining.len) word_end + 1 else word_end;
+        const word = remaining[0..chunk_end];
+        const measured = fonts.measure(word, style.font_size, style.bold, style.italic, style.is_code);
+
+        // The line_start_x guard prevents wrapping when already at line start,
+        // avoiding infinite loops on words wider than the available width.
+        if (cursor_x.* + measured.x > max_x and cursor_x.* > line_start_x) {
+            cursor_x.* = line_start_x;
+            if (cursor_y) |cy| cy.* += line_h;
+            if (line_count) |lc| lc.* += 1;
+        }
+
+        if (layout_node) |ln| {
+            try ln.text_runs.append(.{
+                .text = word,
+                .style = style,
+                .rect = .{ .x = cursor_x.*, .y = if (cursor_y) |cy| cy.* else 0, .width = measured.x, .height = measured.y },
+            });
+        }
+        cursor_x.* += measured.x;
+        remaining = remaining[chunk_end..];
     }
 }
