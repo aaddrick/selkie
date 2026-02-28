@@ -16,6 +16,7 @@ const Viewport = @import("viewport/viewport.zig").Viewport;
 const MenuBar = @import("menu_bar.zig").MenuBar;
 const TabBar = @import("tab_bar.zig").TabBar;
 const Tab = @import("tab.zig").Tab;
+const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const TocSidebar = @import("toc_sidebar.zig").TocSidebar;
 const file_dialog = @import("file_dialog.zig");
 const pdf_exporter = @import("export/pdf_exporter.zig");
@@ -212,7 +213,8 @@ pub const App = struct {
 
     fn updateWindowTitle(self: *App) void {
         const tab = self.activeTab() orelse return;
-        const name = tab.title();
+        var indicator_buf: [260]u8 = undefined;
+        const name = tab.titleWithIndicator(&indicator_buf);
         var title_buf: [256:0]u8 = undefined;
         const title = std.fmt.bufPrintZ(&title_buf, "Selkie \xe2\x80\x94 {s}", .{name}) catch "Selkie";
         // Only call raylib if a window is open (avoids crash in unit tests)
@@ -307,6 +309,47 @@ pub const App = struct {
         const tab = self.activeTab() orelse return false;
         const editor = tab.editor orelse return false;
         return editor.is_open;
+    }
+
+    /// Save the active tab's editor buffer to disk. On success, re-parses
+    /// and relayouts the document so view mode reflects the saved changes.
+    /// Temporarily suppresses the file watcher to avoid a redundant reload.
+    fn saveActiveTab(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        if (!tab.isDirty()) return;
+
+        // Suppress file watcher to avoid a double-reload from our own write.
+        const had_watcher = tab.file_watcher != null;
+        if (tab.file_watcher) |*watcher| {
+            watcher.deinit();
+            tab.file_watcher = null;
+        }
+        defer if (had_watcher) {
+            if (tab.file_path) |p| {
+                tab.file_watcher = FileWatcher.init(p);
+            }
+        };
+
+        tab.save() catch |err| {
+            std.log.err("Failed to save file: {}", .{err});
+            return;
+        };
+
+        // Re-parse and relayout so view mode shows saved content.
+        // Dupe source_text before passing to loadMarkdown, since loadMarkdown
+        // frees the old source_text and the slice would alias freed memory.
+        if (tab.source_text) |source| {
+            const source_copy = self.allocator.dupe(u8, source) catch |err| {
+                std.log.err("Failed to dupe source for re-parse: {}", .{err});
+                return;
+            };
+            defer self.allocator.free(source_copy);
+            tab.loadMarkdown(source_copy) catch |err| {
+                std.log.err("Failed to re-parse after save: {}", .{err});
+            };
+        }
+        self.relayoutActiveTab();
+        self.updateWindowTitle();
     }
 
     /// Toggle edit mode on the active tab, closing search if entering.
@@ -596,9 +639,12 @@ pub const App = struct {
             // Ctrl+E toggles edit mode (always available)
             if (ctrl_held and rl.isKeyPressed(.e)) {
                 self.toggleEditMode();
+            } else if (ctrl_held and rl.isKeyPressed(.s)) {
+                // Ctrl+S saves editor buffer (works in both edit and view mode)
+                self.saveActiveTab();
             } else if (editor_active) {
                 // Editor is active — suppress all other keyboard input
-                // (including Ctrl+F search). Only Ctrl+E above can exit.
+                // (including Ctrl+F search). Only Ctrl+E and Ctrl+S above can exit.
                 self.updateEditor();
             } else if (ctrl_held and rl.isKeyPressed(.f)) {
                 // Ctrl+F opens search

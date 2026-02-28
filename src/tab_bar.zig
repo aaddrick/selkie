@@ -102,8 +102,9 @@ pub const TabBar = struct {
                 theme.tab_border,
             );
 
-            // Tab title (truncated)
-            const title_text = tab.title();
+            // Tab title (truncated), with unsaved indicator
+            var indicator_buf: [260]u8 = undefined;
+            const title_text = tab.titleWithIndicator(&indicator_buf);
             const text_color = if (is_active) theme.tab_text else theme.tab_text_inactive;
             const available_w = tab_w - tab_padding * 2 - close_btn_size - 4;
 

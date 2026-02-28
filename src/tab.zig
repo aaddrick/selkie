@@ -169,10 +169,54 @@ pub const Tab = struct {
         }
     }
 
+    /// Save the editor buffer to disk. Rebuilds source text from editor lines,
+    /// writes to file_path, updates tab.source_text, and clears the dirty flag.
+    /// Uses atomic write-to-temp + rename to avoid corrupting the file on partial writes.
+    pub const SaveError = error{
+        NoFilePath,
+        NoEditor,
+    };
+
+    pub fn save(self: *Tab) !void {
+        const editor = &(self.editor orelse return SaveError.NoEditor);
+        const path = self.file_path orelse return SaveError.NoFilePath;
+
+        const new_source = try editor.toSource(self.allocator);
+        errdefer self.allocator.free(new_source);
+
+        // Atomic write: write to a sibling temp file, then rename over the target.
+        const dir = std.fs.cwd();
+        var atomic = try dir.atomicFile(path, .{});
+        defer atomic.deinit();
+        try atomic.file.writeAll(new_source);
+        try atomic.finish();
+
+        // Update source_text
+        if (self.source_text) |old| self.allocator.free(old);
+        self.source_text = new_source;
+
+        editor.is_dirty = false;
+    }
+
     /// Return a display title for the tab (basename of file path, or "Untitled").
     pub fn title(self: *const Tab) []const u8 {
         const path = self.file_path orelse return "Untitled";
         return std.fs.path.basename(path);
+    }
+
+    /// Return true if an editor exists and has unsaved changes.
+    pub fn isDirty(self: *const Tab) bool {
+        const editor = self.editor orelse return false;
+        return editor.is_dirty;
+    }
+
+    /// Return the display title with " *" appended if dirty.
+    /// Writes into the provided buffer (must be at least `title().len + 2` bytes).
+    /// Falls back to the plain title if the buffer is too small.
+    pub fn titleWithIndicator(self: *const Tab, buf: []u8) []const u8 {
+        const base = self.title();
+        if (!self.isDirty()) return base;
+        return std.fmt.bufPrint(buf, "{s} *", .{base}) catch base;
     }
 };
 
@@ -397,4 +441,144 @@ test "Tab.deinit cleans up editor without leaks" {
     try tab.loadMarkdown("# Editor cleanup test");
     try tab.toggleEditMode();
     tab.deinit();
+}
+
+test "Tab.isDirty returns false when no editor" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try testing.expect(!tab.isDirty());
+}
+
+test "Tab.isDirty returns false for clean editor" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    try testing.expect(!tab.isDirty());
+}
+
+test "Tab.isDirty returns true after editing" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    try tab.editor.?.insertChar('x');
+    try testing.expect(tab.isDirty());
+}
+
+test "Tab.titleWithIndicator returns plain title when clean" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("/home/user/readme.md");
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("readme.md", tab.titleWithIndicator(&buf));
+}
+
+test "Tab.titleWithIndicator appends * when dirty" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("/home/user/readme.md");
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    try tab.editor.?.insertChar('x');
+
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("readme.md *", tab.titleWithIndicator(&buf));
+}
+
+test "Tab.titleWithIndicator with Untitled when dirty" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.toggleEditMode();
+    try tab.editor.?.insertChar('x');
+
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("Untitled *", tab.titleWithIndicator(&buf));
+}
+
+test "Tab.save returns NoEditor when no editor" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("/tmp/test_save.md");
+    const result = tab.save();
+    try testing.expectError(Tab.SaveError.NoEditor, result);
+}
+
+test "Tab.save returns NoFilePath when file_path is null" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode();
+    const result = tab.save();
+    try testing.expectError(Tab.SaveError.NoFilePath, result);
+}
+
+test "Tab.save writes content and clears dirty flag" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    // Create a temp file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.writeFile(.{ .sub_path = "test.md", .data = "# Original" });
+    const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "test.md");
+    defer testing.allocator.free(path);
+
+    try tab.setFilePath(path);
+    try tab.loadMarkdown("# Original");
+    try tab.toggleEditMode();
+
+    // Make an edit
+    tab.editor.?.setCursor(0, 10);
+    try tab.editor.?.insertBytes(" Modified");
+    try testing.expect(tab.isDirty());
+
+    // Save
+    try tab.save();
+    try testing.expect(!tab.isDirty());
+
+    // Verify file contents
+    const saved = try tmp_dir.dir.readFileAlloc(testing.allocator, "test.md", 4096);
+    defer testing.allocator.free(saved);
+    try testing.expectEqualStrings("# Original Modified", saved);
+
+    // Verify source_text was updated
+    try testing.expectEqualStrings("# Original Modified", tab.source_text.?);
+}
+
+test "Tab.titleWithIndicator falls back to plain title when buffer too small" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("/home/user/readme.md");
+    try tab.toggleEditMode();
+    try tab.editor.?.insertChar('x');
+
+    // Buffer too small for "readme.md *" (11 bytes)
+    var tiny_buf: [1]u8 = undefined;
+    try testing.expectEqualStrings("readme.md", tab.titleWithIndicator(&tiny_buf));
+}
+
+test "Tab.save returns error for non-existent file path" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.setFilePath("/tmp/nonexistent_dir_12345/nosuchfile.md");
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode();
+    try tab.editor.?.insertChar('x');
+
+    const result = tab.save();
+    // Exact error type depends on OS and atomicFile internals, so check any-error.
+    try testing.expect(std.meta.isError(result));
+    // Dirty flag should NOT be cleared on error
+    try testing.expect(tab.isDirty());
 }
