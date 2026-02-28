@@ -12,6 +12,16 @@ const code_block_layout = @import("code_block_layout.zig");
 const mermaid_layout = @import("../mermaid/mermaid_layout.zig");
 const ImageRenderer = @import("../render/image_renderer.zig").ImageRenderer;
 
+/// Compute a dynamic page margin that scales with available width.
+/// Returns 5% of available_width, but no less than min_margin and no more than
+/// max_dynamic_margin (80px). The max ceiling is always enforced.
+const max_dynamic_margin = 80.0;
+
+fn computeDynamicMargin(available_width: f32, min_margin: f32) f32 {
+    const margin_ratio = 0.05;
+    return @min(max_dynamic_margin, @max(min_margin, available_width * margin_ratio));
+}
+
 pub const LayoutContext = struct {
     allocator: Allocator,
     theme: *const Theme,
@@ -20,6 +30,8 @@ pub const LayoutContext = struct {
     content_x: f32,
     cursor_y: f32,
     tree: *layout_types.LayoutTree,
+    /// Computed margin for top/bottom padding and content width inset.
+    dynamic_margin: f32,
     // List context
     list_depth: u8 = 0,
     list_type: ast.ListType = .bullet,
@@ -43,10 +55,11 @@ pub const LayoutContext = struct {
         y_offset: f32,
         left_offset: f32,
     ) LayoutContext {
-        const content_width = @min(
+        const margin = computeDynamicMargin(available_width, theme.page_margin);
+        const content_width = @max(0, @min(
             theme.max_content_width,
-            available_width - theme.page_margin * 2,
-        );
+            available_width - margin * 2,
+        ));
         const content_x = left_offset + (available_width - content_width) / 2.0;
 
         return .{
@@ -55,7 +68,8 @@ pub const LayoutContext = struct {
             .fonts = fonts,
             .content_width = content_width,
             .content_x = content_x,
-            .cursor_y = y_offset + theme.page_margin,
+            .cursor_y = y_offset + margin,
+            .dynamic_margin = margin,
             .tree = tree,
         };
     }
@@ -646,7 +660,7 @@ pub fn layout(
 
     try layoutBlock(&ctx, &document.root);
 
-    tree.total_height = ctx.cursor_y + theme.page_margin;
+    tree.total_height = ctx.cursor_y + ctx.dynamic_margin;
     return tree;
 }
 
@@ -675,13 +689,14 @@ test "LayoutContext.init content_x accounts for left_offset" {
         left_offset,
     );
 
-    const expected_content_width = @min(theme.max_content_width, available_width - theme.page_margin * 2);
+    const margin = computeDynamicMargin(available_width, theme.page_margin);
+    const expected_content_width = @min(theme.max_content_width, available_width - margin * 2);
     const expected_x = left_offset + (available_width - expected_content_width) / 2.0;
     try testing.expectEqual(expected_x, ctx.content_x);
     try testing.expect(ctx.content_x >= left_offset);
 }
 
-test "LayoutContext.init content_x starts at zero with no left_offset" {
+test "LayoutContext.init content_x centers content when left_offset is zero" {
     const theme = @import("../theme/defaults.zig").light;
     var tree = layout_types.LayoutTree.init(testing.allocator);
     defer tree.deinit();
@@ -699,9 +714,34 @@ test "LayoutContext.init content_x starts at zero with no left_offset" {
         0,
     );
 
-    const expected_content_width = @min(theme.max_content_width, available_width - theme.page_margin * 2);
+    const margin = computeDynamicMargin(available_width, theme.page_margin);
+    const expected_content_width = @min(theme.max_content_width, available_width - margin * 2);
     const expected_x = (available_width - expected_content_width) / 2.0;
     try testing.expectEqual(expected_x, ctx.content_x);
+}
+
+test "computeDynamicMargin returns min_margin when width is small" {
+    // 5% of 100 = 5, which is below min_margin of 40
+    try testing.expectEqual(@as(f32, 40), computeDynamicMargin(100, 40));
+}
+
+test "computeDynamicMargin returns max when width is large" {
+    // 5% of 2000 = 100, clamped to max_dynamic_margin (80)
+    try testing.expectEqual(@as(f32, max_dynamic_margin), computeDynamicMargin(2000, 40));
+}
+
+test "computeDynamicMargin returns proportional value in linear range" {
+    // 5% of 1000 = 50, between min_margin (40) and max (80)
+    try testing.expectEqual(@as(f32, 50), computeDynamicMargin(1000, 40));
+}
+
+test "computeDynamicMargin with zero width returns min_margin" {
+    try testing.expectEqual(@as(f32, 20), computeDynamicMargin(0, 20));
+}
+
+test "computeDynamicMargin caps at max even when min_margin is higher" {
+    // min_margin (100) > max_dynamic_margin (80), max ceiling wins
+    try testing.expectEqual(@as(f32, max_dynamic_margin), computeDynamicMargin(500, 100));
 }
 
 test "maxEndLine returns maximum end_line across AST tree" {
