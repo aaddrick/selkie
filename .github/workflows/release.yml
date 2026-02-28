@@ -182,6 +182,10 @@ jobs:
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts/
@@ -194,6 +198,63 @@ jobs:
             -exec cp {} release-files/ \;
           ls -lh release-files/
 
+      - name: Generate release notes
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Find previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="$TAG"
+            echo "First release — including all commits"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+            echo "Generating notes for $RANGE"
+          fi
+
+          # Collect commits with messages and diffs
+          CHANGES=$(git log "$RANGE" --pretty=format:'--- Commit %h by %an ---%n%s%n%n%b' --patch --no-color | head -c 180000)
+
+          # Call Claude API
+          PROMPT="You are writing release notes for Selkie, a Zig-based GUI markdown viewer for Linux with GFM support, Mermaid chart rendering, and theming.
+
+          Below are the git commits (messages and diffs) included in this release (${TAG}).
+
+          Write concise, user-facing release notes in markdown. Structure them with sections like:
+          - **Highlights** (1-3 sentence summary of what's notable)
+          - **New Features** (if any)
+          - **Improvements** (if any)
+          - **Bug Fixes** (if any)
+          - **Infrastructure** (CI/CD, packaging, build changes — keep brief)
+
+          Omit empty sections. Focus on what matters to users. Do not list every file changed — summarize the intent. Do not include a title heading (the release already has one).
+
+          Commits and diffs:
+          ${CHANGES}"
+
+          BODY=$(jq -n \
+            --arg model "claude-sonnet-4-6-20250514" \
+            --arg prompt "$PROMPT" \
+            '{
+              model: $model,
+              max_tokens: 2048,
+              messages: [{role: "user", content: $prompt}]
+            }' | curl -fsSL \
+              -X POST "https://api.anthropic.com/v1/messages" \
+              -H "content-type: application/json" \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d @- | jq -r '.content[0].text')
+
+          if [ -z "$BODY" ] || [ "$BODY" = "null" ]; then
+            echo "AI release notes generation failed, falling back to git log"
+            BODY=$(git log "$RANGE" --pretty=format:'- %s' --no-merges)
+          fi
+
+          printf '%s\n' "$BODY" > release-notes.md
+          echo "--- Generated release notes ---"
+          cat release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -201,7 +262,7 @@ jobs:
           gh release create "$TAG" release-files/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Selkie $TAG" \
-            --generate-notes
+            --notes-file release-notes.md
 
   # --- Repository update stage ---
   update-package-repos:
