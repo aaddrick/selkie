@@ -151,8 +151,7 @@ pub const Tab = struct {
             std.log.err("Failed to layout reloaded document: {}", .{err});
         };
 
-        self.scroll.y = saved_scroll_y;
-        self.scroll.clamp();
+        self.scroll.jumpTo(saved_scroll_y);
 
         self.reload_indicator_ms = std.time.milliTimestamp();
         self.file_deleted = false;

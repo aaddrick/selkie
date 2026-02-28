@@ -1,8 +1,11 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+/// Manages vertical scroll position with smooth animation and vim-style keyboard controls.
 pub const ScrollState = struct {
     y: f32 = 0,
+    /// Animation target position. Keyboard scroll updates this; y lerps toward it.
+    target_y: f32 = 0,
     total_height: f32 = 0,
     viewport_height: f32 = 0,
     scroll_speed: f32 = 40,
@@ -23,6 +26,15 @@ pub const ScrollState = struct {
     /// Maximum digit accumulation threshold; values are clamped to this ceiling.
     const max_count: u32 = 9999;
 
+    /// Time constant for exponential ease-out in seconds. Must be positive.
+    /// Smaller = faster. At 0.03s, animation completes in ~180ms at 60fps.
+    const smooth_time_constant: f32 = 0.03;
+    comptime {
+        std.debug.assert(smooth_time_constant > 0);
+    }
+    /// Snap threshold in pixels. When |y - target_y| < this, snap to target.
+    const snap_threshold: f32 = 0.5;
+
     /// Maximum seconds between two `g` presses to register as `gg`.
     const gg_timeout: f64 = 0.5;
     /// Fraction of viewport height for Page Up/Down.
@@ -40,8 +52,7 @@ pub const ScrollState = struct {
     /// Process only mouse wheel input (used when search bar consumes keyboard).
     pub fn handleMouseWheel(self: *ScrollState) void {
         self.viewport_height = @floatFromInt(rl.getScreenHeight());
-        const wheel = rl.getMouseWheelMove();
-        if (wheel != 0) self.scrollBy(-wheel * self.scroll_speed);
+        self.applyMouseWheel();
     }
 
     /// Process input events and update scroll position.
@@ -49,9 +60,7 @@ pub const ScrollState = struct {
         self.viewport_height = @floatFromInt(rl.getScreenHeight());
         const now = rl.getTime();
 
-        // Mouse wheel
-        const wheel = rl.getMouseWheelMove();
-        if (wheel != 0) self.scrollBy(-wheel * self.scroll_speed);
+        self.applyMouseWheel();
 
         // Modifier state — used to suppress vim keys and digit accumulation
         // when Ctrl/Shift are held (avoids conflicts with app shortcuts).
@@ -68,8 +77,8 @@ pub const ScrollState = struct {
         // Page Up / Page Down / Home / End (repeat on hold)
         if (isKeyPressedOrRepeat(.page_down)) self.scrollBy(self.viewport_height * page_scroll_fraction * count);
         if (isKeyPressedOrRepeat(.page_up)) self.scrollBy(-self.viewport_height * page_scroll_fraction * count);
-        if (isKeyPressedOrRepeat(.home)) self.y = 0;
-        if (isKeyPressedOrRepeat(.end)) self.y = self.maxScroll();
+        if (isKeyPressedOrRepeat(.home)) self.jumpTo(0);
+        if (isKeyPressedOrRepeat(.end)) self.jumpTo(self.maxScroll());
 
         if (!ctrl_held and !shift_held) {
             // j/k — step scroll (repeat on hold)
@@ -140,10 +149,46 @@ pub const ScrollState = struct {
             isKeyPressedOrRepeat(.page_down) or isKeyPressedOrRepeat(.page_up);
     }
 
-    /// Apply a relative scroll delta and clamp to valid range.
+    /// Apply mouse wheel input as an instant scroll (no animation).
+    /// Immediate feel is important for mouse wheel — users expect 1:1 response.
+    /// This intentionally cancels any in-progress keyboard scroll animation.
+    fn applyMouseWheel(self: *ScrollState) void {
+        const wheel = rl.getMouseWheelMove();
+        if (wheel != 0) {
+            self.y += -wheel * self.scroll_speed;
+            self.clamp();
+            self.target_y = self.y;
+        }
+    }
+
+    /// Apply a relative scroll delta to the animation target.
+    /// The actual y position will animate toward target_y via animate().
     fn scrollBy(self: *ScrollState, delta: f32) void {
-        self.y += delta;
+        self.target_y += delta;
+        self.clampTarget();
+    }
+
+    /// Set both y and target_y for an instant jump (no animation).
+    /// The position is clamped to the valid scroll range.
+    pub fn jumpTo(self: *ScrollState, pos: f32) void {
+        self.y = pos;
         self.clamp();
+        self.target_y = self.y;
+    }
+
+    /// Advance y toward target_y using exponential ease-out.
+    /// Call once per frame with the frame's delta time in seconds.
+    pub fn animate(self: *ScrollState, dt: f32) void {
+        if (dt <= 0) return;
+        const diff = self.target_y - self.y;
+        if (@abs(diff) < snap_threshold) {
+            self.y = self.target_y;
+            return;
+        }
+        // Exponential ease-out: factor = 1 - e^(-dt/τ)
+        // At 60fps (dt≈0.0167, τ=0.03): factor ≈ 0.43, completes in ~180ms
+        const factor = 1.0 - @exp(-dt / smooth_time_constant);
+        self.y += diff * factor;
     }
 
     /// Expire a stale `g` press if it has exceeded the chord timeout.
@@ -160,7 +205,7 @@ pub const ScrollState = struct {
     /// timeout window.
     fn handleGPress(self: *ScrollState, shift_held: bool, now: f64) void {
         if (shift_held) {
-            self.y = self.maxScroll();
+            self.jumpTo(self.maxScroll());
             self.g_press_time = null;
             return;
         }
@@ -168,7 +213,7 @@ pub const ScrollState = struct {
         // Plain g — complete gg chord or start a new one
         if (self.g_press_time != null) {
             // Second g within timeout — jump to top
-            self.y = 0;
+            self.jumpTo(0);
             self.g_press_time = null;
         } else {
             self.g_press_time = now;
@@ -188,6 +233,11 @@ pub const ScrollState = struct {
     /// Clamp scroll position to the valid range [0, maxScroll].
     pub fn clamp(self: *ScrollState) void {
         self.y = @max(0, @min(self.y, self.maxScroll()));
+    }
+
+    /// Clamp target_y to the valid range [0, maxScroll].
+    fn clampTarget(self: *ScrollState) void {
+        self.target_y = @max(0, @min(self.target_y, self.maxScroll()));
     }
 
     /// Pure math: clamp a scroll value to valid range.
@@ -239,6 +289,7 @@ test "clampValue with content shorter than screen clamps to zero" {
 test "ScrollState default initialization" {
     const scroll = ScrollState{};
     try testing.expectEqual(@as(f32, 0), scroll.y);
+    try testing.expectEqual(@as(f32, 0), scroll.target_y);
     try testing.expectEqual(@as(f32, 0), scroll.total_height);
     try testing.expectEqual(@as(f32, 0), scroll.viewport_height);
     try testing.expectEqual(@as(f32, 40), scroll.scroll_speed);
@@ -248,35 +299,36 @@ test "ScrollState default initialization" {
     try testing.expectEqual(@as(f32, 0), scroll.scrollbar_drag_offset);
 }
 
-test "scrollBy with half_page_fraction scrolls half viewport" {
+test "scrollBy with half_page_fraction sets target_y to half viewport" {
     var s = ScrollState{ .total_height = 2000, .viewport_height = 600 };
     s.scrollBy(s.viewport_height * ScrollState.half_page_fraction);
-    try testing.expectEqual(@as(f32, 300), s.y);
+    try testing.expectEqual(@as(f32, 300), s.target_y);
+    try testing.expectEqual(@as(f32, 0), s.y); // y unchanged until animate()
 }
 
-test "scrollBy with page_scroll_fraction scrolls most of viewport" {
+test "scrollBy with page_scroll_fraction sets target_y to most of viewport" {
     var s = ScrollState{ .total_height = 2000, .viewport_height = 600 };
     s.scrollBy(s.viewport_height * ScrollState.page_scroll_fraction);
-    try testing.expectEqual(@as(f32, 540), s.y);
+    try testing.expectEqual(@as(f32, 540), s.target_y);
 }
 
-test "scrollBy positive delta scrolls down and clamps" {
+test "scrollBy positive delta updates target_y" {
     var s = ScrollState{ .total_height = 1000, .viewport_height = 500 };
     s.scrollBy(100);
-    try testing.expectEqual(@as(f32, 100), s.y);
+    try testing.expectEqual(@as(f32, 100), s.target_y);
 }
 
-test "scrollBy negative delta scrolls up and clamps to zero" {
-    var s = ScrollState{ .total_height = 1000, .viewport_height = 500, .y = 50 };
+test "scrollBy negative delta clamps target_y to zero" {
+    var s = ScrollState{ .total_height = 1000, .viewport_height = 500, .y = 50, .target_y = 50 };
     s.scrollBy(-200);
-    try testing.expectEqual(@as(f32, 0), s.y);
+    try testing.expectEqual(@as(f32, 0), s.target_y);
 }
 
-test "scrollBy clamps to max scroll" {
-    var s = ScrollState{ .total_height = 1000, .viewport_height = 500, .y = 400 };
+test "scrollBy clamps target_y to max scroll" {
+    var s = ScrollState{ .total_height = 1000, .viewport_height = 500, .y = 400, .target_y = 400 };
     s.scrollBy(200);
     // max scroll = 1000 - 500 = 500
-    try testing.expectEqual(@as(f32, 500), s.y);
+    try testing.expectEqual(@as(f32, 500), s.target_y);
 }
 
 test "expireGChord clears stale g press" {
@@ -384,25 +436,117 @@ test "accumulateDigit clamps to max_count" {
     try testing.expectEqual(ScrollState.max_count, s.pending_count);
 }
 
-test "scrollBy with multiplied delta" {
+test "scrollBy with multiplied delta updates target_y" {
     var s = ScrollState{ .total_height = 10000, .viewport_height = 500 };
     // 5 * scroll_speed(40) = 200
     const count: f32 = 5;
     s.scrollBy(s.scroll_speed * count);
-    try testing.expectEqual(@as(f32, 200), s.y);
+    try testing.expectEqual(@as(f32, 200), s.target_y);
 }
 
-test "scrollBy with multiplied half-page delta" {
+test "scrollBy with multiplied half-page delta updates target_y" {
     var s = ScrollState{ .total_height = 10000, .viewport_height = 600 };
     // 3 * half_page(300) = 900
     const count: f32 = 3;
     s.scrollBy(s.viewport_height * ScrollState.half_page_fraction * count);
-    try testing.expectEqual(@as(f32, 900), s.y);
+    try testing.expectEqual(@as(f32, 900), s.target_y);
 }
 
-test "scrollBy with large multiplier clamps to max scroll" {
+test "scrollBy with large multiplier clamps target_y to max scroll" {
     var s = ScrollState{ .total_height = 1000, .viewport_height = 500 };
     const count: f32 = 100;
     s.scrollBy(s.scroll_speed * count);
+    try testing.expectEqual(@as(f32, 500), s.target_y);
+}
+
+// =============================================================================
+// Animation tests
+// =============================================================================
+
+test "animate moves y toward target_y" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .target_y = 300 };
+    s.animate(1.0 / 60.0); // one frame at 60fps
+    try testing.expect(s.y > 0);
+    try testing.expect(s.y < 300);
+}
+
+test "animate snaps to target when close enough" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .y = 299.8, .target_y = 300 };
+    s.animate(1.0 / 60.0);
+    try testing.expectEqual(@as(f32, 300), s.y);
+}
+
+test "animate is no-op when y equals target_y" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .y = 100, .target_y = 100 };
+    s.animate(1.0 / 60.0);
+    try testing.expectEqual(@as(f32, 100), s.y);
+}
+
+test "animate converges within reasonable time" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .target_y = 500 };
+    // Simulate ~18 frames at 60fps (~300ms)
+    for (0..18) |_| {
+        s.animate(1.0 / 60.0);
+    }
+    // Should have snapped to target (within snap_threshold) well within 300ms
     try testing.expectEqual(@as(f32, 500), s.y);
+}
+
+test "animate handles negative direction" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .y = 500, .target_y = 200 };
+    s.animate(1.0 / 60.0);
+    try testing.expect(s.y < 500);
+    try testing.expect(s.y > 200);
+}
+
+test "rapid scrollBy calls accumulate in target_y" {
+    var s = ScrollState{ .total_height = 5000, .viewport_height = 500 };
+    // Simulate pressing j 5 times rapidly (before any animation frames)
+    s.scrollBy(40);
+    s.scrollBy(40);
+    s.scrollBy(40);
+    s.scrollBy(40);
+    s.scrollBy(40);
+    try testing.expectEqual(@as(f32, 200), s.target_y);
+    try testing.expectEqual(@as(f32, 0), s.y); // y hasn't animated yet
+}
+
+test "jumpTo sets both y and target_y" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .y = 100, .target_y = 300 };
+    s.jumpTo(0);
+    try testing.expectEqual(@as(f32, 0), s.y);
+    try testing.expectEqual(@as(f32, 0), s.target_y);
+}
+
+test "jumpTo clamps to valid range" {
+    var s = ScrollState{ .total_height = 1000, .viewport_height = 500 };
+    s.jumpTo(9999);
+    try testing.expectEqual(@as(f32, 500), s.y);
+    try testing.expectEqual(@as(f32, 500), s.target_y);
+}
+
+test "jumpTo clamps negative to zero" {
+    var s = ScrollState{ .total_height = 1000, .viewport_height = 500, .y = 200, .target_y = 200 };
+    s.jumpTo(-100);
+    try testing.expectEqual(@as(f32, 0), s.y);
+    try testing.expectEqual(@as(f32, 0), s.target_y);
+}
+
+test "animate with dt=0 does not move y" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .target_y = 300 };
+    s.animate(0);
+    try testing.expectEqual(@as(f32, 0), s.y);
+}
+
+test "animate with negative dt does not move y" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .target_y = 300 };
+    s.animate(-1.0);
+    try testing.expectEqual(@as(f32, 0), s.y);
+}
+
+test "animate with very large dt snaps to target" {
+    var s = ScrollState{ .total_height = 2000, .viewport_height = 500, .target_y = 400 };
+    s.animate(100.0); // simulate long pause/resume
+    // factor ≈ 1.0, so y should be at or very near target
+    try testing.expect(@abs(s.y - 400) < ScrollState.snap_threshold);
 }

@@ -212,7 +212,7 @@ pub const App = struct {
         if (self.scroll_store) |store| {
             if (tab.file_path) |fp| {
                 if (store.getPosition(fp)) |saved_y| {
-                    tab.scroll.y = saved_y;
+                    tab.scroll.jumpTo(saved_y);
                 }
             }
         }
@@ -795,7 +795,7 @@ pub const App = struct {
             std.log.err("Failed to parse markdown: {}", .{err});
             return;
         };
-        tab.scroll.y = 0;
+        tab.scroll.jumpTo(0);
 
         if (self.fonts) |*f| {
             tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
@@ -1070,6 +1070,9 @@ pub const App = struct {
             }
         }
 
+        // Animate smooth scroll toward target position
+        tab.scroll.animate(rl.getFrameTime());
+
         // Expire reload indicator on active tab
         if (tab.reload_indicator_ms != 0) {
             const elapsed = std.time.milliTimestamp() - tab.reload_indicator_ms;
@@ -1120,8 +1123,8 @@ pub const App = struct {
         // ToC sidebar interaction
         const toc_action = self.toc_sidebar.update(tab.scroll.y, self.computeContentYOffset());
         switch (toc_action) {
-            .scroll_to => |target_y| {
-                tab.scroll.y = @max(0, @min(target_y, tab.scroll.maxScroll()));
+            .scroll_to => |toc_target| {
+                tab.scroll.jumpTo(toc_target);
             },
             .none => {},
         }
@@ -1201,8 +1204,7 @@ pub const App = struct {
         // Continue active drag
         if (tab.scroll.scrollbar_dragging) {
             if (rl.isMouseButtonDown(.left)) {
-                tab.scroll.y = geo.mouseYToScroll(mouse_y, tab.scroll.scrollbar_drag_offset);
-                tab.scroll.clamp();
+                tab.scroll.jumpTo(geo.mouseYToScroll(mouse_y, tab.scroll.scrollbar_drag_offset));
                 rl.setMouseCursor(.resize_ns);
                 return true;
             }
@@ -1221,8 +1223,7 @@ pub const App = struct {
                     tab.scroll.scrollbar_drag_offset = mouse_y - geo.thumb_y;
                 } else {
                     // Click on track — jump so thumb centers on click point
-                    tab.scroll.y = geo.mouseYToScroll(mouse_y, geo.thumb_height / 2);
-                    tab.scroll.clamp();
+                    tab.scroll.jumpTo(geo.mouseYToScroll(mouse_y, geo.thumb_height / 2));
                 }
                 return true;
             }
@@ -1422,8 +1423,8 @@ pub const App = struct {
         const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
         const chrome_height = self.computeContentYOffset() + search_renderer.bar_height;
         const visible_h = screen_h - chrome_height;
-        const target_y = rect.y - chrome_height - visible_h / 2.0 + rect.height / 2.0;
-        tab.scroll.y = @max(0, @min(target_y, tab.scroll.maxScroll()));
+        const search_target = rect.y - chrome_height - visible_h / 2.0 + rect.height / 2.0;
+        tab.scroll.jumpTo(search_target);
     }
 
     // =========================================================================
@@ -1472,8 +1473,7 @@ pub const App = struct {
                 const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
                 const chrome_height = self.computeContentYOffset();
                 const visible_h = screen_h - chrome_height;
-                tab.scroll.y = node.rect.y - chrome_height - visible_h / 2.0 + node.rect.height / 2.0;
-                tab.scroll.clamp();
+                tab.scroll.jumpTo(node.rect.y - chrome_height - visible_h / 2.0 + node.rect.height / 2.0);
                 return;
             }
         }
