@@ -22,6 +22,7 @@ const pdf_exporter = @import("export/pdf_exporter.zig");
 const save_dialog = @import("export/save_dialog.zig");
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
+const editor_renderer = @import("render/editor_renderer.zig");
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
@@ -323,6 +324,7 @@ pub const App = struct {
     }
 
     const editor_page_size = 20;
+    const editor_scroll_speed: f32 = 40;
 
     /// Handle all editor input: character insertion, cursor movement, special keys.
     /// Must only be called when `isEditorActive()` returns true.
@@ -384,6 +386,29 @@ pub const App = struct {
             }
             char = rl.getCharPressed();
         }
+
+        // Keep cursor visible after any movement or editing
+        const font_size = self.theme.mono_font_size;
+        const lh = font_size * self.theme.line_height;
+        const content_y = self.computeContentYOffset();
+        const vh: f32 = @floatFromInt(rl.getScreenHeight());
+        editor.ensureCursorVisible(lh, vh - content_y);
+
+        // Update horizontal scroll to keep cursor visible
+        const fonts_val = self.fonts orelse return;
+        const spacing = font_size / 10.0;
+        const cursor_px = editor_renderer.cursorPixelX(
+            editor.getLineText(editor.cursor_line) orelse "",
+            editor.cursor_col,
+            fonts_val.mono,
+            font_size,
+            spacing,
+        );
+        const gutter_w = editor_renderer.gutterWidth(editor.lineCount(), fonts_val.mono, font_size, spacing);
+        const left_off = self.toc_sidebar.effectiveWidth();
+        const vw: f32 = @floatFromInt(rl.getScreenWidth());
+        const text_area_width = vw - left_off - gutter_w - editor_renderer.gutter_text_padding;
+        editor.scroll_x = editor_renderer.scrollXForCursor(cursor_px, editor.scroll_x, text_area_width);
     }
 
     // =========================================================================
@@ -646,8 +671,20 @@ pub const App = struct {
             const mouse_over_sidebar = self.toc_sidebar.is_open and
                 @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
             if (!mouse_over_sidebar) {
-                if (tab.search.is_open or self.isEditorActive()) {
-                    // Search or edit mode active — only allow mouse wheel scrolling,
+                if (self.isEditorActive()) {
+                    // Editor active — scroll the editor view, not the document.
+                    if (tab.editor) |*ed| {
+                        const wheel = rl.getMouseWheelMove();
+                        if (wheel != 0) {
+                            const font_size = self.theme.mono_font_size;
+                            const content_y = self.computeContentYOffset();
+                            const vh: f32 = @floatFromInt(rl.getScreenHeight());
+                            const total_h = editor_renderer.totalHeight(ed.lineCount(), font_size, self.theme.line_height);
+                            ed.applyScrollDelta(-wheel * editor_scroll_speed, total_h, vh - content_y);
+                        }
+                    }
+                } else if (tab.search.is_open) {
+                    // Search active — only allow mouse wheel scrolling,
                     // suppress vim keys (j/k/d/u/g) that scroll.update() handles.
                     tab.scroll.handleMouseWheel();
                 } else {
@@ -782,16 +819,25 @@ pub const App = struct {
         const left_offset = self.toc_sidebar.effectiveWidth();
 
         if (self.activeTab()) |tab| {
-            if (tab.layout_tree) |*tree| {
-                const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
-                const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
-                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, screen_w, screen_h);
+            if (tab.editor) |*ed| {
+                if (ed.is_open) {
+                    // Editor replaces the document view when active
+                    editor_renderer.drawEditor(ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, content_top_y, left_offset);
+                }
+            }
 
-                // Search highlights drawn over document content
-                search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);
-            } else {
-                const y_offset: i32 = @intFromFloat(content_top_y + 8);
-                rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+            if (!self.isEditorActive()) {
+                if (tab.layout_tree) |*tree| {
+                    const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+                    const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                    renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, screen_w, screen_h);
+
+                    // Search highlights drawn over document content
+                    search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);
+                } else {
+                    const y_offset: i32 = @intFromFloat(content_top_y + 8);
+                    rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+                }
             }
 
             // Draw reload/deletion indicator

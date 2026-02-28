@@ -10,6 +10,10 @@ pub const EditorState = struct {
     cursor_col: usize,
     is_dirty: bool,
     is_open: bool,
+    /// Vertical scroll offset in pixels for the editor view.
+    scroll_y: f32,
+    /// Horizontal scroll offset in pixels for the editor view.
+    scroll_x: f32,
 
     /// Initialize from raw source text by splitting into owned lines.
     pub fn initFromSource(allocator: Allocator, source_text: []const u8) Allocator.Error!EditorState {
@@ -33,6 +37,8 @@ pub const EditorState = struct {
             .cursor_col = 0,
             .is_dirty = false,
             .is_open = false,
+            .scroll_y = 0,
+            .scroll_x = 0,
         };
     }
 
@@ -358,6 +364,36 @@ pub const EditorState = struct {
         if (self.lines.len == 0) return;
         self.cursor_line = @min(self.cursor_line +| page_size, self.lines.len - 1);
         self.cursor_col = @min(self.cursor_col, self.lines[self.cursor_line].len);
+    }
+
+    // =========================================================================
+    // Scroll management
+    // =========================================================================
+
+    /// Apply a scroll delta (e.g. from mouse wheel) to the editor's vertical scroll offset.
+    /// Clamps the result to [0, max_scroll] where max_scroll = total_height - viewport_height.
+    pub fn applyScrollDelta(self: *EditorState, delta: f32, total_height: f32, viewport_height: f32) void {
+        if (delta == 0 or viewport_height <= 0) return;
+        self.scroll_y += delta;
+        const max_scroll = @max(0, total_height - viewport_height);
+        self.scroll_y = std.math.clamp(self.scroll_y, 0, max_scroll);
+    }
+
+    /// Ensure the cursor line is visible by adjusting scroll_y if needed.
+    pub fn ensureCursorVisible(self: *EditorState, line_height: f32, viewport_height: f32) void {
+        if (line_height <= 0 or viewport_height <= 0) return;
+
+        const cursor_y = @as(f32, @floatFromInt(self.cursor_line)) * line_height;
+
+        // Cursor is above visible area
+        if (cursor_y < self.scroll_y) {
+            self.scroll_y = cursor_y;
+        }
+        // Cursor is below visible area
+        if (cursor_y + line_height > self.scroll_y + viewport_height) {
+            self.scroll_y = cursor_y + line_height - viewport_height;
+        }
+        self.scroll_y = @max(0, self.scroll_y);
     }
 };
 
@@ -1099,4 +1135,138 @@ test "deleteCharAt with cursor_col beyond line length at end merges next" {
     // col clamped to 3 (line.len), which is at end of line, so merges with next
     try testing.expectEqual(1, state.lineCount());
     try testing.expectEqualStrings("abcdef", state.getLineText(0).?);
+}
+
+// =========================================================================
+// Scroll management tests
+// =========================================================================
+
+test "applyScrollDelta scrolls down and clamps" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.applyScrollDelta(50, 200, 100);
+    try testing.expectEqual(@as(f32, 50), state.scroll_y);
+}
+
+test "applyScrollDelta clamps to max scroll" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.applyScrollDelta(500, 200, 100);
+    // max_scroll = 200 - 100 = 100
+    try testing.expectEqual(@as(f32, 100), state.scroll_y);
+}
+
+test "applyScrollDelta clamps to zero" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 50;
+    state.applyScrollDelta(-200, 200, 100);
+    try testing.expectEqual(@as(f32, 0), state.scroll_y);
+}
+
+test "applyScrollDelta ignores zero delta" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.applyScrollDelta(0, 200, 100);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "applyScrollDelta ignores non-positive viewport" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.applyScrollDelta(10, 200, 0);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "ensureCursorVisible scrolls down when cursor is below viewport" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc\nd\ne");
+    defer state.deinit();
+
+    state.cursor_line = 4;
+    state.ensureCursorVisible(20, 60);
+    // cursor_y = 4 * 20 = 80, 80 + 20 = 100 > 0 + 60 → scroll_y = 100 - 60 = 40
+    try testing.expectEqual(@as(f32, 40), state.scroll_y);
+}
+
+test "ensureCursorVisible scrolls up when cursor is above viewport" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc\nd\ne");
+    defer state.deinit();
+
+    state.scroll_y = 80;
+    state.cursor_line = 1;
+    state.ensureCursorVisible(20, 60);
+    // cursor_y = 1 * 20 = 20 < 80 → scroll_y = 20
+    try testing.expectEqual(@as(f32, 20), state.scroll_y);
+}
+
+test "ensureCursorVisible is no-op when cursor is visible" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc\nd\ne");
+    defer state.deinit();
+
+    state.scroll_y = 10;
+    state.cursor_line = 1;
+    state.ensureCursorVisible(20, 60);
+    // cursor_y = 20, 20 >= 10 (not above), 20 + 20 = 40 <= 10 + 60 = 70 (not below)
+    try testing.expectEqual(@as(f32, 10), state.scroll_y);
+}
+
+test "ensureCursorVisible ignores zero line_height" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.ensureCursorVisible(0, 60);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "ensureCursorVisible ignores zero viewport_height" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.ensureCursorVisible(20, 0);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "applyScrollDelta ignores negative viewport" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.applyScrollDelta(10, 200, -50);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "applyScrollDelta clamps when content shorter than viewport" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    // total_height (50) < viewport_height (200) → max_scroll = 0
+    state.applyScrollDelta(100, 50, 200);
+    try testing.expectEqual(@as(f32, 0), state.scroll_y);
+}
+
+test "ensureCursorVisible ignores negative line_height" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.ensureCursorVisible(-10, 60);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
+}
+
+test "ensureCursorVisible ignores negative viewport_height" {
+    var state = try EditorState.initFromSource(testing.allocator, "a\nb\nc");
+    defer state.deinit();
+
+    state.scroll_y = 30;
+    state.ensureCursorVisible(20, -100);
+    try testing.expectEqual(@as(f32, 30), state.scroll_y);
 }
