@@ -12,6 +12,7 @@ const ImageRenderer = @import("render/image_renderer.zig").ImageRenderer;
 const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const SearchState = @import("search/search_state.zig").SearchState;
 const LinkHandler = @import("render/link_handler.zig").LinkHandler;
+const EditorState = @import("editor/editor_state.zig").EditorState;
 const defaults = @import("theme/defaults.zig");
 const App = @import("app.zig").App;
 
@@ -32,6 +33,8 @@ pub const Tab = struct {
     file_deleted: bool,
     /// Owned copy of the raw markdown source text (null until first successful loadMarkdown call)
     source_text: ?[]u8,
+    /// Editor buffer for in-app editing (null until first toggle into edit mode)
+    editor: ?EditorState,
 
     pub fn init(allocator: Allocator) Tab {
         return .{
@@ -48,6 +51,7 @@ pub const Tab = struct {
             .reload_indicator_ms = 0,
             .file_deleted = false,
             .source_text = null,
+            .editor = null,
         };
     }
 
@@ -58,6 +62,7 @@ pub const Tab = struct {
         if (self.layout_tree) |*tree| tree.deinit();
         if (self.document) |*doc| doc.deinit();
         self.image_renderer.deinit();
+        if (self.editor) |*ed| ed.deinit();
         if (self.source_text) |source| self.allocator.free(source);
         if (self.file_path) |path| self.allocator.free(path);
         if (self.base_dir) |dir| self.allocator.free(dir);
@@ -150,6 +155,20 @@ pub const Tab = struct {
         self.file_deleted = false;
     }
 
+    /// Toggle edit mode on or off. On first entry, initializes the editor
+    /// buffer from source_text. Subsequent toggles re-open/close the existing
+    /// buffer without destroying edits.
+    pub fn toggleEditMode(self: *Tab) !void {
+        if (self.editor) |*ed| {
+            ed.is_open = !ed.is_open;
+        } else {
+            const source = self.source_text orelse "";
+            var ed = try EditorState.initFromSource(self.allocator, source);
+            ed.is_open = true;
+            self.editor = ed;
+        }
+    }
+
     /// Return a display title for the tab (basename of file path, or "Untitled").
     pub fn title(self: *const Tab) []const u8 {
         const path = self.file_path orelse return "Untitled";
@@ -176,6 +195,7 @@ test "Tab.init returns correct default state" {
     try testing.expectEqual(@as(i64, 0), tab.reload_indicator_ms);
     try testing.expect(!tab.file_deleted);
     try testing.expectEqual(@as(?[]u8, null), tab.source_text);
+    try testing.expectEqual(@as(?EditorState, null), tab.editor);
 }
 
 test "Tab.title returns Untitled when no file path" {
@@ -316,5 +336,65 @@ test "Tab.deinit cleans up without leaks" {
     try tab.setFilePath("/tmp/test.md");
     try tab.setBaseDir("/tmp");
     try tab.loadMarkdown("# Test source_text cleanup");
+    tab.deinit();
+}
+
+test "Tab.toggleEditMode initializes editor from source_text on first call" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello\n\nWorld");
+    try testing.expectEqual(@as(?EditorState, null), tab.editor);
+
+    try tab.toggleEditMode();
+    try testing.expect(tab.editor != null);
+    try testing.expect(tab.editor.?.is_open);
+    try testing.expectEqualStrings("# Hello", tab.editor.?.getLineText(0).?);
+}
+
+test "Tab.toggleEditMode toggles off without destroying buffer" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode(); // open
+    try testing.expect(tab.editor.?.is_open);
+
+    try tab.toggleEditMode(); // close
+    try testing.expect(!tab.editor.?.is_open);
+    // Buffer still exists — editor is not null
+    try testing.expect(tab.editor != null);
+}
+
+test "Tab.toggleEditMode re-opens existing buffer" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode(); // open — creates editor
+    try tab.toggleEditMode(); // close
+    try tab.toggleEditMode(); // re-open
+
+    try testing.expect(tab.editor.?.is_open);
+    // Same content preserved
+    try testing.expectEqualStrings("# Test", tab.editor.?.getLineText(0).?);
+}
+
+test "Tab.toggleEditMode with no source_text creates editor from empty string" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    // No loadMarkdown called — source_text is null
+    try tab.toggleEditMode();
+    try testing.expect(tab.editor != null);
+    try testing.expect(tab.editor.?.is_open);
+    try testing.expectEqual(@as(usize, 1), tab.editor.?.lineCount());
+    try testing.expectEqualStrings("", tab.editor.?.getLineText(0).?);
+}
+
+test "Tab.deinit cleans up editor without leaks" {
+    var tab = Tab.init(testing.allocator);
+    try tab.loadMarkdown("# Editor cleanup test");
+    try tab.toggleEditMode();
     tab.deinit();
 }

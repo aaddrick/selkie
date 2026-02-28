@@ -298,6 +298,31 @@ pub const App = struct {
     }
 
     // =========================================================================
+    // Edit mode
+    // =========================================================================
+
+    /// Returns true if the active tab has edit mode open.
+    fn isEditorActive(self: *App) bool {
+        const tab = self.activeTab() orelse return false;
+        const editor = tab.editor orelse return false;
+        return editor.is_open;
+    }
+
+    /// Toggle edit mode on the active tab, closing search if entering.
+    fn toggleEditMode(self: *App) void {
+        const tab = self.activeTab() orelse return;
+        // Close search bar when entering edit mode (mutual exclusion).
+        // The editor is about to open if it doesn't exist yet or is currently closed.
+        const entering = if (tab.editor) |ed| !ed.is_open else true;
+        if (entering) {
+            tab.search.close();
+        }
+        tab.toggleEditMode() catch |err| {
+            std.log.err("Failed to toggle edit mode: {}", .{err});
+        };
+    }
+
+    // =========================================================================
     // File dialogs
     // =========================================================================
 
@@ -451,6 +476,7 @@ pub const App = struct {
                     self.show_line_numbers = !self.show_line_numbers;
                     self.relayoutAllTabs();
                 },
+                .toggle_edit_mode => self.toggleEditMode(),
                 .open_settings => std.log.info("Settings not yet implemented", .{}),
             }
         }
@@ -476,14 +502,22 @@ pub const App = struct {
         if (!menu_is_open) {
             const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
             const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+            const editor_active = self.isEditorActive();
 
-            // Ctrl+F opens search
-            if (ctrl_held and rl.isKeyPressed(.f)) {
+            // Ctrl+E toggles edit mode (always available)
+            if (ctrl_held and rl.isKeyPressed(.e)) {
+                self.toggleEditMode();
+            } else if (editor_active) {
+                // Editor is active — suppress all other keyboard input
+                // (including Ctrl+F search). Only Ctrl+E above can exit.
+                // TODO(#58): call updateEditor() here to handle text input.
+            } else if (ctrl_held and rl.isKeyPressed(.f)) {
+                // Ctrl+F opens search
                 tab.search.open();
             } else if (tab.search.is_open) {
                 self.updateSearch();
             } else {
-                // Normal keyboard shortcuts when search is closed
+                // Normal keyboard shortcuts when search and editor are closed
                 if (!ctrl_held and !shift_held) {
                     if (rl.isKeyPressed(.t)) {
                         self.toggleTheme();
@@ -548,7 +582,9 @@ pub const App = struct {
             const mouse_over_sidebar = self.toc_sidebar.is_open and
                 @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
             if (!mouse_over_sidebar) {
-                if (tab.search.is_open) {
+                if (tab.search.is_open or self.isEditorActive()) {
+                    // Search or edit mode active — only allow mouse wheel scrolling,
+                    // suppress vim keys (j/k/d/u/g) that scroll.update() handles.
                     tab.scroll.handleMouseWheel();
                 } else {
                     tab.scroll.update();
@@ -1041,9 +1077,53 @@ test "App.isSupportedMarkdownExtension" {
     try testing.expect(!App.isSupportedMarkdownExtension("noext"));
 }
 
+test "App.isEditorActive returns false with no tabs" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    try testing.expect(!app.isEditorActive());
+}
+
+test "App.isEditorActive returns false when editor not initialized" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    _ = try app.newTab();
+    try testing.expect(!app.isEditorActive());
+}
+
+test "App.isEditorActive returns true when editor is open" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    const tab = try app.newTab();
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode();
+    try testing.expect(app.isEditorActive());
+}
+
+test "App.isEditorActive returns false when editor is closed" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+
+    const tab = try app.newTab();
+    try tab.loadMarkdown("# Test");
+    try tab.toggleEditMode(); // open
+    try tab.toggleEditMode(); // close
+    try testing.expect(!app.isEditorActive());
+}
+
 test "App.deinit cleans up without leaks" {
     var app = App.init(testing.allocator);
     _ = try app.newTab();
     _ = try app.newTab();
+    app.deinit();
+}
+
+test "App.deinit cleans up editor state without leaks" {
+    var app = App.init(testing.allocator);
+    const tab = try app.newTab();
+    try tab.loadMarkdown("# Editor cleanup");
+    try tab.toggleEditMode();
     app.deinit();
 }
