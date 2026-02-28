@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selkie — Package Repository</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #24292f; }
+    h1 { border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+    h2 { margin-top: 1.5em; }
+    code { background: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-size: 0.9em; }
+    pre { background: #f6f8fa; padding: 1em; border-radius: 6px; overflow-x: auto; }
+    pre code { padding: 0; background: none; }
+    a { color: #0969da; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Selkie</h1>
+  <p>A fast, native markdown viewer for Linux with GFM support, Mermaid chart rendering, and theming.</p>
+  <p><a href="https://github.com/aaddrick/selkie">GitHub</a> · <a href="https://github.com/aaddrick/selkie/releases">Releases</a></p>
+
+  <h2>Install via APT (Debian/Ubuntu)</h2>
+  <pre><code>curl -fsSL https://aaddrick.github.io/selkie/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/selkie.gpg
+echo "deb [signed-by=/usr/share/keyrings/selkie.gpg arch=amd64,arm64] https://aaddrick.github.io/selkie stable main" | sudo tee /etc/apt/sources.list.d/selkie.list
+sudo apt update
+sudo apt install selkie</code></pre>
+
+  <h2>Install via DNF (Fedora/RHEL)</h2>
+  <pre><code>sudo curl -fsSL https://aaddrick.github.io/selkie/rpm/selkie.repo -o /etc/yum.repos.d/selkie.repo
+sudo dnf install selkie</code></pre>
+
+  <h2>Other Methods</h2>
+  <p>AppImage, AUR, Nix, and source builds are available. See <a href="https://github.com/aaddrick/selkie/blob/main/docs/INSTALL.md">installation docs</a>.</p>
+</body>
+</html>

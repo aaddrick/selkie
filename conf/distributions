@@ -1,0 +1,7 @@
+Origin: Selkie
+Label: Selkie
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: Selkie Markdown Viewer
+SignWith: 9B121469D523886A
