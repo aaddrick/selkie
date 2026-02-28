@@ -34,6 +34,9 @@ pub const MenuBar = struct {
         toggle_toc,
         toggle_line_numbers,
         toggle_edit_mode,
+        zoom_in,
+        zoom_out,
+        reset_zoom,
         open_settings,
     };
 
@@ -67,6 +70,9 @@ pub const MenuBar = struct {
         .{ .label = "Table of Contents", .shortcut = "Ctrl+Shift+T", .action = .toggle_toc },
         .{ .label = "Line Numbers", .shortcut = "Ctrl+L", .action = .toggle_line_numbers },
         .{ .label = "Edit Mode", .shortcut = "Ctrl+E", .action = .toggle_edit_mode },
+        .{ .label = "Zoom In", .shortcut = "Ctrl+=", .action = .zoom_in },
+        .{ .label = "Zoom Out", .shortcut = "Ctrl+-", .action = .zoom_out },
+        .{ .label = "Reset Zoom", .shortcut = "Ctrl+0", .action = .reset_zoom },
     };
 
     const settings_items = [_]MenuItem{
@@ -322,7 +328,7 @@ test "MenuBar isOpen reflects open_menu state" {
 
 test "MenuBar menuItems returns correct item count per menu" {
     try testing.expectEqual(@as(usize, 4), MenuBar.menuItems(.file).len);
-    try testing.expectEqual(@as(usize, 4), MenuBar.menuItems(.view).len);
+    try testing.expectEqual(@as(usize, 7), MenuBar.menuItems(.view).len);
     try testing.expectEqual(@as(usize, 1), MenuBar.menuItems(.settings).len);
 }
 
@@ -339,7 +345,7 @@ test "MenuBar export_pdf item has Ctrl+P shortcut" {
     try testing.expectEqualStrings("Ctrl+P", items[2].shortcut.?);
 }
 
-test "MenuBar view menu has toggle_theme, toggle_toc, toggle_line_numbers, and toggle_edit_mode actions" {
+test "MenuBar view menu items have correct actions and shortcuts" {
     const items = MenuBar.menuItems(.view);
     try testing.expectEqual(MenuBar.Action.toggle_theme, items[0].action);
     try testing.expectEqual(MenuBar.Action.toggle_toc, items[1].action);
@@ -348,6 +354,12 @@ test "MenuBar view menu has toggle_theme, toggle_toc, toggle_line_numbers, and t
     try testing.expectEqualStrings("Ctrl+L", items[2].shortcut.?);
     try testing.expectEqual(MenuBar.Action.toggle_edit_mode, items[3].action);
     try testing.expectEqualStrings("Ctrl+E", items[3].shortcut.?);
+    try testing.expectEqual(MenuBar.Action.zoom_in, items[4].action);
+    try testing.expectEqualStrings("Ctrl+=", items[4].shortcut.?);
+    try testing.expectEqual(MenuBar.Action.zoom_out, items[5].action);
+    try testing.expectEqualStrings("Ctrl+-", items[5].shortcut.?);
+    try testing.expectEqual(MenuBar.Action.reset_zoom, items[6].action);
+    try testing.expectEqualStrings("Ctrl+0", items[6].shortcut.?);
 }
 
 test "MenuBar file and view items are all enabled" {

@@ -39,6 +39,12 @@ pub const App = struct {
     menu_bar: MenuBar,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
     custom_theme: ?Theme,
+    /// Base theme pointer (before zoom scaling) — points to defaults or custom_theme
+    base_theme: *const Theme,
+    /// Mutable copy of the base theme with font_size_scale applied
+    active_theme: Theme,
+    /// Zoom scale factor for font sizes (1.0 = 100%)
+    font_size_scale: f32 = 1.0,
 
     // Tab management
     tabs: std.ArrayList(Tab),
@@ -55,15 +61,20 @@ pub const App = struct {
     should_quit: bool = false,
     close_requested: bool = false,
 
+    /// Create an App with default light theme. Caller MUST call `setTheme()`
+    /// before reading `self.theme`, as `init()` returns by value and cannot
+    /// establish the `self.theme -> &self.active_theme` pointer.
     pub fn init(allocator: Allocator) App {
         return .{
             .allocator = allocator,
-            .theme = &defaults.light,
+            .theme = &defaults.light, // placeholder; setTheme() establishes the real pointer
             .is_dark = false,
             .fonts = null,
             .viewport = Viewport.init(),
             .menu_bar = MenuBar.init(),
             .custom_theme = null,
+            .base_theme = &defaults.light,
+            .active_theme = defaults.light,
             .tabs = std.ArrayList(Tab).init(allocator),
             .active_tab = 0,
             .toc_sidebar = TocSidebar.init(allocator),
@@ -71,20 +82,18 @@ pub const App = struct {
     }
 
     /// Set the initial theme. If custom_theme is provided, it's stored as an owned value.
+    /// Does not call relayoutAllTabs() — intended to be called before tabs are loaded.
     pub fn setTheme(self: *App, custom: ?Theme, dark: bool) void {
         if (custom) |ct| {
             self.custom_theme = ct;
-            self.theme = &(self.custom_theme orelse unreachable);
+            self.base_theme = &self.custom_theme.?;
         } else if (dark) {
             self.is_dark = true;
-            self.theme = &defaults.dark;
+            self.base_theme = &defaults.dark;
         } else {
-            self.theme = &defaults.light;
+            self.base_theme = &defaults.light;
         }
-        // Update link handlers on all existing tabs
-        for (self.tabs.items) |*tab| {
-            tab.link_handler.theme = self.theme;
-        }
+        self.rebuildActiveTheme();
     }
 
     const font_files = .{
@@ -296,14 +305,68 @@ pub const App = struct {
 
     pub fn toggleTheme(self: *App) void {
         if (self.custom_theme) |*ct| {
-            self.theme = if (self.theme == ct) &defaults.dark else ct;
+            self.base_theme = if (self.base_theme == @as(*const Theme, ct)) &defaults.dark else ct;
         } else {
             self.is_dark = !self.is_dark;
-            self.theme = if (self.is_dark) &defaults.dark else &defaults.light;
+            self.base_theme = if (self.is_dark) &defaults.dark else &defaults.light;
         }
+        self.rebuildActiveTheme();
+        self.relayoutAllTabs();
+    }
+
+    /// Rebuild active_theme from base_theme with font_size_scale applied.
+    /// Scales font sizes and spacing fields proportionally so the layout
+    /// remains visually consistent at all zoom levels.
+    fn rebuildActiveTheme(self: *App) void {
+        self.active_theme = self.base_theme.*;
+        const s = self.font_size_scale;
+        self.active_theme.body_font_size *= s;
+        self.active_theme.mono_font_size *= s;
+        self.active_theme.paragraph_spacing *= s;
+        self.active_theme.heading_spacing_above *= s;
+        self.active_theme.heading_spacing_below *= s;
+        self.active_theme.list_indent *= s;
+        self.active_theme.blockquote_indent *= s;
+        self.active_theme.code_block_padding *= s;
+        self.active_theme.table_cell_padding *= s;
+        self.theme = &self.active_theme;
         for (self.tabs.items) |*tab| {
             tab.link_handler.theme = self.theme;
         }
+    }
+
+    // =========================================================================
+    // Zoom
+    // =========================================================================
+
+    const min_zoom: f32 = 0.5;
+    const max_zoom: f32 = 3.0;
+    const zoom_step: f32 = 0.1;
+
+    /// Round to nearest 0.1 to avoid IEEE 754 drift from repeated addition.
+    fn roundScale(scale: f32) f32 {
+        return @round(scale * 10.0) / 10.0;
+    }
+
+    /// Increase font size by one zoom step.
+    fn zoomIn(self: *App) void {
+        self.setZoom(@min(roundScale(self.font_size_scale + zoom_step), max_zoom));
+    }
+
+    /// Decrease font size by one zoom step.
+    fn zoomOut(self: *App) void {
+        self.setZoom(@max(roundScale(self.font_size_scale - zoom_step), min_zoom));
+    }
+
+    /// Reset font size to default (100%).
+    fn resetZoom(self: *App) void {
+        self.setZoom(1.0);
+    }
+
+    /// Apply the given zoom scale, rebuild the theme, and relayout all tabs.
+    fn setZoom(self: *App, scale: f32) void {
+        self.font_size_scale = scale;
+        self.rebuildActiveTheme();
         self.relayoutAllTabs();
     }
 
@@ -816,6 +879,9 @@ pub const App = struct {
                     self.relayoutAllTabs();
                 },
                 .toggle_edit_mode => self.toggleEditMode(),
+                .zoom_in => self.zoomIn(),
+                .zoom_out => self.zoomOut(),
+                .reset_zoom => self.resetZoom(),
                 .open_settings => std.log.info("Settings not yet implemented", .{}),
             }
         }
@@ -849,9 +915,19 @@ pub const App = struct {
             } else if (ctrl_held and rl.isKeyPressed(.s)) {
                 // Ctrl+S saves editor buffer (works in both edit and view mode)
                 self.saveActiveTab();
+            } else if (ctrl_held and rl.isKeyPressed(.equal)) {
+                // Ctrl+= (or Ctrl+Shift+= i.e. Ctrl++) zoom in
+                self.zoomIn();
+            } else if (ctrl_held and rl.isKeyPressed(.minus)) {
+                // Ctrl+- zoom out
+                self.zoomOut();
+            } else if (ctrl_held and rl.isKeyPressed(.zero)) {
+                // Ctrl+0 reset zoom
+                self.resetZoom();
             } else if (editor_active) {
                 // Editor is active — suppress all other keyboard input
-                // (including Ctrl+F search). Only Ctrl+E and Ctrl+S above can exit.
+                // (including Ctrl+F search). Only Ctrl+E, Ctrl+S, and
+                // Ctrl+=/Ctrl+-/Ctrl+0 (zoom) above pass through.
                 self.updateEditor();
             } else if (ctrl_held and rl.isKeyPressed(.f)) {
                 // Ctrl+F opens search
@@ -917,10 +993,21 @@ pub const App = struct {
         // Scrollbar interaction (takes priority over other scroll input)
         const scrollbar_active = if (!menu_is_open) self.handleScrollbarInput(tab) else false;
 
+        // Ctrl+scroll zooms font size (intercept before normal scroll handling)
+        const zoom_handled = blk: {
+            if (menu_is_open) break :blk false;
+            const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
+            if (!ctrl_held) break :blk false;
+            const wheel = rl.getMouseWheelMove();
+            if (wheel == 0) break :blk false;
+            if (wheel > 0) self.zoomIn() else self.zoomOut();
+            break :blk true;
+        };
+
         // Scroll/link input when menu is closed.
         // Skip document scroll when mouse is over the ToC sidebar (it has its own scroll)
         // or when the scrollbar is being dragged.
-        if (!menu_is_open and !scrollbar_active) {
+        if (!menu_is_open and !scrollbar_active and !zoom_handled) {
             const mouse_over_sidebar = self.toc_sidebar.is_open and
                 @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
             if (!mouse_over_sidebar) {
@@ -1679,4 +1766,94 @@ test "App.requestClose is idempotent with dirty tabs" {
     app.requestClose();
     try testing.expect(app.active_dialog != null);
     try testing.expectEqual(ModalDialog.Kind.close_app, app.active_dialog.?.kind);
+}
+
+test "App.zoomIn increases font_size_scale" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    try testing.expectApproxEqAbs(@as(f32, 1.0), app.font_size_scale, 0.001);
+    app.zoomIn();
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.font_size_scale, 0.001);
+}
+
+test "App.zoomOut decreases font_size_scale" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    app.zoomOut();
+    try testing.expectApproxEqAbs(@as(f32, 0.9), app.font_size_scale, 0.001);
+}
+
+test "App.resetZoom restores default scale" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    app.zoomIn();
+    app.zoomIn();
+    try testing.expectApproxEqAbs(@as(f32, 1.2), app.font_size_scale, 0.001);
+
+    app.resetZoom();
+    try testing.expectApproxEqAbs(@as(f32, 1.0), app.font_size_scale, 0.001);
+}
+
+test "App.zoomIn clamps at max_zoom" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    var i: usize = 0;
+    while (i < 30) : (i += 1) app.zoomIn();
+
+    try testing.expectApproxEqAbs(@as(f32, App.max_zoom), app.font_size_scale, 0.001);
+}
+
+test "App.zoomOut clamps at min_zoom" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    var i: usize = 0;
+    while (i < 30) : (i += 1) app.zoomOut();
+
+    try testing.expectApproxEqAbs(@as(f32, App.min_zoom), app.font_size_scale, 0.001);
+}
+
+test "App zoom applies scale to active theme font sizes and spacing" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    const base = defaults.light;
+    const s: f32 = 1.1;
+
+    app.zoomIn(); // 1.1x
+    try testing.expectApproxEqAbs(base.body_font_size * s, app.theme.body_font_size, 0.01);
+    try testing.expectApproxEqAbs(base.mono_font_size * s, app.theme.mono_font_size, 0.01);
+    try testing.expectApproxEqAbs(base.paragraph_spacing * s, app.theme.paragraph_spacing, 0.01);
+    try testing.expectApproxEqAbs(base.heading_spacing_above * s, app.theme.heading_spacing_above, 0.01);
+    try testing.expectApproxEqAbs(base.heading_spacing_below * s, app.theme.heading_spacing_below, 0.01);
+    try testing.expectApproxEqAbs(base.list_indent * s, app.theme.list_indent, 0.01);
+    try testing.expectApproxEqAbs(base.blockquote_indent * s, app.theme.blockquote_indent, 0.01);
+    try testing.expectApproxEqAbs(base.code_block_padding * s, app.theme.code_block_padding, 0.01);
+    try testing.expectApproxEqAbs(base.table_cell_padding * s, app.theme.table_cell_padding, 0.01);
+}
+
+test "App zoom persists across theme toggle round-trip" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+
+    app.zoomIn(); // 1.1x
+    app.toggleTheme(); // switch to dark
+
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.font_size_scale, 0.001);
+    try testing.expectApproxEqAbs(defaults.dark.body_font_size * 1.1, app.theme.body_font_size, 0.01);
+
+    app.toggleTheme(); // back to light
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.font_size_scale, 0.001);
+    try testing.expectApproxEqAbs(defaults.light.body_font_size * 1.1, app.theme.body_font_size, 0.01);
 }
