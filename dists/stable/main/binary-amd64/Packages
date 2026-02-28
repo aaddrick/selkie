@@ -1,5 +1,5 @@
 Package: selkie
-Version: 0.1.0
+Version: 0.1.1
 Architecture: amd64
 Installed-Size: 4752
 Depends: libc6, libx11-6, libglx0, libxcursor1, libxext6, libxfixes3, libxi6, libxinerama1, libxrandr2, libxrender1, libegl1, libwayland-client0, libxkbcommon0
@@ -8,11 +8,11 @@ Maintainer: aaddrick <aaddrick@users.noreply.github.com>
 Homepage: https://github.com/aaddrick/selkie
 Priority: optional
 Section: text
-Filename: pool/main/s/selkie/selkie_0.1.0_amd64.deb
-Size: 1854496
-SHA256: 0de25e011f732989bda3a491f187737d984b9903f62322c33d2357408f57460c
-SHA1: 35d87afa09f9790c1d491f832907323eabe33052
-MD5sum: 65d7ccbafbd36935d15c920b31d45282
+Filename: pool/main/s/selkie/selkie_0.1.1_amd64.deb
+Size: 1854514
+SHA256: 3011a91704bc2af0fd336598b22a97ca64c3008d9e0b2949c15f750c0d5751a3
+SHA1: c67ab725d33fb08bfa5dc7766d579d6f05f41999
+MD5sum: f6d47ce0a39966ee68c9bfc5fc6dc184
 Description: Markdown viewer with GFM support and Mermaid chart rendering
  Selkie is a Zig-based GUI markdown viewer with GitHub Flavored Markdown
  support, native Mermaid chart rendering, and theming.
