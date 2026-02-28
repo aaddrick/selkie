@@ -9,10 +9,10 @@ Homepage: https://github.com/aaddrick/selkie
 Priority: optional
 Section: text
 Filename: pool/main/s/selkie/selkie_0.1.0_amd64.deb
-Size: 1854398
-SHA256: ea0b2adab09f66f5f38b621a612e973dab402454269e418b777c667b1b0310b3
-SHA1: 27648f89363875a1a1002cc5760c293912f43268
-MD5sum: c4c4525911985a5e8258610bd3690278
+Size: 1854468
+SHA256: 442ce41b278de7cd97260ba86ada8ce550386585fffe1a423735fd906d4811bc
+SHA1: c00db99319edfe77f24ff8e2ff60f4e343d1f95e
+MD5sum: 617d5a8cbd227586f5a0e0c6b495a136
 Description: Markdown viewer with GFM support and Mermaid chart rendering
  Selkie is a Zig-based GUI markdown viewer with GitHub Flavored Markdown
  support, native Mermaid chart rendering, and theming.
