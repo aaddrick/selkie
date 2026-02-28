@@ -4,44 +4,44 @@ Hash: SHA512
 Origin: Selkie
 Label: Selkie
 Codename: stable
-Date: Sat, 28 Feb 2026 18:51:15 UTC
+Date: Sat, 28 Feb 2026 18:56:57 UTC
 Architectures: amd64 arm64
 Components: main
 Description: Selkie Markdown Viewer
 MD5Sum:
- 1cb0f4b7524ee11ec58aba3067ff7d1f 816 main/binary-amd64/Packages
- 5acc945f6e8c27e7e29ffdfb9e487bbd 524 main/binary-amd64/Packages.gz
+ 85e669f6025d79c42ab4beb09561687e 816 main/binary-amd64/Packages
+ 1c4cba8940fd63cb4b4f709aeda8142e 521 main/binary-amd64/Packages.gz
  cbf821706234b6cde351b0fcee19c7eb 101 main/binary-amd64/Release
- 180ad705bea0f08de56dd0b03a5ff1a0 816 main/binary-arm64/Packages
- 6cae15d89069ed94ca78df200179cb41 522 main/binary-arm64/Packages.gz
+ 8c5ff7af9717a76e005cc3992da310fe 816 main/binary-arm64/Packages
+ a7e87ed621f8b45577abeca7ece2d757 524 main/binary-arm64/Packages.gz
  54a16c1cc35a2e6897cca73485cc7670 101 main/binary-arm64/Release
 SHA1:
- 7869b990ac12930d5bd28c67867308fa63217fed 816 main/binary-amd64/Packages
- 1ad53fa6de24268e02ffcff3271504539ad16a27 524 main/binary-amd64/Packages.gz
+ fe083ab06416332b6983f53fde38f23bf16ad736 816 main/binary-amd64/Packages
+ 92059283508b957b372405c0085b77156f3c496a 521 main/binary-amd64/Packages.gz
  9f2ba077410d4d204f4885c4299429a9b9c77f55 101 main/binary-amd64/Release
- 6f15891d24dc8ee0b5a4589d2460dfcc52e19d21 816 main/binary-arm64/Packages
- 395e128b64ec082df431bd4c28ac9a72f6e69149 522 main/binary-arm64/Packages.gz
+ 51e7f3e1b4ac9cba9cefa0ffed66eda6f42ef635 816 main/binary-arm64/Packages
+ ab8b395ad4e536c9a96384d09486991f161f3d9a 524 main/binary-arm64/Packages.gz
  7ae4b1f83338c179780bc8436f77442e46b576b2 101 main/binary-arm64/Release
 SHA256:
- 946442be9df1ee92d77a0a7e8b13ce914a359e6b77cc2a9c5a685b59596fd8cf 816 main/binary-amd64/Packages
- 2c1744ceb844addb23a560a12f9600efe8c1c189b319914d1f68e30c102d98c2 524 main/binary-amd64/Packages.gz
+ 410298cc30616dd10939915c7f92970cb98c06f11f4a125406704241b55e6750 816 main/binary-amd64/Packages
+ e0cb61f09035ddb5a98eea9a7b05f8f002c9dfd5e3906006c9b891fc26da1407 521 main/binary-amd64/Packages.gz
  e0bb9432e1991cddae5ccb1e916ad603a5fb768f17fecd184dfa902b5a54ecb6 101 main/binary-amd64/Release
- f959bac056c508f5445d4f3510ee16c8bfa0e8ac99b6281533189e16f24223ba 816 main/binary-arm64/Packages
- b556abe67b28b4252f20c9dc797caf6ba23d16b5989a3a6c4d9a6c642800ae45 522 main/binary-arm64/Packages.gz
+ 695e0adf6aafd4e19f032ca894f3f49b51c02201ffe6e874f3cfc3a01618ed58 816 main/binary-arm64/Packages
+ c3e67c93e341bfb73b48046ab2ed188de09a187d27e5b87c52dfd03bfb990180 524 main/binary-arm64/Packages.gz
  86b396ebf4919bb6137ec0e67ca358ca2425607f59ea112768e174502c7a1320 101 main/binary-arm64/Release
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjOSMACgkQfNLLggsY
-QuJKXQ//Xk7qPkB6cbjBptmMHBBWAbCYWM8YAvQRCMJeFvxMzvAr45oFPtzZ4kXp
-DkIxKLpnDJKuOmo+rQrfG/0wucYgoGxrwEf429QyREhp8STEKVEILNsiX+qXoj3X
-sCF/Xx1tzyupHC045my/P1+VczFHHbfWumUEWB6lJaUW4FCkMPRn8g9BvUeDGVJv
-k4rz2Y5aymYTyE+rH1ImoPSY31TTCxtiCoksk4F+tl1qlUCLqMkJ6Ld9kgJzBt4Y
-2wXMdOxHPS9F+RaVvB6XDZEmIbkeLshxKvRbWf+v7CmXiMfbyAzr0CfBzG8p/w6G
-DILuvE02iyvZ3RAd5uYb7uB0PJM18AcZgdaeLIpw3iZBO8rrOsJ/wLlqxLiBQPdV
-4el3YS7RsoDkytY7LriGpQhQVOMlzj7VCzg1SfIWXRnK05kVdax+DN2zXlIujFxY
-7wk8quMWQxaTWiuqm8bIJFgbjdvMLvPrF9BHHjI2uYDT4HOr5MuKCCl4DKYio4B3
-8dxusLpwOLxbdLyEt8xPKp4yT+4unsXmFCW8twEmKxCaeo3sp/+xNaPLKOTGtThT
-ajaimCzJc91PtYXyRzodKh68mE/rsakirBmwEfDOxG2WQ40A/9m46qTD4KcqsgOo
-0e4xX9Gf0JlraU7eznMPwGUYvs6SeOlbgxhUELfXpC1oeR4JFfY=
-=AcnK
+iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjOnkACgkQfNLLggsY
+QuLmWRAApkxd0fXa+/D4z/LzhFGKcliYmqsDsZMQ5WvqhMttw2ekEsBIbynjnn5n
+HfHPliXmyxZeaekgKvqZ3puxgpjIisp+0yoOGSXUXoSyFrSsZmF6nhPFO9X+Tgbb
+IuEF+n4mZ72Y2A1mic6B1IEPCwyRf6rVSqfP/+aK762w+RR4CfUyJEdQL5YK4Lle
+Ko6yaCRwFlsyYYOcoOT/pExf7j30eokLKqgXyGIzAQKwZ3yQewVz2/MrF5wQClEe
+/B6tRZ7JxjYo7O+C4N3+jZzJLiz2QH4YIlv1frHjC9pgCH8WN8VJyKKSKT3IUHkb
+BGY3MPBpDThF1Omb66vb1z2JGgwammJZKN71TxoDbLtUJ7WO/P2xKRXNQ9Q8XMt0
+HZeicUgSMQ/uoRS7k2l193vKuQKJ6bi/Dw17Wq1UxEuaIV4ifA4vqqLjr0qWnAQ6
+uurMYfIiScoFTy1G3FItYcOHnw2UpwrFmun/cTErfs5vwu+ETuTLqEKaoE06LvnJ
+63NYBaKkpru2T7AdwuS1wr/WMAGZNMYKj8sNvOocYTwuRtiyO0eUkY4SSbcyFK4I
+gRe6ydaF/9fSJRbaVjZf598TVwZmP/OBE4spXub1dYbANACQSymDvi93FZcbYa1B
+mVSJFPpRiewAiAWsBK3XF+A+Hn82OWe/9eVJkBPojT2n3jSAA9E=
+=Eomp
 -----END PGP SIGNATURE-----
