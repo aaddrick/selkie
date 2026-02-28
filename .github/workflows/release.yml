@@ -212,31 +212,97 @@ jobs:
             echo "Generating notes for $RANGE"
           fi
 
-          # Collect commits with messages and diffs
-          CHANGES=$(git log "$RANGE" --pretty=format:'--- Commit %h by %an ---%n%s%n%n%b' --patch --no-color | head -c 180000)
+          # Write commit log and stat summary to file (avoids shell variable size limits)
+          git log "$RANGE" --pretty=format:'### Commit %h%n**%s**%n%n%b' --no-merges > changes-messages.txt
+          git log "$RANGE" --stat --no-merges > changes-stat.txt
+          git diff "${PREV_TAG:-$(git rev-list --max-parents=0 HEAD)}" "$TAG" --stat > changes-diff-stat.txt
 
-          # Call Claude API
-          PROMPT="You are writing release notes for Selkie, a Zig-based GUI markdown viewer for Linux with GFM support, Mermaid chart rendering, and theming.
+          # Truncate diffs to fit API limits
+          git log "$RANGE" --pretty=format:'--- %h: %s ---' --patch --no-color > changes-full.txt
+          truncate -s '<150000' changes-full.txt
 
-          Below are the git commits (messages and diffs) included in this release (${TAG}).
+          # Build prompt as a file
+          cat > prompt.txt <<'PROMPT_END'
+          You are writing release notes for Selkie, a Zig-based GUI markdown viewer for Linux.
+          Selkie is built with Zig and raylib, supports GitHub Flavored Markdown via cmark-gfm,
+          renders Mermaid diagrams natively, and has theming support.
 
-          Write concise, user-facing release notes in markdown. Structure them with sections like:
-          - **Highlights** (1-3 sentence summary of what's notable)
-          - **New Features** (if any)
-          - **Improvements** (if any)
-          - **Bug Fixes** (if any)
-          - **Infrastructure** (CI/CD, packaging, build changes — keep brief)
+          Write release notes using EXACTLY this structure (keep all section headers, use "None." if empty):
 
-          Omit empty sections. Focus on what matters to users. Do not list every file changed — summarize the intent. Do not include a title heading (the release already has one).
+          ## Highlights
 
-          Commits and diffs:
-          ${CHANGES}"
+          1-3 sentences summarizing the most important changes in this release.
 
-          BODY=$(jq -n \
-            --arg model "claude-sonnet-4-6-20250514" \
-            --arg prompt "$PROMPT" \
+          ## New Features
+
+          - Bullet points describing user-visible new features
+          - Focus on what users can now DO, not implementation details
+
+          ## Improvements
+
+          - Bullet points for enhancements to existing features
+          - Performance improvements, UX improvements, etc.
+
+          ## Bug Fixes
+
+          - Bullet points for bugs that were fixed
+          - Describe the symptom that was fixed, not the code change
+
+          ## Infrastructure
+
+          - Brief bullet points for CI/CD, packaging, build, or documentation changes
+          - Keep this section short — users care less about this
+
+          ## Contributors
+
+          Thank any contributors whose commits appear in this release, EXCLUDING:
+          - aaddrick (project maintainer — do not thank)
+          - Claude / github-actions[bot] / any AI (do not thank)
+
+          If there are no other contributors, omit this section entirely.
+          Format: "Thanks to @username for their contribution!" with a brief note on what they did.
+
+          ## Install
+
+          **APT (Debian/Ubuntu):**
+          ```bash
+          curl -fsSL https://aaddrick.github.io/selkie/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/selkie.gpg
+          echo "deb [signed-by=/usr/share/keyrings/selkie.gpg arch=amd64,arm64] https://aaddrick.github.io/selkie stable main" | sudo tee /etc/apt/sources.list.d/selkie.list
+          sudo apt update && sudo apt install selkie
+          ```
+
+          **DNF (Fedora/RHEL):**
+          ```bash
+          sudo curl -fsSL https://aaddrick.github.io/selkie/rpm/selkie.repo -o /etc/yum.repos.d/selkie.repo
+          sudo dnf install selkie
+          ```
+
+          **AUR:** `yay -S selkie`
+
+          **AppImage / .deb / .rpm:** Download from the assets below.
+
+          Rules:
+          - Do NOT include a title heading (the release already has "Selkie vX.Y.Z")
+          - Do NOT list individual files changed
+          - Do NOT mention commit hashes
+          - Keep total length under 500 words
+          - Use present tense ("Adds", "Fixes", not "Added", "Fixed")
+          PROMPT_END
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' prompt.txt
+
+          # Append the changes
+          printf '\n---\n\nCommit messages:\n\n' >> prompt.txt
+          cat changes-messages.txt >> prompt.txt
+          printf '\n---\n\nDiff summary:\n\n' >> prompt.txt
+          cat changes-diff-stat.txt >> prompt.txt
+          printf '\n---\n\nFull diffs (may be truncated):\n\n' >> prompt.txt
+          cat changes-full.txt >> prompt.txt
+
+          # Call Claude API with file input
+          BODY=$(jq -n --rawfile prompt prompt.txt \
             '{
-              model: $model,
+              model: "claude-sonnet-4-6-20250514",
               max_tokens: 2048,
               messages: [{role: "user", content: $prompt}]
             }' | curl -fsSL \
@@ -247,7 +313,7 @@ jobs:
               -d @- | jq -r '.content[0].text')
 
           if [ -z "$BODY" ] || [ "$BODY" = "null" ]; then
-            echo "AI release notes generation failed, falling back to git log"
+            echo "::warning::AI release notes generation failed, falling back to git log"
             BODY=$(git log "$RANGE" --pretty=format:'- %s' --no-merges)
           fi
 
