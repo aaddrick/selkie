@@ -532,10 +532,11 @@ jobs:
 
           # Generate .SRCINFO
           docker run --rm -v "$PWD:/pkg" -w /pkg archlinux:base \
-            bash -c 'pacman -Sy --noconfirm sudo && useradd -m build && \
-              echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
-              chown -R build:build /pkg && \
-              su - build -c "cd /pkg && makepkg --printsrcinfo" > .SRCINFO'
+            bash -c 'useradd -m build && \
+              find /pkg -maxdepth 1 -not -name .git -not -path /pkg -exec chown -R build:build {} + && \
+              su build -c "makepkg --printsrcinfo > .SRCINFO"'
+          # Restore ownership after docker (container uid may differ from runner)
+          sudo chown -R "$(id -u):$(id -g)" .
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
