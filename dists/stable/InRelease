@@ -4,44 +4,44 @@ Hash: SHA512
 Origin: Selkie
 Label: Selkie
 Codename: stable
-Date: Sat, 28 Feb 2026 19:55:54 UTC
+Date: Sat, 07 Mar 2026 20:42:07 UTC
 Architectures: amd64 arm64
 Components: main
 Description: Selkie Markdown Viewer
 MD5Sum:
- 37521726923f869cffdbb7d5fe2ffe0b 816 main/binary-amd64/Packages
- 22d510add476f5694cc5673f3cd6c83b 522 main/binary-amd64/Packages.gz
+ d0e39df7a4db919d6daca94c979f40ec 816 main/binary-amd64/Packages
+ 8f64aaf9f7e88ca3c2c926d918bea2b3 524 main/binary-amd64/Packages.gz
  cbf821706234b6cde351b0fcee19c7eb 101 main/binary-amd64/Release
- f31c136cbe11a2592b2ebcda477074ca 816 main/binary-arm64/Packages
- aa0496125b5cdc963f63b9d4d43eb19b 521 main/binary-arm64/Packages.gz
+ 013edd1ef7d062853e9dea96096169ac 816 main/binary-arm64/Packages
+ 01138dc344be3713fff1d0fdea5e6480 524 main/binary-arm64/Packages.gz
  54a16c1cc35a2e6897cca73485cc7670 101 main/binary-arm64/Release
 SHA1:
- 58d7729721a9077abeed161acab986121eecc216 816 main/binary-amd64/Packages
- a86a8f50c5f0b1fb61da4c2d1693d77edf02ca5a 522 main/binary-amd64/Packages.gz
+ b9aa8c090f1a6639d0cedb681d8c1091c5637b19 816 main/binary-amd64/Packages
+ 0698c02846d87df99674e260d536b3a4bdf88025 524 main/binary-amd64/Packages.gz
  9f2ba077410d4d204f4885c4299429a9b9c77f55 101 main/binary-amd64/Release
- a1845d1253941e25ddca4c7f5359b567d2544fe8 816 main/binary-arm64/Packages
- e808544816f1d147928e22a593a9dc47c536c8ef 521 main/binary-arm64/Packages.gz
+ 424521586e5e01ed5b9725998437e66d6c213c55 816 main/binary-arm64/Packages
+ 525efbcb4c567db59eee53671deaead453c8a03e 524 main/binary-arm64/Packages.gz
  7ae4b1f83338c179780bc8436f77442e46b576b2 101 main/binary-arm64/Release
 SHA256:
- 757d4ddf9ddbbb72185b38ad12b1e30ffdd26144483990454b5d5315d2fdc729 816 main/binary-amd64/Packages
- 25b6e519a5b72174da191b6a3d34643339ce504832d8fc4439a9b7bb56897818 522 main/binary-amd64/Packages.gz
+ 18e8804e3db877f83a6e8d392cf810f2a49c26d39c211e82aaffaa5619a6fd92 816 main/binary-amd64/Packages
+ 0c28e2a1604aed206a21832f3766493308b115d6196eea87eab8a5f70aca5deb 524 main/binary-amd64/Packages.gz
  e0bb9432e1991cddae5ccb1e916ad603a5fb768f17fecd184dfa902b5a54ecb6 101 main/binary-amd64/Release
- 3716fc8bb493fefc33e1d5e1e9ddc0e9cfd6596905b6b0e93e26c23e01b57bb8 816 main/binary-arm64/Packages
- 372dff606b7c556ece65c397eb0a56b331c92a1456162765eb496ac541f63216 521 main/binary-arm64/Packages.gz
+ 94f3d021c5df970f7a339f2427c3ac61e296cbc69809851d7016e9ce2bba22e1 816 main/binary-arm64/Packages
+ ae047dde1fec4d6e83afabc3ffc82da5875bc55d60e952f667a5d6f946c49155 524 main/binary-arm64/Packages.gz
  86b396ebf4919bb6137ec0e67ca358ca2425607f59ea112768e174502c7a1320 101 main/binary-arm64/Release
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmjSEoACgkQfNLLggsY
-QuIRmQ/9F7obIRClHmdLkkIrIKJwDiD7LLNivhY7YJ0JAcbfh4qxP8NAav9PBhtT
-OfAgqVxE01gpwuzS2TsV6qKhuMgdJjfJw1iDZwnd/oDeoCyWy60U6Y3uCOWSW/jO
-Rq/vZGVtTPWS4SoJ34pYtlPtuBAzMXBsTQWs4AR/sc+E6bm4wjrLFXB4++Fw4fMo
-sHg7kBlqeuMvlOfz8YcWQdgZ57DoByzHtfJGp8OYodGCH42a0XSogkUrfm9B/lwx
-L2dCIigwup07o8ZRBS0P8yr6X6ByBOEi1BKpEXgqRzI00Hi8uXa5tLijinhuCpcA
-tAF1/pAMeY+xH90VYjnWi0miIUXFd1HkZXDTp9C2Z0FqOET7I5XNbUeYK0SSL33U
-n8FSjFW3/jjde8jlCWHvD33lwPJn959PCKZAT/mgKJQQuHyLs9DhFQZy01A2VBom
-dmPgbcXC7eU2KbZMDbgfz2R1FbSbFaPukwiqIPk+R2uPBRInFd0TymtRzLo+0uq+
-yAOH7yGRxwGWXYG6doaN9Obn4E49PPeOvHi9d4s0KU8rurisdggizGOqeM+wvQmE
-kfDE76YjBh6RaOS0lmZiiXNcJsRycqDDM76Oh3utdw6eSTKx2LOImrvyug0VeSel
-VhT5ztdhYKuKXa3wmBST9sdSKswo1qOBI6efBqlroUjvsZpRlBw=
-=LucC
+iQIzBAEBCgAdFiEExoXHDNWVh96i70hzfNLLggsYQuIFAmmsjZ8ACgkQfNLLggsY
+QuK+1w/9EupN2xQOPXSqhqWHXdRQsnBh3B85Ybf5vqJowOJVUfIYy4OywokuD3Dm
+67PSdY34OIck2AgsU6QkYIcjwN1XJgApIBunOOYYuLlX1pfhho2jODvDW8AEptxG
+trRuyv3UTg3V9dJIul8evIYH0QbkEgQQFZU7jC0F34OujiRJN6EIoMT87EPrvrsQ
+PD3gsD6wLlliK4tfGgD71SqVR2hFkARW6iQgxGkB1VEXvidycZcubZO7lh6XWypp
+gbHV1fxHk4pYPz+MnNn5CcHNTXsIsqVK4MtA50R85SkINprk23JN5HhwyGyPvx68
+GJiL+UfKbj0wu+GQNViMhcgk06LpcY0nTjAe+7PTw8+0xUnHgNHV0BELFgg+Tp87
+w1Td78+s5acCLUUuQ4+1UKFdObDVR2kk21UReSfwVO0c3b655PcCo5PzrAsLk4lw
+B3BtAFOKU+AEGta2Dwvp8F2zeYsyGpxtxbW6GMQScjoAYVYN/88R+fX8ULf6tgM1
+kR5I15yAOmdnE/uK97IMsoCXEw2Z4DczkCT33N7KdZcJ4uvERPUSiGKh7n8MTIcf
+JCC6yDu2MIHkYcSdFqE7DyjsBtv1r2l7+qghQkmtxTfd7C9IAi7vTwRVdE5GfYMH
+y6OqbHhuVjH1PZmwYw99lzZQFtp6OfaPKq6I3zVSP0ZNIfdQblE=
+=dyvH
 -----END PGP SIGNATURE-----
