@@ -17,12 +17,18 @@ pub const EditorState = struct {
     /// Selection anchor point (where selection started). When non-null,
     /// the selection spans from this anchor to the current cursor position.
     selection_anchor: ?Position = null,
+    /// True while the user is dragging the mouse to select text.
+    mouse_dragging: bool = false,
     /// Undo history stack.
     undo_stack: std.ArrayList(UndoEntry),
     /// Redo history stack.
     redo_stack: std.ArrayList(UndoEntry),
     /// When false, mutations do not push undo entries (used during undo/redo replay).
     recording_undo: bool = true,
+    /// Monotonically increasing version counter. Incremented on every content mutation.
+    /// Used by the live preview pipeline to detect when the editor buffer has changed
+    /// and the rendered preview needs to be re-parsed and re-laid out.
+    edit_version: u64 = 0,
 
     /// Maximum number of entries in each undo/redo stack.
     const max_undo_stack_size: usize = 1000;
@@ -370,6 +376,7 @@ pub const EditorState = struct {
         self.lines[self.cursor_line] = new_line;
         self.cursor_col = col + bytes.len;
         self.is_dirty = true;
+        self.edit_version +|= 1;
     }
 
     /// Insert a newline at cursor without recording undo.
@@ -397,6 +404,7 @@ pub const EditorState = struct {
         self.cursor_line += 1;
         self.cursor_col = 0;
         self.is_dirty = true;
+        self.edit_version +|= 1;
     }
 
     /// Delete `byte_count` bytes of text starting at `pos`, handling newlines
@@ -455,6 +463,7 @@ pub const EditorState = struct {
         self.lines = new_lines;
         // cursor_col stays at current position (end of old curr line)
         self.is_dirty = true;
+        self.edit_version +|= 1;
     }
 
     /// Undo the last edit. Returns true if an undo was performed.
@@ -522,6 +531,7 @@ pub const EditorState = struct {
         self.lines[self.cursor_line] = new_line;
         self.cursor_col = col + bytes.len;
         self.is_dirty = true;
+        self.edit_version +|= 1;
 
         const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
         try self.recordInsert(insert_pos, bytes, cursor_before, cursor_after);
@@ -558,6 +568,7 @@ pub const EditorState = struct {
             self.lines[self.cursor_line] = new_line;
             self.cursor_col = start;
             self.is_dirty = true;
+            self.edit_version +|= 1;
 
             const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
             const delete_pos = cursor_after; // text was at the new cursor position
@@ -596,6 +607,7 @@ pub const EditorState = struct {
             self.allocator.free(line);
             self.lines[self.cursor_line] = new_line;
             self.is_dirty = true;
+            self.edit_version +|= 1;
 
             const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
             const delete_pos = cursor_after; // text was at current cursor position
@@ -643,6 +655,7 @@ pub const EditorState = struct {
         self.cursor_line = line_idx - 1;
         self.cursor_col = prev_len;
         self.is_dirty = true;
+        self.edit_version +|= 1;
     }
 
     /// Insert a newline at cursor position (Enter key), splitting the current line.
@@ -679,6 +692,7 @@ pub const EditorState = struct {
         self.cursor_line += 1;
         self.cursor_col = 0;
         self.is_dirty = true;
+        self.edit_version +|= 1;
 
         const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
         try self.recordInsert(insert_pos, "\n", cursor_before, cursor_after);
@@ -928,6 +942,7 @@ pub const EditorState = struct {
             self.cursor_line = range.start_line;
             self.cursor_col = start;
             self.is_dirty = true;
+            self.edit_version +|= 1;
         } else {
             // Multi-line deletion: merge first and last line fragments, remove middle lines.
             const first_line = self.lines[range.start_line];
@@ -958,6 +973,7 @@ pub const EditorState = struct {
             self.cursor_line = range.start_line;
             self.cursor_col = keep_start;
             self.is_dirty = true;
+            self.edit_version +|= 1;
         }
 
         const cursor_after = Position{ .line = self.cursor_line, .col = self.cursor_col };
@@ -1930,6 +1946,21 @@ test "ensureCursorVisible ignores negative viewport_height" {
 // Selection tests
 // =========================================================================
 
+test "mouse_dragging defaults to false" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    try testing.expect(!state.mouse_dragging);
+}
+
+test "mouse_dragging state persists" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+    state.mouse_dragging = true;
+    try testing.expect(state.mouse_dragging);
+    state.mouse_dragging = false;
+    try testing.expect(!state.mouse_dragging);
+}
+
 test "hasSelection returns false with no anchor" {
     var state = try EditorState.initFromSource(testing.allocator, "hello");
     defer state.deinit();
@@ -2529,4 +2560,47 @@ test "compound undo of replaceSelection with multi-line text" {
     try testing.expectEqual(@as(usize, 2), state.lines.len);
     try testing.expectEqualStrings("aXX", state.lines[0]);
     try testing.expectEqualStrings("YYc", state.lines[1]);
+}
+
+test "edit_version starts at zero" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    try testing.expectEqual(0, state.edit_version);
+}
+
+test "edit_version increments on insertChar" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    try state.insertChar('!');
+    try testing.expectEqual(1, state.edit_version);
+    try state.insertChar('?');
+    try testing.expectEqual(2, state.edit_version);
+}
+
+test "edit_version increments on insertNewline" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    try state.insertNewline();
+    try testing.expectEqual(1, state.edit_version);
+}
+
+test "edit_version increments on deleteCharBefore" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    state.cursor_col = 5;
+    try state.deleteCharBefore();
+    try testing.expectEqual(1, state.edit_version);
+}
+
+test "edit_version increments on deleteCharAt" {
+    var state = try EditorState.initFromSource(testing.allocator, "hello");
+    defer state.deinit();
+
+    state.cursor_col = 0;
+    try state.deleteCharAt();
+    try testing.expectEqual(1, state.edit_version);
 }

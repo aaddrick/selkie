@@ -137,6 +137,17 @@ pub fn exportPdf(
                     // Rasterize mermaid diagram to PNG and embed as XObject
                     try rasterizeNode(allocator, &pw, page, node, &pdf_tree, theme, page_top_px, scale, page_h_pt, &png_buffers);
                 },
+                .code_block_header => |hdr| {
+                    // Background rectangle
+                    try emitRect(page, node.rect, hdr.bg_color, page_top_px, scale, page_h_pt);
+                    // Text runs
+                    for (node.text_runs.items) |*run| {
+                        try emitTextRun(page, run, page_top_px, scale, page_h_pt);
+                    }
+                },
+                .alert_bg => |ab| {
+                    try emitRect(page, node.rect, ab.color, page_top_px, scale, page_h_pt);
+                },
             }
         }
     }

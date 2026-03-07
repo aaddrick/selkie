@@ -11,6 +11,8 @@ const table_layout = @import("table_layout.zig");
 const code_block_layout = @import("code_block_layout.zig");
 const mermaid_layout = @import("../mermaid/mermaid_layout.zig");
 const ImageRenderer = @import("../render/image_renderer.zig").ImageRenderer;
+const alert_detector = @import("alert_detector.zig");
+const emoji = @import("emoji.zig");
 
 /// Compute a dynamic page margin that scales with available width.
 /// Returns 5% of available_width, but no less than min_margin and no more than
@@ -215,9 +217,12 @@ fn layoutTextRun(
     cursor_x: *f32,
     line_height: *f32,
 ) !void {
+    // Apply emoji shortcode replacement (arena-allocated so it outlives layout pass)
+    const display_text = emoji.replaceShortcodes(ctx.tree.arena.allocator(), text) orelse text;
+
     // Word wrap: split text at spaces and lay out word by word
     const max_x = ctx.content_x + ctx.content_width;
-    var remaining = text;
+    var remaining = display_text;
 
     while (remaining.len > 0) {
         // Find next space or end
@@ -387,6 +392,10 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.cursor_y += 24;
         },
         .block_quote => {
+            // Check for GFM alert syntax (> [!NOTE], > [!TIP], etc.)
+            const alert_info = alert_detector.detectAlert(node);
+            const border_color = if (alert_info) |ai| ai.alert_type.borderColor(ctx.theme) else ctx.theme.blockquote_border;
+
             // Draw left border and indent content
             const saved_x = ctx.content_x;
             const saved_w = ctx.content_width;
@@ -394,12 +403,140 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
             ctx.content_width -= ctx.theme.blockquote_indent + 4;
 
             const start_y = ctx.cursor_y;
-            for (node.children.items) |*child| {
-                try layoutBlock(ctx, child);
+            // Record insert position for alert background (drawn behind content)
+            const alert_bg_insert_idx = ctx.tree.nodes.items.len;
+
+            // If this is an alert, render the alert label first
+            if (alert_info) |ai| {
+                {
+                    var label_node = layout_types.LayoutNode.init(ctx.allocator, .text_block);
+                    errdefer label_node.deinit();
+                    label_node.source_line = node.start_line;
+
+                    const label_color = ai.alert_type.textColor(ctx.theme);
+                    const label_style = layout_types.TextStyle{
+                        .font_size = ctx.theme.body_font_size,
+                        .color = label_color,
+                        .bold = true,
+                    };
+
+                    // Icon + label (e.g., "ℹ Note")
+                    const icon_text = ai.alert_type.icon();
+                    const label_text = ai.alert_type.label();
+
+                    var cursor_x = ctx.content_x;
+                    var label_height: f32 = ctx.theme.body_font_size * ctx.theme.line_height;
+
+                    const icon_m = ctx.fonts.measure(icon_text, label_style.font_size, false, false, false);
+                    try label_node.text_runs.append(.{
+                        .text = icon_text,
+                        .style = label_style,
+                        .rect = .{ .x = cursor_x, .y = ctx.cursor_y, .width = icon_m.x, .height = icon_m.y },
+                    });
+                    cursor_x += icon_m.x;
+
+                    const label_m = ctx.fonts.measure(label_text, label_style.font_size, true, false, false);
+                    try label_node.text_runs.append(.{
+                        .text = label_text,
+                        .style = label_style,
+                        .rect = .{ .x = cursor_x, .y = ctx.cursor_y, .width = label_m.x, .height = label_m.y },
+                    });
+                    label_height = @max(label_height, @max(icon_m.y, label_m.y));
+
+                    label_node.rect = .{
+                        .x = ctx.content_x,
+                        .y = ctx.cursor_y,
+                        .width = ctx.content_width,
+                        .height = label_height,
+                    };
+                    try ctx.tree.nodes.append(label_node);
+                    // errdefer is now out of scope — tree owns label_node
+                    ctx.cursor_y += label_height + ctx.theme.paragraph_spacing * 0.5;
+                }
+
+                // Layout children, but skip the alert marker text in the first paragraph
+                for (node.children.items, 0..) |*alert_child, alert_child_idx| {
+                    if (alert_child_idx == 0 and alert_child.node_type == .paragraph) {
+                        var alert_para = layout_types.LayoutNode.init(ctx.allocator, .text_block);
+                        errdefer alert_para.deinit();
+                        alert_para.source_line = alert_child.start_line;
+                        alert_para.source_end_line = alert_child.end_line;
+
+                        const para_style = layout_types.TextStyle{
+                            .font_size = ctx.theme.body_font_size,
+                            .color = ctx.theme.text,
+                        };
+
+                        var para_cursor_x = ctx.content_x;
+                        var para_line_height: f32 = ctx.theme.body_font_size * ctx.theme.line_height;
+                        const para_start_y = ctx.cursor_y;
+
+                        if (ai.remaining_text.len > 0) {
+                            try layoutTextRun(ctx, ai.remaining_text, para_style, &alert_para, &para_cursor_x, &para_line_height);
+                        }
+
+                        // Layout remaining inline children (skip the first text node containing the marker)
+                        if (alert_child.children.items.len > 1) {
+                            for (alert_child.children.items[1..]) |*inline_child| {
+                                switch (inline_child.node_type) {
+                                    .text => {
+                                        if (inline_child.literal) |itext| {
+                                            try layoutTextRun(ctx, itext, para_style, &alert_para, &para_cursor_x, &para_line_height);
+                                        }
+                                    },
+                                    else => {
+                                        try layoutInlines(ctx, inline_child, para_style, &alert_para, &para_cursor_x, &para_line_height);
+                                    },
+                                }
+                            }
+                        }
+
+                        alert_para.rect = .{
+                            .x = ctx.content_x,
+                            .y = para_start_y,
+                            .width = ctx.content_width,
+                            .height = (ctx.cursor_y - para_start_y) + para_line_height,
+                        };
+
+                        if (alert_para.text_runs.items.len > 0) {
+                            try ctx.tree.nodes.append(alert_para);
+                            ctx.cursor_y = para_start_y + alert_para.rect.height + ctx.theme.paragraph_spacing;
+                        } else {
+                            alert_para.deinit();
+                        }
+                    } else {
+                        try layoutBlock(ctx, alert_child);
+                    }
+                }
+            } else {
+                for (node.children.items) |*child| {
+                    try layoutBlock(ctx, child);
+                }
+            }
+
+            // For alerts, insert a translucent background behind all content
+            if (alert_info) |_| {
+                var bg_node = layout_types.LayoutNode.init(ctx.allocator, .{ .alert_bg = .{
+                    .color = .{ .r = border_color.r, .g = border_color.g, .b = border_color.b, .a = 20 }, // subtle tint
+                } });
+                errdefer bg_node.deinit();
+                bg_node.source_line = node.start_line;
+                bg_node.source_end_line = node.end_line;
+                bg_node.rect = .{
+                    .x = saved_x,
+                    .y = start_y,
+                    .width = saved_w,
+                    .height = ctx.cursor_y - start_y,
+                };
+                // Insert at recorded position so background renders behind content
+                try ctx.tree.nodes.insert(alert_bg_insert_idx, bg_node);
+                // bg_node is now owned by tree; errdefer must not fire after this point.
+                // The subsequent border_node append could fail, so we close the if-block
+                // here and handle border_node separately to avoid double-free.
             }
 
             // Add border marker
-            var border_node = layout_types.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = ctx.theme.blockquote_border } });
+            var border_node = layout_types.LayoutNode.init(ctx.allocator, .{ .block_quote_border = .{ .color = border_color } });
             errdefer border_node.deinit();
             border_node.source_line = node.start_line;
             border_node.source_end_line = node.end_line;

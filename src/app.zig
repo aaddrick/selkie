@@ -20,6 +20,8 @@ const FileWatcher = @import("file_watcher.zig").FileWatcher;
 const TocSidebar = @import("toc_sidebar.zig").TocSidebar;
 const file_dialog = @import("file_dialog.zig");
 const pdf_exporter = @import("export/pdf_exporter.zig");
+const screenshot_capture = @import("export/screenshot_capture.zig");
+const full_document_capture = @import("export/full_document_capture.zig");
 const save_dialog = @import("export/save_dialog.zig");
 const searcher = @import("search/searcher.zig");
 const search_renderer = @import("render/search_renderer.zig");
@@ -29,11 +31,40 @@ const CommandState = @import("command/command_state.zig").CommandState;
 const EditorState = @import("editor/editor_state.zig").EditorState;
 const ModalDialog = @import("modal_dialog.zig").ModalDialog;
 const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
+const SplitPane = @import("split_pane.zig").SplitPane;
 
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
     const reload_indicator_duration: i64 = 1500;
     const notification_duration: i64 = 3000;
+
+    /// Display mode for the main content area.
+    pub const ViewMode = enum {
+        /// Show only the rendered preview (default when no editor is active)
+        preview_only,
+        /// Show only the editor
+        editor_only,
+        /// Show editor on the left, rendered preview on the right
+        split,
+
+        /// Cycle to the next view mode: preview → editor → split → preview
+        pub fn next(self: ViewMode) ViewMode {
+            return switch (self) {
+                .preview_only => .editor_only,
+                .editor_only => .split,
+                .split => .preview_only,
+            };
+        }
+
+        /// Human-readable label for display in menus/notifications.
+        pub fn label(self: ViewMode) [:0]const u8 {
+            return switch (self) {
+                .preview_only => "Preview",
+                .editor_only => "Editor",
+                .split => "Split",
+            };
+        }
+    };
 
     allocator: Allocator,
     theme: *const Theme,
@@ -59,6 +90,12 @@ pub const App = struct {
 
     // Source line numbers gutter
     show_line_numbers: bool = false,
+
+    // View mode: editor-only, preview-only, or split
+    view_mode: ViewMode = .preview_only,
+
+    // Split-pane layout (manages divider position and drag interaction)
+    split_pane: SplitPane = SplitPane.init(),
 
     // Scroll position persistence
     scroll_store: ?*ScrollPositionStore = null,
@@ -401,7 +438,7 @@ pub const App = struct {
     }
 
     // =========================================================================
-    // Edit mode
+    // Edit mode / View mode
     // =========================================================================
 
     /// Returns true if the active tab has edit mode open.
@@ -409,6 +446,61 @@ pub const App = struct {
         const tab = self.activeTab() orelse return false;
         const editor = tab.editor orelse return false;
         return editor.is_open;
+    }
+
+    /// Returns true if the editor pane should be visible in the current view mode.
+    fn isEditorVisible(self: *App) bool {
+        return (self.view_mode == .editor_only or self.view_mode == .split) and self.isEditorActive();
+    }
+
+    /// Returns true if the preview pane should be visible in the current view mode.
+    fn isPreviewVisible(self: *App) bool {
+        return self.view_mode == .preview_only or self.view_mode == .split;
+    }
+
+    /// Cycle the view mode: preview → editor → split → preview.
+    /// When cycling into a mode that shows the editor, ensures the editor
+    /// is initialized for the active tab. When cycling into split mode,
+    /// re-parses the editor buffer so the preview is up-to-date.
+    fn cycleViewMode(self: *App) void {
+        self.setViewMode(self.view_mode.next());
+    }
+
+    /// Set the view mode explicitly, ensuring the editor is initialized
+    /// when entering a mode that requires it, and re-parsing the buffer
+    /// for the preview pane when entering split mode.
+    pub fn setViewMode(self: *App, mode: ViewMode) void {
+        const tab = self.activeTab() orelse return;
+        const needs_editor = mode == .editor_only or mode == .split;
+
+        if (needs_editor) {
+            // Ensure editor is initialized and open
+            if (tab.editor) |*ed| {
+                if (!ed.is_open) {
+                    ed.is_open = true;
+                    tab.search.close();
+                }
+            } else {
+                tab.toggleEditMode() catch |err| {
+                    std.log.err("Failed to initialize editor for view mode: {}", .{err});
+                    return;
+                };
+                tab.search.close();
+            }
+        }
+
+        // When entering split mode or preview_only from a dirty editor,
+        // re-parse so the preview is up-to-date.
+        const show_preview = mode == .preview_only or mode == .split;
+        if (show_preview and tab.isDirty()) {
+            tab.reparseFromEditor() catch |err| {
+                std.log.err("Failed to re-parse editor buffer for preview: {}", .{err});
+            };
+            self.relayoutActiveTab();
+        }
+
+        self.view_mode = mode;
+        self.split_pane.is_active = (mode == .split);
     }
 
     /// Returns true if any open tab has unsaved edits.
@@ -492,8 +584,10 @@ pub const App = struct {
     }
 
     /// Toggle edit mode on the active tab, closing search if entering.
-    /// When leaving edit mode with unsaved edits, re-parses the editor buffer
-    /// so view mode shows the current edited content (live preview, see #65).
+    /// When entering edit mode, switches to split view so the live preview
+    /// pane is visible alongside the editor. When leaving edit mode,
+    /// re-parses any dirty editor buffer so preview shows current content,
+    /// then switches back to preview-only view.
     fn toggleEditMode(self: *App) void {
         const tab = self.activeTab() orelse return;
         // Close search bar when entering edit mode (mutual exclusion).
@@ -514,6 +608,9 @@ pub const App = struct {
             };
             self.relayoutActiveTab();
         }
+        // Entering edit → split view (live preview visible alongside editor).
+        // Leaving edit → preview-only view.
+        self.setViewMode(if (entering) .split else .preview_only);
     }
 
     const editor_page_size = 20;
@@ -687,6 +784,9 @@ pub const App = struct {
             editor.moveCursorPageDown(editor_page_size);
         }
 
+        // Mouse-based cursor positioning and selection
+        self.updateEditorMouse(editor);
+
         // Character input — drain the queue (Unicode codepoints)
         // Typing with selection replaces the selected text.
         var char = rl.getCharPressed();
@@ -744,6 +844,64 @@ pub const App = struct {
         const vw: f32 = @floatFromInt(rl.getScreenWidth());
         const text_area_width = vw - left_off - gutter_w - editor_renderer.gutter_text_padding;
         editor.scroll_x = editor_renderer.scrollXForCursor(cursor_px, editor.scroll_x, text_area_width);
+    }
+
+    /// Handle mouse click, drag, and shift+click in the editor text area.
+    /// Left-click positions cursor, drag selects text, shift+click extends selection.
+    fn updateEditorMouse(self: *App, editor: *EditorState) void {
+        const fonts_val = self.fonts orelse return;
+        const font = fonts_val.mono;
+        const font_size = self.theme.mono_font_size;
+        const spacing = font_size / 10.0;
+        const line_height = font_size * self.theme.line_height;
+        if (line_height <= 0) return;
+
+        const content_top_y = self.computeContentYOffset();
+        const left_offset = self.computeContentLeftOffset();
+        const gutter_w = editor_renderer.gutterWidth(editor.lineCount(), font, font_size, spacing);
+        const text_area_x = left_offset + gutter_w + editor_renderer.gutter_text_padding;
+
+        const mouse_x: f32 = @floatFromInt(rl.getMouseX());
+        const mouse_y: f32 = @floatFromInt(rl.getMouseY());
+
+        // Convert mouse position to editor line and column
+        const rel_y = mouse_y - content_top_y + editor.scroll_y;
+        const target_line: usize = if (rel_y < 0)
+            0
+        else
+            @min(@as(usize, @intFromFloat(@min(rel_y / line_height, 1_000_000.0))), if (editor.lineCount() > 0) editor.lineCount() - 1 else 0);
+
+        const rel_x = mouse_x - text_area_x + editor.scroll_x;
+        const line_text = editor.getLineText(target_line) orelse "";
+        const target_col = editor_renderer.byteColFromPixelX(line_text, rel_x, font, font_size, spacing);
+
+        // Check if click is within the editor text area
+        const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+        const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+        const in_text_area = mouse_x >= text_area_x and mouse_x < screen_w and
+            mouse_y >= content_top_y and mouse_y < screen_h;
+
+        if (rl.isMouseButtonPressed(.left) and in_text_area) {
+            const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
+            if (shift_held) {
+                // Shift+click extends selection from current cursor to click position
+                editor.startSelection();
+                editor.setCursor(target_line, target_col);
+            } else {
+                // Plain click — position cursor, clear selection, start potential drag
+                editor.clearSelection();
+                editor.setCursor(target_line, target_col);
+            }
+            editor.mouse_dragging = true;
+        } else if (rl.isMouseButtonDown(.left) and editor.mouse_dragging) {
+            // Drag — extend selection
+            editor.startSelection();
+            editor.setCursor(target_line, target_col);
+        }
+
+        if (rl.isMouseButtonReleased(.left)) {
+            editor.mouse_dragging = false;
+        }
     }
 
     // =========================================================================
@@ -907,6 +1065,7 @@ pub const App = struct {
                     self.relayoutAllTabs();
                 },
                 .toggle_edit_mode => self.toggleEditMode(),
+                .cycle_view_mode => self.cycleViewMode(),
                 .zoom_in => self.zoomIn(),
                 .zoom_out => self.zoomOut(),
                 .reset_zoom => self.resetZoom(),
@@ -940,6 +1099,9 @@ pub const App = struct {
             // Ctrl+E toggles edit mode (always available)
             if (ctrl_held and rl.isKeyPressed(.e)) {
                 self.toggleEditMode();
+            } else if (ctrl_held and rl.isKeyPressed(.backslash)) {
+                // Ctrl+\ cycles view mode: preview → editor → split
+                self.cycleViewMode();
             } else if (ctrl_held and rl.isKeyPressed(.s)) {
                 // Ctrl+S saves editor buffer (works in both edit and view mode)
                 self.saveActiveTab();
@@ -1030,6 +1192,17 @@ pub const App = struct {
         // Scrollbar interaction (takes priority over other scroll input)
         const scrollbar_active = if (!menu_is_open) self.handleScrollbarInput(tab) else false;
 
+        // Split-pane divider drag interaction (takes priority over scroll)
+        const split_divider_active = if (!menu_is_open and self.view_mode == .split) blk: {
+            const sp_content_top = self.computeContentYOffset();
+            const sp_left_off = self.toc_sidebar.effectiveWidth();
+            const sp_screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+            const sp_screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+            const sp_area_w = sp_screen_w - sp_left_off;
+            const sp_area_h = sp_screen_h - sp_content_top;
+            break :blk self.split_pane.handleInput(sp_left_off, sp_content_top, sp_area_w, sp_area_h);
+        } else false;
+
         // Ctrl+scroll zooms font size (intercept before normal scroll handling)
         const zoom_handled = blk: {
             if (menu_is_open) break :blk false;
@@ -1044,7 +1217,7 @@ pub const App = struct {
         // Scroll/link input when menu is closed.
         // Skip document scroll when mouse is over the ToC sidebar (it has its own scroll)
         // or when the scrollbar is being dragged.
-        if (!menu_is_open and !scrollbar_active and !zoom_handled) {
+        if (!menu_is_open and !scrollbar_active and !zoom_handled and !split_divider_active) {
             const mouse_over_sidebar = self.toc_sidebar.is_open and
                 @as(f32, @floatFromInt(rl.getMouseX())) < self.toc_sidebar.effectiveWidth();
             if (!mouse_over_sidebar) {
@@ -1118,6 +1291,15 @@ pub const App = struct {
                     tab.link_handler.handleClick();
                 }
             }
+        }
+
+        // Live preview: re-parse and re-layout when editor buffer changes.
+        // Checked every frame but only triggers work when edit_version advances.
+        if (tab.previewNeedsUpdate()) {
+            tab.updatePreviewFromEditor() catch |err| {
+                std.log.err("Live preview re-parse failed: {}", .{err});
+            };
+            self.relayoutActiveTab();
         }
 
         // ToC sidebar interaction
@@ -1253,24 +1435,51 @@ pub const App = struct {
         const left_offset = self.toc_sidebar.effectiveWidth();
 
         if (self.activeTab()) |tab| {
-            if (tab.editor) |*ed| {
-                if (ed.is_open) {
-                    // Editor replaces the document view when active
-                    editor_renderer.drawEditor(ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, content_top_y, left_offset);
-                }
-            }
+            if (self.view_mode == .split) {
+                // Split-pane mode: editor on the left, rendered preview on the right
+                const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+                const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                const area_width = screen_w - left_offset;
+                const area_height = screen_h - content_top_y;
+                const layout = self.split_pane.computeLayout(left_offset, content_top_y, area_width, area_height);
 
-            if (!self.isEditorActive()) {
+                // Left pane: editor (constrained to left pane width)
+                if (tab.editor) |*ed| {
+                    if (ed.is_open) {
+                        editor_renderer.drawEditorConstrained(self.allocator, ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, content_top_y, layout.left.x, layout.left.width);
+                    }
+                }
+
+                // Right pane: rendered preview
                 if (tab.layout_tree) |*tree| {
-                    const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
-                    const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
-                    renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, screen_w, screen_h);
+                    renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, layout.right.x, tab.link_handler.hovered_url, layout.right.x + layout.right.width, screen_h);
 
                     // Search highlights drawn over document content
                     search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);
-                } else {
-                    const y_offset: i32 = @intFromFloat(content_top_y + 8);
-                    rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+                }
+
+                // Draw the split divider
+                self.split_pane.drawDivider(left_offset, content_top_y, area_width, area_height);
+            } else {
+                // Single-pane modes: editor-only or preview-only
+                if (tab.editor) |*ed| {
+                    if (ed.is_open and self.view_mode == .editor_only) {
+                        editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, content_top_y, left_offset);
+                    }
+                }
+
+                if (self.isPreviewVisible()) {
+                    if (tab.layout_tree) |*tree| {
+                        const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
+                        const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+                        renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, screen_w, screen_h);
+
+                        // Search highlights drawn over document content
+                        search_renderer.drawHighlights(&tab.search, self.theme, tab.scroll.y, content_top_y);
+                    } else {
+                        const y_offset: i32 = @intFromFloat(content_top_y + 8);
+                        rl.drawText("No document loaded. Usage: selkie <file.md>", 20, y_offset, 20, self.theme.text);
+                    }
                 }
             }
 
@@ -1356,6 +1565,263 @@ pub const App = struct {
         const text_w = rl.measureText(text, font_size);
         const indicator_y: i32 = @intFromFloat(content_top_y + 28);
         rl.drawText(text, screen_w - text_w - 16, indicator_y, font_size, color);
+    }
+
+    // =========================================================================
+    // Screenshot / PNG export
+    // =========================================================================
+
+    /// Draw only the document or editor content (no UI chrome) into the current
+    /// render target at the given pixel dimensions. Used by content-only PNG capture.
+    ///
+    /// This is a static-compatible wrapper: `context` must point to an `*App`.
+    pub fn drawContentOnly(width: u32, height: u32, context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        const fonts_val = self.fonts orelse return;
+
+        const w: f32 = @floatFromInt(width);
+        const h: f32 = @floatFromInt(height);
+
+        rl.clearBackground(self.theme.background);
+
+        const tab = self.activeTab() orelse return;
+
+        if (tab.editor) |*ed| {
+            if (ed.is_open) {
+                // Editor mode: draw editor content at origin (no chrome offset)
+                editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, 0, 0);
+                return;
+            }
+        }
+
+        // Render mode: draw document content (no scrollbar in content-only export)
+        if (tab.layout_tree) |*tree| {
+            renderer.renderEx(tree, self.theme, &fonts_val, tab.scroll.y, 0, 0, tab.link_handler.hovered_url, w, h, false);
+        }
+    }
+
+    /// Capture the current viewport (including UI chrome) as a PNG.
+    /// Returns a CaptureResult that the caller must deinit().
+    pub fn captureViewportScreenshot(_: *App) screenshot_capture.CaptureError!screenshot_capture.CaptureResult {
+        return screenshot_capture.captureViewport();
+    }
+
+    /// Capture only the content area (no UI chrome) as a PNG.
+    /// Renders the active tab's content into an offscreen texture.
+    pub fn captureContentScreenshot(self: *App, params: screenshot_capture.ContentCaptureParams) screenshot_capture.CaptureError!screenshot_capture.CaptureResult {
+        return screenshot_capture.captureContent(params, &App.drawContentOnly, @ptrCast(@alignCast(self)));
+    }
+
+    /// Capture the viewport with full UI chrome (menu bar, tab bar, scrollbar)
+    /// rendered into an offscreen texture at the specified dimensions.
+    ///
+    /// Unlike `captureViewportScreenshot` (which reads the screen framebuffer),
+    /// this renders chrome into a dedicated render texture, allowing capture at
+    /// arbitrary dimensions independent of the actual window size.
+    pub fn captureWithChrome(self: *App, params: screenshot_capture.ContentCaptureParams) screenshot_capture.CaptureError!screenshot_capture.CaptureResult {
+        return screenshot_capture.captureContent(params, &App.drawWithChrome, @ptrCast(@alignCast(self)));
+    }
+
+    /// Draw the full UI (content + chrome) into the current render target.
+    ///
+    /// Renders menu bar, tab bar, document/editor content, scrollbar, and
+    /// ToC sidebar — the complete application UI. Used by chrome-included
+    /// PNG export to capture the full visual appearance.
+    ///
+    /// This is a static-compatible wrapper: `context` must point to an `*App`.
+    pub fn drawWithChrome(width: u32, height: u32, context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        const fonts_val = self.fonts orelse return;
+
+        const w: f32 = @floatFromInt(width);
+        const h: f32 = @floatFromInt(height);
+
+        rl.clearBackground(self.theme.background);
+
+        const content_top_y = self.computeContentYOffset();
+        const left_offset = self.toc_sidebar.effectiveWidth();
+
+        const tab = self.activeTab() orelse return;
+
+        // Draw document/editor content area
+        if (tab.editor) |*ed| {
+            if (ed.is_open) {
+                editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, ed.scroll_y, ed.scroll_x, content_top_y, left_offset);
+            }
+        }
+
+        if (self.isPreviewVisible()) {
+            if (tab.layout_tree) |*tree| {
+                renderer.render(tree, self.theme, &fonts_val, tab.scroll.y, content_top_y, left_offset, tab.link_handler.hovered_url, w, h);
+            }
+        }
+
+        // Draw chrome elements on top
+        self.toc_sidebar.draw(self.theme, &fonts_val, content_top_y);
+        TabBar.draw(self.tabs.items, self.active_tab, self.theme, &fonts_val);
+        self.menu_bar.draw(self.theme, &fonts_val);
+    }
+
+    /// Draw the full UI with chrome at a given scroll offset.
+    ///
+    /// Used by full-document + chrome tiled capture: renders chrome elements
+    /// (menu bar, tab bar) at the top and document content at the specified
+    /// scroll offset. The chrome is only drawn on the first tile (scroll_y == 0).
+    ///
+    /// This is a static-compatible wrapper matching `full_document_capture.TileDrawFn`.
+    pub fn drawWithChromeAtScroll(width: u32, height: u32, scroll_y: f32, context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        const fonts_val = self.fonts orelse return;
+
+        const w: f32 = @floatFromInt(width);
+        const h: f32 = @floatFromInt(height);
+
+        rl.clearBackground(self.theme.background);
+
+        const chrome_height = self.computeContentYOffset();
+        const left_offset = self.toc_sidebar.effectiveWidth();
+
+        const tab = self.activeTab() orelse return;
+
+        // For the first tile (scroll_y near zero), render chrome at the top
+        // and offset content below it. For subsequent tiles, render content
+        // starting from the adjusted scroll offset.
+        if (scroll_y < chrome_height) {
+            // First tile: draw chrome and content below it
+            if (tab.editor) |*ed| {
+                if (ed.is_open) {
+                    editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, 0, ed.scroll_x, chrome_height, left_offset);
+                }
+            }
+
+            if (self.isPreviewVisible()) {
+                if (tab.layout_tree) |*tree| {
+                    renderer.render(tree, self.theme, &fonts_val, 0, chrome_height, left_offset, tab.link_handler.hovered_url, w, h);
+                }
+            }
+
+            // Draw chrome on top
+            self.toc_sidebar.draw(self.theme, &fonts_val, chrome_height);
+            TabBar.draw(self.tabs.items, self.active_tab, self.theme, &fonts_val);
+            self.menu_bar.draw(self.theme, &fonts_val);
+        } else {
+            // Subsequent tiles: render content only, adjusted for chrome offset
+            const adjusted_scroll = scroll_y - chrome_height;
+
+            if (tab.editor) |*ed| {
+                if (ed.is_open) {
+                    editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, adjusted_scroll, 0, 0, 0);
+                    return;
+                }
+            }
+
+            if (tab.layout_tree) |*tree| {
+                renderer.renderEx(tree, self.theme, &fonts_val, adjusted_scroll, 0, 0, tab.link_handler.hovered_url, w, h, false);
+            }
+        }
+    }
+
+    /// Draw document/editor content at a given scroll offset (no UI chrome).
+    ///
+    /// Used by the tiled full-document capture: each tile calls this with
+    /// the tile's scroll_y offset so the renderer draws the correct vertical
+    /// slice of the document into the current render target.
+    ///
+    /// This is a static-compatible wrapper matching `full_document_capture.TileDrawFn`:
+    ///   fn(width: u32, height: u32, scroll_y: f32, context: *anyopaque) void
+    pub fn drawContentAtScroll(width: u32, height: u32, scroll_y: f32, context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        const fonts_val = self.fonts orelse return;
+
+        const w: f32 = @floatFromInt(width);
+        const h: f32 = @floatFromInt(height);
+
+        rl.clearBackground(self.theme.background);
+
+        const tab = self.activeTab() orelse return;
+
+        if (tab.editor) |*ed| {
+            if (ed.is_open) {
+                // Editor mode: draw editor content at the given scroll offset
+                editor_renderer.drawEditor(self.allocator, ed, self.theme, &fonts_val, scroll_y, 0, 0, 0);
+                return;
+            }
+        }
+
+        // Render mode: draw document content at the given scroll offset (no scrollbar in content-only export)
+        if (tab.layout_tree) |*tree| {
+            renderer.renderEx(tree, self.theme, &fonts_val, scroll_y, 0, 0, tab.link_handler.hovered_url, w, h, false);
+        }
+    }
+
+    /// Draw the full document content (no UI chrome) with scroll_y=0 so that
+    /// the entire document is rendered from top to bottom. Used by content-only
+    /// PNG capture when the full document fits in a single render texture.
+    ///
+    /// This is a static-compatible wrapper: `context` must point to an `*App`.
+    pub fn drawFullDocumentContent(width: u32, height: u32, context: *anyopaque) void {
+        drawContentAtScroll(width, height, 0, context);
+    }
+
+    /// Get the total content height for the active tab's document or editor.
+    /// Returns null if no content is loaded.
+    pub fn getContentHeight(self: *App) ?f32 {
+        const tab = self.activeTab() orelse return null;
+
+        if (tab.editor) |*ed| {
+            if (ed.is_open) {
+                const font_size = self.theme.mono_font_size;
+                const line_height_factor = self.theme.line_height;
+                return editor_renderer.totalHeight(ed.lineCount(), font_size, line_height_factor);
+            }
+        }
+
+        if (tab.layout_tree) |tree| {
+            return tree.total_height;
+        }
+
+        return null;
+    }
+
+    /// Capture the full document (all content, not just viewport) as a PNG.
+    ///
+    /// Uses tiled rendering to handle documents taller than the GPU's maximum
+    /// texture size. Width defaults to current viewport width.
+    pub fn captureFullDocument(self: *App) full_document_capture.FullCaptureError!full_document_capture.FullCaptureResult {
+        return self.captureFullDocumentImpl(@intCast(rl.getScreenWidth()), false);
+    }
+
+    /// Capture the full document with a specified width.
+    pub fn captureFullDocumentWithWidth(self: *App, width: u32) full_document_capture.FullCaptureError!full_document_capture.FullCaptureResult {
+        return self.captureFullDocumentImpl(width, false);
+    }
+
+    /// Capture the full document with UI chrome (menu bar, tab bar, scrollbar).
+    /// Total height = chrome_height + doc_height. Uses current viewport width.
+    pub fn captureFullDocumentWithChrome(self: *App) full_document_capture.FullCaptureError!full_document_capture.FullCaptureResult {
+        return self.captureFullDocumentImpl(@intCast(rl.getScreenWidth()), true);
+    }
+
+    /// Capture the full document with UI chrome at a specified width.
+    pub fn captureFullDocumentWithChromeAndWidth(self: *App, width: u32) full_document_capture.FullCaptureError!full_document_capture.FullCaptureResult {
+        return self.captureFullDocumentImpl(width, true);
+    }
+
+    /// Shared implementation for all full-document capture variants.
+    fn captureFullDocumentImpl(self: *App, width: u32, include_chrome: bool) full_document_capture.FullCaptureError!full_document_capture.FullCaptureResult {
+        const content_h = self.getContentHeight() orelse return full_document_capture.FullCaptureError.EmptyDocument;
+        const doc_height = full_document_capture.documentHeightFromLayout(content_h);
+        if (doc_height == 0) return full_document_capture.FullCaptureError.EmptyDocument;
+
+        const chrome_extra: u32 = if (include_chrome) @intFromFloat(@ceil(self.computeContentYOffset())) else 0;
+        const draw_fn: full_document_capture.TileDrawFn = if (include_chrome) &App.drawWithChromeAtScroll else &App.drawContentAtScroll;
+
+        return full_document_capture.captureFullDocument(
+            self.allocator,
+            .{ .width = width, .document_height = doc_height + chrome_extra },
+            draw_fn,
+            @ptrCast(@alignCast(self)),
+        );
     }
 
     // =========================================================================
@@ -2021,4 +2487,92 @@ test "App.showNotification sets notification fields" {
     try testing.expect(app.notification_text != null);
     try testing.expect(app.notification_start_ms > 0);
     try testing.expectEqualStrings("test message", app.notification_text.?);
+}
+
+// =========================================================================
+// ViewMode tests
+// =========================================================================
+
+test "ViewMode.next cycles preview → editor → split → preview" {
+    const VM = App.ViewMode;
+    try testing.expectEqual(VM.editor_only, VM.preview_only.next());
+    try testing.expectEqual(VM.split, VM.editor_only.next());
+    try testing.expectEqual(VM.preview_only, VM.split.next());
+}
+
+test "ViewMode.next is a 3-cycle" {
+    const VM = App.ViewMode;
+    // Applying next three times returns to the original mode
+    const start = VM.preview_only;
+    try testing.expectEqual(start, start.next().next().next());
+}
+
+test "ViewMode.label returns descriptive names" {
+    const VM = App.ViewMode;
+    try testing.expectEqualStrings("Preview", VM.preview_only.label());
+    try testing.expectEqualStrings("Editor", VM.editor_only.label());
+    try testing.expectEqualStrings("Split", VM.split.label());
+}
+
+test "App.init defaults to preview_only view mode" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    try testing.expectEqual(App.ViewMode.preview_only, app.view_mode);
+}
+
+test "App.isPreviewVisible returns true for preview_only" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    app.view_mode = .preview_only;
+    try testing.expect(app.isPreviewVisible());
+}
+
+test "App.isPreviewVisible returns true for split" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    app.view_mode = .split;
+    try testing.expect(app.isPreviewVisible());
+}
+
+test "App.isPreviewVisible returns false for editor_only" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    app.view_mode = .editor_only;
+    try testing.expect(!app.isPreviewVisible());
+}
+
+test "App.isEditorVisible returns false without editor initialized" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    _ = try app.newTab();
+    app.view_mode = .editor_only;
+    // No editor initialized, so should return false
+    try testing.expect(!app.isEditorVisible());
+}
+
+test "App.isEditorVisible returns true when editor is open and mode is editor_only" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    _ = try app.newTab();
+    const tab = app.activeTab().?;
+    try tab.toggleEditMode();
+    app.view_mode = .editor_only;
+    try testing.expect(app.isEditorVisible());
+}
+
+test "App.isEditorVisible returns true when editor is open and mode is split" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.setTheme(null, false);
+    _ = try app.newTab();
+    const tab = app.activeTab().?;
+    try tab.toggleEditMode();
+    app.view_mode = .split;
+    try testing.expect(app.isEditorVisible());
 }

@@ -21,6 +21,80 @@ zig build run -- file.md         # Run with a markdown file
 zig build test                   # Run tests
 ```
 
+## CLI Usage
+
+### Opening files
+```bash
+zig build run -- file.md                    # Open a file
+zig build run -- file1.md file2.md          # Open multiple files in tabs
+zig build run -- --dark file.md             # Open with dark theme
+zig build run -- --theme mytheme.json f.md  # Open with custom theme
+```
+
+### Inline markdown via stdin
+```bash
+echo "# Hello World" | zig build run                          # Pipe markdown in
+printf "# Title\n\n- item 1\n- item 2" | zig build run       # Multi-line via printf
+cat <<'EOF' | zig build run                                    # Heredoc
+# My Document
+Some **bold** and *italic* text.
+- [x] Task done
+- [ ] Task pending
+EOF
+zig build run -- -                                             # Explicit stdin flag
+```
+
+### PNG Export (screenshots)
+
+Two interfaces: flag-based (`--export-png`) and subcommand (`export`).
+
+**Flag-based interface:**
+```bash
+# Basic export — renders file.md to output.png (hidden window, no GUI shown)
+zig build run -- --export-png output.png file.md
+
+# Export with custom dimensions
+zig build run -- --export-png out.png --width 1920 --height 1080 file.md
+
+# Export editor view instead of rendered view
+zig build run -- --export-png out.png --export-mode edit file.md
+
+# Full document capture (scrolls entire doc, not just viewport)
+zig build run -- --export-png out.png --full-document file.md
+
+# Include UI chrome (menu bar, tab bar, scrollbars)
+zig build run -- --export-png out.png --include-chrome file.md
+
+# Pipe to stdout
+zig build run -- --export-png - file.md > screenshot.png
+
+# Inline markdown to PNG
+echo "# Hello" | zig build run -- --export-png output.png
+
+# Quiet mode (suppress logs for scripting)
+zig build run -- --export-png out.png -q file.md
+```
+
+**Subcommand interface:**
+```bash
+# Basic export
+zig build run -- export --input file.md
+
+# Full options
+zig build run -- export --input file.md --output out.png --mode edit \
+  --width 1920 --height 1080 --full-document --dark -q
+
+# Positional input (no --input flag needed)
+zig build run -- export file.md --output preview.png
+```
+
+**Export outputs a JSON status line to stderr:**
+```json
+{"status":"ok","path":"output.png","width":1200,"height":900}
+```
+
+Default dimensions: 1200x900. Range: 32–16384 pixels.
+
 ## Architecture
 
 ```
@@ -211,3 +285,50 @@ If a phase dependency turns out to be wrong (e.g., a library doesn't work as exp
 2. Research alternatives
 3. Comment with the chosen alternative and reasoning before implementing
 4. Update the issue description if the task list needs to change
+
+<!-- ooo:START -->
+<!-- ooo:VERSION:0.14.0 -->
+# Ouroboros — Specification-First AI Development
+
+> Before telling AI what to build, define what should be built.
+> As Socrates asked 2,500 years ago — "What do you truly know?"
+> Ouroboros turns that question into an evolutionary AI workflow engine.
+
+Most AI coding fails at the input, not the output. Ouroboros fixes this by
+**exposing hidden assumptions before any code is written**.
+
+1. **Socratic Clarity** — Question until ambiguity <= 0.2
+2. **Ontological Precision** — Solve the root problem, not symptoms
+3. **Evolutionary Loops** — Each evaluation cycle feeds back into better specs
+
+```
+Interview → Seed → Execute → Evaluate
+    ↑                           ↓
+    └─── Evolutionary Loop ─────┘
+```
+
+## ooo Commands
+
+Each command loads its agent/MCP on-demand. Details in each skill file.
+
+| Command | Loads |
+|---------|-------|
+| `ooo` | — |
+| `ooo interview` | `ouroboros:socratic-interviewer` |
+| `ooo seed` | `ouroboros:seed-architect` |
+| `ooo run` | MCP required |
+| `ooo evolve` | MCP: `evolve_step` |
+| `ooo evaluate` | `ouroboros:evaluator` |
+| `ooo unstuck` | `ouroboros:{persona}` |
+| `ooo status` | MCP: `session_status` |
+| `ooo setup` | — |
+| `ooo help` | — |
+
+## Agents
+
+Loaded on-demand — not preloaded.
+
+**Core**: socratic-interviewer, ontologist, seed-architect, evaluator,
+wonder, reflect, advocate, contrarian, judge
+**Support**: hacker, simplifier, researcher, architect
+<!-- ooo:END -->

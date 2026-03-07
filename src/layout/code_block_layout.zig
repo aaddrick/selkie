@@ -7,10 +7,12 @@ const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 const syntax = @import("../render/syntax_highlight.zig");
+const gfm_extensions = @import("../parser/gfm_extensions.zig");
 
 /// Lay out a code block with line numbers and syntax highlighting.
 /// Produces a single LayoutNode with text_runs for each highlighted token
-/// and each line number.
+/// and each line number. When a fence_info language is specified, a header
+/// strip showing the language name is rendered above the code content.
 pub fn layoutCodeBlock(
     allocator: Allocator,
     code_text: ?[]const u8,
@@ -27,6 +29,49 @@ pub fn layoutCodeBlock(
     const font_size = theme.mono_font_size;
     const line_h = font_size * theme.line_height;
     const spacing = font_size / 10.0;
+    const arena_alloc = tree.arena.allocator();
+
+    // Render a language label header above the code block when a language is specified
+    const lang_label = gfm_extensions.extractLanguage(fence_info);
+    if (lang_label) |label| {
+        const header_font_size = font_size * 0.85;
+        const header_h = header_font_size * theme.line_height + padding;
+        // Slightly darker background for header strip
+        const header_bg = darkenColor(theme.code_background, 0.08);
+
+        const label_str = try arena_alloc.dupe(u8, label);
+
+        var header_node = layout_types.LayoutNode.init(allocator, .{ .code_block_header = .{
+            .bg_color = header_bg,
+            .label = label_str,
+        } });
+        errdefer header_node.deinit();
+
+        header_node.rect = .{
+            .x = content_x,
+            .y = cursor_y.*,
+            .width = content_width,
+            .height = header_h,
+        };
+        const label_m = fonts.measure(label_str, header_font_size, false, false, true);
+        try header_node.text_runs.append(.{
+            .text = label_str,
+            .style = .{
+                .font_size = header_font_size,
+                .color = theme.line_number_color,
+                .is_code = true,
+            },
+            .rect = .{
+                .x = content_x + padding,
+                .y = cursor_y.* + padding * 0.5,
+                .width = label_m.x,
+                .height = label_m.y,
+            },
+        });
+
+        try tree.nodes.append(header_node);
+        cursor_y.* += header_h;
+    }
 
     var line_count: u32 = 1;
     for (source) |ch| {
@@ -67,7 +112,6 @@ pub fn layoutCodeBlock(
     const gutter_x = content_x + gutter_padding;
     const code_x = content_x + gutter_width + spacing * 2; // small gap after gutter
     const line_y = cursor_y.* + padding;
-    const arena_alloc = tree.arena.allocator();
     var line_idx: u32 = 1;
     while (line_idx <= line_count) : (line_idx += 1) {
         const num_str = try std.fmt.allocPrint(arena_alloc, "{d}", .{line_idx});
@@ -183,4 +227,81 @@ fn tokenColor(kind: syntax.TokenKind, theme: *const Theme) rl.Color {
         .punctuation => theme.syntax_punctuation,
         .text => theme.code_text,
     };
+}
+
+/// Darken a color by a factor (0.0 = no change, 1.0 = black).
+fn darkenColor(color: rl.Color, factor: f32) rl.Color {
+    const f = std.math.clamp(factor, 0.0, 1.0);
+    const scale = 1.0 - f;
+    return .{
+        .r = @intFromFloat(std.math.clamp(@as(f32, @floatFromInt(color.r)) * scale, 0.0, 255.0)),
+        .g = @intFromFloat(std.math.clamp(@as(f32, @floatFromInt(color.g)) * scale, 0.0, 255.0)),
+        .b = @intFromFloat(std.math.clamp(@as(f32, @floatFromInt(color.b)) * scale, 0.0, 255.0)),
+        .a = color.a,
+    };
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "language extraction delegates to gfm_extensions.extractLanguage" {
+    try testing.expectEqualStrings("python", gfm_extensions.extractLanguage("python").?);
+    try testing.expectEqualStrings("python", gfm_extensions.extractLanguage("python extra_stuff").?);
+    try testing.expectEqual(@as(?[]const u8, null), gfm_extensions.extractLanguage(null));
+    try testing.expectEqual(@as(?[]const u8, null), gfm_extensions.extractLanguage(""));
+    try testing.expectEqual(@as(?[]const u8, null), gfm_extensions.extractLanguage("   "));
+    try testing.expectEqualStrings("rust", gfm_extensions.extractLanguage("  rust").?);
+}
+
+test "darkenColor reduces brightness" {
+    const white = rl.Color{ .r = 200, .g = 200, .b = 200, .a = 255 };
+    const darkened = darkenColor(white, 0.5);
+    try testing.expectEqual(@as(u8, 100), darkened.r);
+    try testing.expectEqual(@as(u8, 100), darkened.g);
+    try testing.expectEqual(@as(u8, 100), darkened.b);
+    try testing.expectEqual(@as(u8, 255), darkened.a);
+}
+
+test "darkenColor with zero factor returns original" {
+    const color = rl.Color{ .r = 128, .g = 64, .b = 32, .a = 200 };
+    const result = darkenColor(color, 0.0);
+    try testing.expectEqual(color.r, result.r);
+    try testing.expectEqual(color.g, result.g);
+    try testing.expectEqual(color.b, result.b);
+}
+
+test "darkenColor clamps negative factor to zero" {
+    const color = rl.Color{ .r = 128, .g = 64, .b = 32, .a = 200 };
+    const result = darkenColor(color, -0.5);
+    // Negative factor is clamped to 0.0, so output equals input
+    try testing.expectEqual(color.r, result.r);
+    try testing.expectEqual(color.g, result.g);
+    try testing.expectEqual(color.b, result.b);
+}
+
+test "darkenColor clamps factor above 1.0" {
+    const color = rl.Color{ .r = 200, .g = 150, .b = 100, .a = 255 };
+    const result = darkenColor(color, 1.5);
+    // Factor clamped to 1.0, so result is black
+    try testing.expectEqual(@as(u8, 0), result.r);
+    try testing.expectEqual(@as(u8, 0), result.g);
+    try testing.expectEqual(@as(u8, 0), result.b);
+    try testing.expectEqual(@as(u8, 255), result.a);
+}
+
+test "tokenColor maps all token kinds" {
+    const defaults = @import("../theme/defaults.zig");
+    const theme = defaults.light;
+    try testing.expectEqual(theme.syntax_keyword, tokenColor(.keyword, &theme));
+    try testing.expectEqual(theme.syntax_string, tokenColor(.string, &theme));
+    try testing.expectEqual(theme.syntax_comment, tokenColor(.comment, &theme));
+    try testing.expectEqual(theme.syntax_number, tokenColor(.number, &theme));
+    try testing.expectEqual(theme.syntax_type, tokenColor(.type_name, &theme));
+    try testing.expectEqual(theme.syntax_function, tokenColor(.function, &theme));
+    try testing.expectEqual(theme.syntax_operator, tokenColor(.operator, &theme));
+    try testing.expectEqual(theme.syntax_punctuation, tokenColor(.punctuation, &theme));
+    try testing.expectEqual(theme.code_text, tokenColor(.text, &theme));
 }

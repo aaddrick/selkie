@@ -37,6 +37,9 @@ pub const Tab = struct {
     source_text: ?[]u8,
     /// Editor buffer for in-app editing (null until first toggle into edit mode)
     editor: ?EditorState,
+    /// Tracks the editor edit_version that was last re-parsed for live preview.
+    /// Compared against editor.edit_version to detect when a re-parse is needed.
+    last_preview_version: u64 = 0,
 
     pub fn init(allocator: Allocator) Tab {
         return .{
@@ -55,6 +58,7 @@ pub const Tab = struct {
             .file_deleted = false,
             .source_text = null,
             .editor = null,
+            .last_preview_version = 0,
         };
     }
 
@@ -216,6 +220,22 @@ pub const Tab = struct {
         self.layout_tree = null;
         if (self.document) |*doc| doc.deinit();
         self.document = new_doc;
+    }
+
+    /// Returns true if the editor buffer has been modified since the last preview re-parse.
+    /// Used by the live preview pipeline to decide when to re-parse and re-layout.
+    pub fn previewNeedsUpdate(self: *const Tab) bool {
+        const editor = self.editor orelse return false;
+        if (!editor.is_open) return false;
+        return editor.edit_version != self.last_preview_version;
+    }
+
+    /// Re-parse the document from the editor buffer and mark the preview version as current.
+    /// Combines reparseFromEditor with version tracking for the live preview pipeline.
+    pub fn updatePreviewFromEditor(self: *Tab) !void {
+        const editor = self.editor orelse return;
+        try self.reparseFromEditor();
+        self.last_preview_version = editor.edit_version;
     }
 
     /// Return a display title for the tab (basename of file path, or "Untitled").
@@ -668,5 +688,64 @@ test "Tab.reparseFromEditor preserves editor buffer after re-parse" {
     // Editor buffer should be unchanged
     try testing.expectEqualStrings("# Start End", tab.editor.?.getLineText(0).?);
     try testing.expect(tab.isDirty());
+}
+
+test "Tab.previewNeedsUpdate returns false when no editor" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try testing.expect(!tab.previewNeedsUpdate());
+}
+
+test "Tab.previewNeedsUpdate returns false when editor is closed" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    tab.editor.?.is_open = false;
+
+    try testing.expect(!tab.previewNeedsUpdate());
+}
+
+test "Tab.previewNeedsUpdate returns true after editor mutation" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    tab.editor.?.is_open = true;
+
+    // Initially versions match (both 0)
+    try testing.expect(!tab.previewNeedsUpdate());
+
+    // After a mutation, edit_version advances
+    try tab.editor.?.insertChar('!');
+    try testing.expect(tab.previewNeedsUpdate());
+}
+
+test "Tab.updatePreviewFromEditor syncs version and re-parses" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.loadMarkdown("# Hello");
+    try tab.toggleEditMode();
+    tab.editor.?.is_open = true;
+
+    // Mutate the editor buffer
+    tab.editor.?.setCursor(0, 7);
+    try tab.editor.?.insertBytes(" World");
+
+    try testing.expect(tab.previewNeedsUpdate());
+
+    // Update the preview
+    try tab.updatePreviewFromEditor();
+
+    // Version should now be synced
+    try testing.expect(!tab.previewNeedsUpdate());
+    try testing.expectEqual(tab.editor.?.edit_version, tab.last_preview_version);
+
+    // Document should have been re-parsed (not null)
+    try testing.expect(tab.document != null);
 }
 

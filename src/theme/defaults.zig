@@ -76,6 +76,18 @@ pub const light = Theme{
     .sidebar_border = rgb(208, 215, 222),
     .sidebar_indent_line = rgb(208, 215, 222),
 
+    // GFM Alerts (GitHub light theme colors)
+    .alert_note_border = rgb(31, 111, 200),
+    .alert_note_text = rgb(31, 111, 200),
+    .alert_tip_border = rgb(26, 127, 55),
+    .alert_tip_text = rgb(26, 127, 55),
+    .alert_important_border = rgb(130, 80, 223),
+    .alert_important_text = rgb(130, 80, 223),
+    .alert_warning_border = rgb(191, 135, 0),
+    .alert_warning_text = rgb(191, 135, 0),
+    .alert_caution_border = rgb(207, 34, 46),
+    .alert_caution_text = rgb(207, 34, 46),
+
     // Mermaid (light: blue-gray nodes, dark borders)
     .mermaid_node_fill = rgb(218, 232, 252),
     .mermaid_node_border = rgb(100, 130, 180),
@@ -166,6 +178,18 @@ pub const dark = Theme{
     .sidebar_hover_bg = rgb(59, 60, 78),
     .sidebar_border = rgb(69, 71, 90),
     .sidebar_indent_line = rgb(88, 91, 112),
+
+    // GFM Alerts (Catppuccin-style colors)
+    .alert_note_border = rgb(137, 180, 250),
+    .alert_note_text = rgb(137, 180, 250),
+    .alert_tip_border = rgb(166, 227, 161),
+    .alert_tip_text = rgb(166, 227, 161),
+    .alert_important_border = rgb(203, 166, 247),
+    .alert_important_text = rgb(203, 166, 247),
+    .alert_warning_border = rgb(249, 226, 175),
+    .alert_warning_text = rgb(249, 226, 175),
+    .alert_caution_border = rgb(243, 139, 168),
+    .alert_caution_text = rgb(243, 139, 168),
 
     // Mermaid (Catppuccin-style teal/mauve fills)
     .mermaid_node_fill = rgb(69, 71, 90),

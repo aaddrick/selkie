@@ -75,8 +75,16 @@ pub const NodeData = union(enum) {
         lang: ?[]const u8,
         line_number_gutter_width: f32,
     },
+    /// Language label header above a code block (e.g., "python", "javascript").
+    code_block_header: struct {
+        bg_color: rl.Color,
+        /// Display label for the language (arena-allocated).
+        label: []const u8,
+    },
     thematic_break: struct { color: rl.Color },
     block_quote_border: struct { color: rl.Color },
+    /// Translucent background fill for a GFM alert/admonition block.
+    alert_bg: struct { color: rl.Color },
     table_cell: void,
     table_border: struct { color: rl.Color },
     table_row_bg: struct { bg_color: rl.Color },

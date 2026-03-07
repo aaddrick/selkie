@@ -22,6 +22,7 @@ pub fn mapNodeType(cmark_type: cmark.cmark_node_type, type_string: ?[]const u8) 
     if (type_string) |name| {
         if (std.mem.eql(u8, name, "table")) return .table;
         if (std.mem.eql(u8, name, "table_row")) return .table_row;
+        if (std.mem.eql(u8, name, "table_header")) return .table_row;
         if (std.mem.eql(u8, name, "table_cell")) return .table_cell;
         if (std.mem.eql(u8, name, "strikethrough")) return .strikethrough;
     }
@@ -225,6 +226,7 @@ test "mapNodeType returns null for unknown cmark type" {
 test "mapNodeType maps GFM extension types by type string" {
     try testing.expectEqual(ast.NodeType.table, mapNodeType(0, "table").?);
     try testing.expectEqual(ast.NodeType.table_row, mapNodeType(0, "table_row").?);
+    try testing.expectEqual(ast.NodeType.table_row, mapNodeType(0, "table_header").?);
     try testing.expectEqual(ast.NodeType.table_cell, mapNodeType(0, "table_cell").?);
     try testing.expectEqual(ast.NodeType.strikethrough, mapNodeType(0, "strikethrough").?);
 }
@@ -343,4 +345,87 @@ test "parse GFM tasklist" {
 
     const item1 = &list.children.items[1];
     try testing.expectEqual(false, item1.tasklist_checked.?);
+}
+
+test "parse GFM autolink URL" {
+    var doc = try parse(testing.allocator, "Check https://example.com now\n");
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    try testing.expectEqual(ast.NodeType.paragraph, para.node_type);
+
+    // cmark-gfm should produce a link node for the autolinked URL
+    var found_link = false;
+    for (para.children.items) |*child| {
+        if (child.node_type == .link) {
+            try testing.expectEqualStrings("https://example.com", child.url.?);
+            // Autolink text child matches the URL
+            try testing.expect(child.children.items.len > 0);
+            const text = &child.children.items[0];
+            try testing.expectEqual(ast.NodeType.text, text.node_type);
+            try testing.expectEqualStrings("https://example.com", text.literal.?);
+            found_link = true;
+            break;
+        }
+    }
+    try testing.expect(found_link);
+}
+
+test "parse GFM autolink email" {
+    var doc = try parse(testing.allocator, "Email <user@example.com> now\n");
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    var found_email_link = false;
+    for (para.children.items) |*child| {
+        if (child.node_type == .link) {
+            const url = child.url.?;
+            try testing.expect(std.mem.startsWith(u8, url, "mailto:"));
+            found_email_link = true;
+            break;
+        }
+    }
+    try testing.expect(found_email_link);
+}
+
+test "parse footnote reference produces footnote_reference node" {
+    const input = "Some text[^1].\n\n[^1]: Footnote content.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    // Paragraph should contain a footnote_reference
+    const para = &doc.root.children.items[0];
+    try testing.expectEqual(ast.NodeType.paragraph, para.node_type);
+
+    var found_ref = false;
+    for (para.children.items) |*child| {
+        if (child.node_type == .footnote_reference) {
+            found_ref = true;
+            break;
+        }
+    }
+    try testing.expect(found_ref);
+}
+
+test "parse footnote definition produces footnote_definition node" {
+    const input = "Text[^fn].\n\n[^fn]: Definition here.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    // Should have a footnote_definition among root children
+    var found_def = false;
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            found_def = true;
+            // Footnote definition should contain paragraph children with the content
+            try testing.expect(child.children.items.len > 0);
+            break;
+        }
+    }
+    try testing.expect(found_def);
+}
+
+test "mapNodeType maps footnote types" {
+    try testing.expectEqual(ast.NodeType.footnote_definition, mapNodeType(cmark.CMARK_NODE_FOOTNOTE_DEFINITION, null).?);
+    try testing.expectEqual(ast.NodeType.footnote_reference, mapNodeType(cmark.CMARK_NODE_FOOTNOTE_REFERENCE, null).?);
 }

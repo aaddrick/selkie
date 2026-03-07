@@ -42,6 +42,46 @@ pub fn drawCodeBlock(node: *const LayoutNode, theme: *const Theme, fonts: *const
     }
 }
 
+/// Draw a code block language label header (e.g., "python", "javascript").
+pub fn drawCodeBlockHeader(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32) void {
+    const header = node.data.code_block_header;
+    const draw_y = node.rect.y - scroll_y;
+
+    // Draw a slightly darker background strip for the header
+    rl.drawRectangleRounded(
+        .{
+            .x = node.rect.x,
+            .y = draw_y,
+            .width = node.rect.width,
+            .height = node.rect.height,
+        },
+        0.02,
+        4,
+        header.bg_color,
+    );
+
+    // Draw the language label text
+    for (node.text_runs.items) |*run| {
+        text_renderer.drawTextRun(run, fonts, scroll_y, null, 0);
+    }
+}
+
+/// Draw an alert background fill (translucent tinted rectangle).
+pub fn drawAlertBg(node: *const LayoutNode, scroll_y: f32) void {
+    const alert = node.data.alert_bg;
+    rl.drawRectangleRounded(
+        .{
+            .x = node.rect.x,
+            .y = node.rect.y - scroll_y,
+            .width = node.rect.width,
+            .height = node.rect.height,
+        },
+        0.02,
+        4,
+        alert.color,
+    );
+}
+
 /// Draw a horizontal rule (thematic break).
 pub fn drawThematicBreak(node: *const LayoutNode, scroll_y: f32) void {
     const color = node.data.thematic_break.color;

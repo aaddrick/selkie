@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 
 const EditorState = @import("../editor/editor_state.zig").EditorState;
+const MdHighlighter = @import("../editor/md_highlighter.zig").MdHighlighter;
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const slice_utils = @import("../utils/slice_utils.zig");
@@ -43,6 +44,35 @@ pub fn cursorPixelX(line_text: []const u8, byte_col: usize, font: rl.Font, font_
     return rl.measureTextEx(font, z, font_size, spacing).x;
 }
 
+/// Convert a pixel X offset (relative to text area start) into a byte column index.
+/// Uses linear scan over UTF-8 character boundaries to find the closest match.
+pub fn byteColFromPixelX(line_text: []const u8, pixel_x: f32, font: rl.Font, font_size: f32, spacing: f32) usize {
+    if (line_text.len == 0 or pixel_x <= 0) return 0;
+
+    // Walk through UTF-8 character boundaries to find the closest one.
+    var best_col: usize = 0;
+    var best_dist: f32 = pixel_x; // distance from col 0
+    var i: usize = 0;
+    while (i < line_text.len) {
+        // Advance past one UTF-8 character
+        const byte = line_text[i];
+        const char_len: usize = if (byte < 0x80) 1 else if (byte < 0xE0) 2 else if (byte < 0xF0) 3 else 4;
+        const next_i = @min(i + char_len, line_text.len);
+
+        const col_px = cursorPixelX(line_text, next_i, font, font_size, spacing);
+        const dist = @abs(pixel_x - col_px);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_col = next_i;
+        } else {
+            // Distances are increasing — we've passed the closest point
+            break;
+        }
+        i = next_i;
+    }
+    return best_col;
+}
+
 /// Compute the Y position of a line relative to the editor content area origin.
 pub fn lineY(line_index: usize, line_height: f32) f32 {
     return @as(f32, @floatFromInt(line_index)) * line_height;
@@ -51,6 +81,7 @@ pub fn lineY(line_index: usize, line_height: f32) f32 {
 /// Draw the editor view: raw source text with line numbers and blinking cursor.
 /// Caller must ensure the editor is open before calling.
 pub fn drawEditor(
+    allocator: std.mem.Allocator,
     editor: *const EditorState,
     theme: *const Theme,
     fonts: *const Fonts,
@@ -59,6 +90,22 @@ pub fn drawEditor(
     content_top_y: f32,
     left_offset: f32,
 ) void {
+    drawEditorConstrained(allocator, editor, theme, fonts, scroll_y, scroll_x, content_top_y, left_offset, null);
+}
+
+/// Draw the editor view constrained to a maximum width (used by split-pane mode).
+/// When `max_width` is null, the editor extends to the right edge of the screen.
+pub fn drawEditorConstrained(
+    allocator: std.mem.Allocator,
+    editor: *const EditorState,
+    theme: *const Theme,
+    fonts: *const Fonts,
+    scroll_y: f32,
+    scroll_x: f32,
+    content_top_y: f32,
+    left_offset: f32,
+    max_width: ?f32,
+) void {
     const screen_w: f32 = @floatFromInt(rl.getScreenWidth());
     const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
     const font = fonts.mono;
@@ -66,7 +113,7 @@ pub fn drawEditor(
     const spacing = font_size / 10.0;
     const line_height = font_size * theme.line_height;
 
-    const editor_width = screen_w - left_offset;
+    const editor_width = if (max_width) |mw| mw else screen_w - left_offset;
     const editor_height = screen_h - content_top_y;
 
     // Bail out if editor area has no usable dimensions
@@ -79,7 +126,8 @@ pub fn drawEditor(
 
     const gutter_w = gutterWidth(editor.lineCount(), font, font_size, spacing);
     const text_area_x = left_offset + gutter_w + gutter_text_padding;
-    const text_area_w = @max(0, screen_w - text_area_x);
+    const right_edge = left_offset + editor_width;
+    const text_area_w = @max(0, right_edge - text_area_x);
 
     // Visible line range
     const first_visible: usize = @intFromFloat(@max(0, @floor(scroll_y / line_height)));
@@ -103,6 +151,14 @@ pub fn drawEditor(
     // Fetch once outside the loop to avoid per-line overhead.
     const sel = editor.selectionRange();
 
+    // Compute markdown highlight state at the first visible line by scanning
+    // prior lines for fenced code block boundaries.
+    var md_state: MdHighlighter.LineState = .normal;
+    for (0..first_visible) |pre_i| {
+        const pre_line = editor.getLineText(pre_i) orelse continue;
+        md_state = advanceLineState(pre_line, md_state);
+    }
+
     // Draw visible lines
     for (first_visible..last_visible) |i| {
         const y = content_top_y + lineY(i, line_height) - scroll_y;
@@ -111,7 +167,7 @@ pub fn drawEditor(
         // Highlight cursor line (only when no selection active)
         if (sel == null and i == editor.cursor_line) {
             rl.drawRectangleRec(
-                .{ .x = text_area_x, .y = y, .width = screen_w - text_area_x, .height = line_height },
+                .{ .x = text_area_x, .y = y, .width = right_edge - text_area_x, .height = line_height },
                 .{ .r = theme.code_text.r, .g = theme.code_text.g, .b = theme.code_text.b, .a = cursor_line_highlight_alpha },
             );
         }
@@ -140,17 +196,9 @@ pub fn drawEditor(
         }
 
         if (line_text.len > 0) {
-            var text_buf: [max_line_bytes]u8 = undefined;
-            const text_z = slice_utils.sliceToZ(&text_buf, line_text);
-            rl.drawTextEx(
-                font,
-                text_z,
-                .{ .x = text_area_x - scroll_x, .y = y },
-                font_size,
-                spacing,
-                theme.code_text,
-            );
+            drawHighlightedLine(line_text, text_area_x - scroll_x, y, font, font_size, spacing, theme, allocator, md_state);
         }
+        md_state = advanceLineState(line_text, md_state);
     }
 
     // Draw blinking cursor
@@ -222,6 +270,96 @@ pub fn scrollXForCursor(
         return @max(0, cursor_pixel_x - horizontal_scroll_margin);
     }
     return current_scroll_x;
+}
+
+/// Draw a single line as plain (unhighlighted) text.
+fn drawPlainLine(line_text: []const u8, x: f32, y: f32, font: rl.Font, font_size: f32, spacing: f32, color: rl.Color) void {
+    var text_buf: [max_line_bytes]u8 = undefined;
+    const text_z = slice_utils.sliceToZ(&text_buf, line_text);
+    rl.drawTextEx(font, text_z, .{ .x = x, .y = y }, font_size, spacing, color);
+}
+
+/// Advance the multi-line state for a single line (lightweight — no allocation).
+/// Used to compute the fenced-code-block state for lines before the visible region.
+fn advanceLineState(line: []const u8, state: MdHighlighter.LineState) MdHighlighter.LineState {
+    const trimmed = std.mem.trimLeft(u8, line, " ");
+    if (trimmed.len < 3) return state;
+    const fence_char = trimmed[0];
+    if (fence_char != '`' and fence_char != '~') return state;
+    var count: usize = 0;
+    for (trimmed) |c| {
+        if (c == fence_char) {
+            count += 1;
+        } else break;
+    }
+    if (count >= 3) {
+        return if (state == .fenced_code) .normal else .fenced_code;
+    }
+    return state;
+}
+
+/// Map a markdown token kind to a theme color.
+fn tokenColor(kind: MdHighlighter.TokenKind, theme: *const Theme) rl.Color {
+    return switch (kind) {
+        .heading_marker, .heading_text => theme.heading[0],
+        .bold, .bold_italic, .list_marker, .task_marker, .alert_marker => theme.syntax_keyword,
+        .italic, .emoji => theme.syntax_string,
+        .code_span => theme.syntax_function,
+        .fence, .code_line, .link_url, .table_align, .strikethrough => theme.syntax_comment,
+        .link_text, .image_marker, .autolink, .footnote_ref, .footnote_def => theme.link,
+        .blockquote_marker => theme.blockquote_border,
+        .table_pipe => theme.syntax_operator,
+        .horizontal_rule => theme.hr_color,
+        .html_tag => theme.syntax_type,
+        .escape => theme.syntax_number,
+        .text => theme.code_text,
+    };
+}
+
+/// Draw a single line of text with GFM syntax highlighting.
+fn drawHighlightedLine(
+    line_text: []const u8,
+    base_x: f32,
+    y: f32,
+    font: rl.Font,
+    font_size: f32,
+    spacing: f32,
+    theme: *const Theme,
+    alloc: std.mem.Allocator,
+    md_state: MdHighlighter.LineState,
+) void {
+    const result = MdHighlighter.tokenizeLine(alloc, line_text, md_state) catch {
+        drawPlainLine(line_text, base_x, y, font, font_size, spacing, theme.code_text);
+        return;
+    };
+    defer alloc.free(result.tokens);
+
+    if (result.tokens.len == 0) {
+        drawPlainLine(line_text, base_x, y, font, font_size, spacing, theme.code_text);
+        return;
+    }
+
+    // Draw each token with its color
+    for (result.tokens) |tok| {
+        const tok_text = line_text[tok.start..tok.end];
+        if (tok_text.len == 0) continue;
+
+        // Measure X offset for this token's start position
+        const x_offset = if (tok.start > 0) blk: {
+            var prefix_buf: [max_line_bytes]u8 = undefined;
+            const prefix = line_text[0..tok.start];
+            if (prefix.len >= prefix_buf.len) break :blk @as(f32, 0);
+            const z = slice_utils.sliceToZ(&prefix_buf, prefix);
+            break :blk rl.measureTextEx(font, z, font_size, spacing).x;
+        } else @as(f32, 0);
+
+        var tok_buf: [max_line_bytes]u8 = undefined;
+        if (tok_text.len >= tok_buf.len) continue;
+        const tok_z = slice_utils.sliceToZ(&tok_buf, tok_text);
+        const color = tokenColor(tok.kind, theme);
+
+        rl.drawTextEx(font, tok_z, .{ .x = base_x + x_offset, .y = y }, font_size, spacing, color);
+    }
 }
 
 // =============================================================================

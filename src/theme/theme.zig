@@ -61,6 +61,18 @@ pub const Theme = struct {
     sidebar_border: rl.Color,
     sidebar_indent_line: rl.Color,
 
+    // GFM Alert colors (> [!NOTE], > [!TIP], etc.)
+    alert_note_border: rl.Color,
+    alert_note_text: rl.Color,
+    alert_tip_border: rl.Color,
+    alert_tip_text: rl.Color,
+    alert_important_border: rl.Color,
+    alert_important_text: rl.Color,
+    alert_warning_border: rl.Color,
+    alert_warning_text: rl.Color,
+    alert_caution_border: rl.Color,
+    alert_caution_text: rl.Color,
+
     // Mermaid diagram colors
     mermaid_node_fill: rl.Color,
     mermaid_node_border: rl.Color,
