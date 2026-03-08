@@ -24,21 +24,6 @@ const GitGraphModel = @import("models/gitgraph_model.zig").GitGraphModel;
 const JourneyModel = @import("models/journey_model.zig").JourneyModel;
 const TimelineModel = @import("models/timeline_model.zig").TimelineModel;
 
-pub const DiagramType = enum {
-    flowchart,
-    sequence,
-    pie,
-    gantt,
-    class_diagram,
-    er_diagram,
-    state_diagram,
-    mindmap,
-    gitgraph,
-    journey,
-    timeline,
-    unsupported,
-};
-
 pub const DetectResult = union(enum) {
     flowchart: FlowchartModel,
     sequence: SequenceModel,

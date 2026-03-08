@@ -11,8 +11,8 @@ const Theme = @import("../../theme/theme.zig").Theme;
 // ---------------------------------------------------------------------------
 // Visual constants kept in sync with gitgraph_renderer.zig
 // ---------------------------------------------------------------------------
-const COMMIT_RADIUS: f32 = 8;
-const TAG_HEIGHT: f32 = 20;
+const commit_radius: f32 = 8;
+const tag_height: f32 = 20;
 
 // ---------------------------------------------------------------------------
 // Layout constants — tuned for readable gitgraph diagrams
@@ -21,13 +21,13 @@ const default_lane_spacing: f32 = 30;
 /// Wider spacing used when at least one commit carries a tag annotation.
 /// The badge is drawn above (LR) or beside (TB) the commit dot; without extra
 /// clearance it would overlap the adjacent branch lane line.
-const tagged_lane_spacing: f32 = TAG_HEIGHT + COMMIT_RADIUS * 2 + 10; // ≈46
+const tagged_lane_spacing: f32 = tag_height + commit_radius * 2 + 10; // ≈46
 const default_commit_spacing: f32 = 50;
 const padding: f32 = 20;
 const min_branch_label_w: f32 = 80;
 const header_offset: f32 = 20;
 /// Extra top margin (LR) reserved for tag badges above the first commit row.
-const tag_top_margin: f32 = TAG_HEIGHT + 4;
+const tag_top_margin: f32 = tag_height + 4;
 const tail_margin: f32 = 40;
 
 pub const LayoutResult = struct {
@@ -61,8 +61,8 @@ pub const LayoutResult = struct {
 /// 6. Compute branch lane-start positions: each branch's lane line begins at
 ///    the parent-branch commit from which it diverged, not at the diagram edge.
 /// 7. Compute tag badge positions (stored on Tag entities in model.tags):
-///      LR → badge is COMMIT_RADIUS + TAG_HEIGHT above the commit dot.
-///      TB → badge is COMMIT_RADIUS + 4 to the right of the commit dot.
+///      LR → badge is commit_radius + tag_height above the commit dot.
+///      TB → badge is commit_radius + 4 to the right of the commit dot.
 /// 8. Scale all positions proportionally when the natural width > available_width.
 /// 9. Store effective (post-scale) spacing constants on the model.
 ///
@@ -91,7 +91,10 @@ pub fn layout(
     const branch_label_w = measureBranchLabels(model, fonts, theme);
 
     // --- Step 3: Compute topological slot positions --------------------------
-    const slots_opt = computeTopoSlots(model) catch null;
+    const slots_opt = computeTopoSlots(model) catch |err| blk: {
+        std.log.err("gitgraph_layout: computeTopoSlots failed: {s}; falling back to seq ordering", .{@errorName(err)});
+        break :blk null;
+    };
     defer if (slots_opt) |s| model.allocator.free(s);
 
     const max_slot: u32 = blk: {
@@ -157,13 +160,13 @@ pub fn layout(
         if (tag.commit_idx >= model.commits.items.len) continue;
         const commit = model.commits.items[tag.commit_idx];
         if (is_lr) {
-            // Badge centre aligned with commit x; top edge COMMIT_RADIUS + 2px
-            // above the commit dot, i.e. badge bottom = commit.y - COMMIT_RADIUS - 2.
+            // Badge centre aligned with commit x; top edge commit_radius + 2px
+            // above the commit dot, i.e. badge bottom = commit.y - commit_radius - 2.
             tag.x = commit.x;
-            tag.y = commit.y - COMMIT_RADIUS - TAG_HEIGHT;
+            tag.y = commit.y - commit_radius - tag_height;
         } else {
             // Badge left edge just to the right of the commit dot.
-            tag.x = commit.x + COMMIT_RADIUS + 4;
+            tag.x = commit.x + commit_radius + 4;
             tag.y = commit.y;
         }
     }
@@ -294,6 +297,8 @@ fn computeLaneStarts(
     var fba = std.heap.FixedBufferAllocator.init(&id_buf);
     var id_map = std.StringHashMap(usize).init(fba.allocator());
     for (model.commits.items, 0..) |c, i| {
+        // OOM from FixedBufferAllocator is expected and safe: IDs that don't
+        // fit simply keep the default lane_start position (diagram edge).
         id_map.put(c.id, i) catch {};
     }
 

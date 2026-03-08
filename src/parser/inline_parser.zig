@@ -22,6 +22,8 @@ const Allocator = std.mem.Allocator;
 const ast = @import("ast.zig");
 
 /// Information about a link or autolink inline node.
+/// String fields are borrowed from the AST node and remain valid for the
+/// lifetime of the Document they belong to.
 pub const LinkInfo = struct {
     url: []const u8,
     title: ?[]const u8,
@@ -30,6 +32,8 @@ pub const LinkInfo = struct {
 };
 
 /// Information about an image inline node.
+/// `url` and `title` are borrowed from the AST node. `alt_text` is owned
+/// by the caller (allocated via `collectPlainText`) and must be freed.
 pub const ImageInfo = struct {
     url: []const u8,
     title: ?[]const u8,
@@ -49,7 +53,8 @@ pub const InlineStyle = struct {
 pub fn isInlineNode(node_type: ast.NodeType) bool {
     return switch (node_type) {
         .text, .softbreak, .linebreak, .code, .html_inline, .emph, .strong, .strikethrough, .link, .image, .footnote_reference, .math_inline => true,
-        else => false,
+        // Block-level node types:
+        .document, .block_quote, .list, .item, .code_block, .html_block, .paragraph, .heading, .thematic_break, .footnote_definition, .table, .table_row, .table_cell, .math_block => false,
     };
 }
 
@@ -57,7 +62,8 @@ pub fn isInlineNode(node_type: ast.NodeType) bool {
 pub fn isInlineContainer(node_type: ast.NodeType) bool {
     return switch (node_type) {
         .emph, .strong, .strikethrough, .link, .image => true,
-        else => false,
+        // Leaf inlines and all block-level types:
+        .text, .softbreak, .linebreak, .code, .html_inline, .footnote_reference, .math_inline, .document, .block_quote, .list, .item, .code_block, .html_block, .paragraph, .heading, .thematic_break, .footnote_definition, .table, .table_row, .table_cell, .math_block => false,
     };
 }
 
@@ -205,7 +211,8 @@ pub fn resolveInlineStyle(node: *const ast.Node, parent_style: InlineStyle) Inli
         .strikethrough => style.strikethrough = true,
         .code => style.code = true,
         .link => style.link_url = node.url,
-        else => {},
+        // Nodes that don't contribute style:
+        .text, .softbreak, .linebreak, .html_inline, .image, .footnote_reference, .math_inline, .math_block, .document, .block_quote, .list, .item, .code_block, .html_block, .paragraph, .heading, .thematic_break, .footnote_definition, .table, .table_row, .table_cell => {},
     }
     return style;
 }

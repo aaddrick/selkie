@@ -18,6 +18,8 @@ pub const Commit = struct {
     tag: []const u8 = "",
     commit_type: CommitType = .normal,
     branch: []const u8 = "",
+    /// Borrowed: slices point into the `id` fields of other commits in
+    /// the same `GitGraphModel.commits` list. Lifetime tied to the model.
     parents: std.ArrayList([]const u8),
     /// Optional explicit visual ordering index (from the `order:` attribute in
     /// newer Mermaid gitGraph syntax). When non-null the layout engine may use

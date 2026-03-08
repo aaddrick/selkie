@@ -70,6 +70,10 @@ pub fn layoutBlockMath(
 /// Layout an inline math expression ($...$) as a text run within a paragraph.
 /// The math content is converted to a display string and added as a styled
 /// text run with the is_math flag set for special rendering.
+///
+/// Coordinates are absolute (document space): `cursor_x` and `cursor_y` track
+/// the current insertion point; `content_x` and `content_width` define the
+/// line boundaries for word-wrap decisions.
 pub fn layoutInlineMath(
     latex: []const u8,
     style: layout_types.TextStyle,
@@ -127,26 +131,13 @@ pub fn layoutInlineMath(
 
 const testing = std.testing;
 
-test "layoutInlineMath produces a text run with is_math flag" {
-    var tree = layout_types.LayoutTree.init(testing.allocator);
-    defer tree.deinit();
-
-    var node = layout_types.LayoutNode.init(testing.allocator, .text_block);
-    defer node.deinit();
-
-    const style = layout_types.TextStyle{
-        .font_size = 16.0,
-        .color = rl.Color{ .r = 0, .g = 0, .b = 0, .a = 255 },
-    };
-
-    // We cannot call layoutInlineMath without initialized fonts (raylib context),
-    // so we test the display string conversion instead.
+test "latexToDisplayString converts LaTeX to non-empty display string" {
+    // Verifies the C FFI display string conversion used by layoutInlineMath.
+    // Full layoutInlineMath testing requires a raylib font context.
     var buf: [256]u8 = undefined;
     const display = math_renderer.latexToDisplayString("E = mc^2", &buf);
     try testing.expect(display.len > 0);
     try testing.expect(std.mem.indexOf(u8, display, "E") != null);
-    _ = style;
-    _ = &tree;
 }
 
 test "math_block layout node data stores latex and font_size" {

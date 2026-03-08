@@ -15,6 +15,7 @@ const GitGraphModel = @import("../mermaid/models/gitgraph_model.zig").GitGraphMo
 const JourneyModel = @import("../mermaid/models/journey_model.zig").JourneyModel;
 const TimelineModel = @import("../mermaid/models/timeline_model.zig").TimelineModel;
 
+/// Axis-aligned rectangle in document coordinates (pixels).
 pub const Rect = struct {
     x: f32,
     y: f32,
@@ -34,6 +35,7 @@ pub const Rect = struct {
     }
 };
 
+/// Visual properties for a span of text: font size, color, and inline formatting flags.
 pub const TextStyle = struct {
     font_size: f32,
     color: rl.Color,
@@ -57,12 +59,14 @@ pub const TextStyle = struct {
     y_offset: f32 = 0,
 };
 
+/// A positioned span of text with uniform styling within a layout node.
 pub const TextRun = struct {
     text: []const u8,
     style: TextStyle,
     rect: Rect,
 };
 
+/// Tagged union of parsed Mermaid diagram models, one variant per supported diagram type.
 pub const MermaidModel = union(enum) {
     flowchart: *FlowchartModel,
     sequence: *SequenceModel,
@@ -77,6 +81,7 @@ pub const MermaidModel = union(enum) {
     timeline: *TimelineModel,
 };
 
+/// Per-node payload discriminating the visual element type (text, code, image, etc.).
 pub const NodeData = union(enum) {
     text_block: void,
     heading: struct { level: u8 },
@@ -129,6 +134,7 @@ pub const NodeData = union(enum) {
     },
 };
 
+/// A positioned document element with bounding rect, styled text runs, and type-specific data.
 pub const LayoutNode = struct {
     rect: Rect,
     allocator: Allocator,
@@ -172,6 +178,7 @@ pub const LayoutNode = struct {
 /// Padding inside the source line number gutter (used by layout and renderer).
 pub const gutter_padding: f32 = 8;
 
+/// The complete layout result: a flat list of positioned nodes with a string arena.
 pub const LayoutTree = struct {
     nodes: std.ArrayList(LayoutNode),
     total_height: f32,

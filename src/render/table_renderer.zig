@@ -43,10 +43,9 @@ pub fn drawTableCell(node: *const LayoutNode, fonts: *const Fonts, scroll_y: f32
     const clip_w: i32 = @intFromFloat(node.rect.width);
     const clip_h: i32 = @intFromFloat(@min(node.rect.height, viewport_h));
     rl.beginScissorMode(clip_x, clip_y, clip_w, clip_h);
+    defer rl.endScissorMode();
 
     for (node.text_runs.items) |*run| {
         text_renderer.drawTextRun(run, fonts, scroll_y, hover, viewport_h);
     }
-
-    rl.endScissorMode();
 }

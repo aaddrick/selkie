@@ -34,6 +34,7 @@ const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
 const DetailsStateStore = @import("details_state_store.zig").DetailsStateStore;
 const SplitPane = @import("split_pane.zig").SplitPane;
 
+/// Application state: manages theme, tabs, viewport, and UI orchestration.
 pub const App = struct {
     pub const max_file_size = 10 * 1024 * 1024;
     const reload_indicator_duration: i64 = 1500;
@@ -650,10 +651,10 @@ pub const App = struct {
         const editor = &(tab.editor orelse return);
 
         const pressedOrRepeat = struct {
-            fn f(key: rl.KeyboardKey) bool {
+            fn check(key: rl.KeyboardKey) bool {
                 return rl.isKeyPressed(key) or rl.isKeyPressedRepeat(key);
             }
-        }.f;
+        }.check;
 
         const ctrl_held = rl.isKeyDown(.left_control) or rl.isKeyDown(.right_control);
         const shift_held = rl.isKeyDown(.left_shift) or rl.isKeyDown(.right_shift);
@@ -1237,7 +1238,9 @@ pub const App = struct {
                                     const section_id = layout_node.data.details_header.section_id;
                                     const current = tab.details_state.get(section_id) orelse
                                         layout_node.data.details_header.expanded;
-                                    tab.details_state.put(section_id, !current) catch {};
+                                    tab.details_state.put(section_id, !current) catch |err| {
+                                        std.log.err("Failed to update details state: {}", .{err});
+                                    };
                                     self.saveTabDetailsState(self.active_tab);
                                     self.relayoutActiveTab();
                                     break;
@@ -1360,7 +1363,6 @@ pub const App = struct {
 
                     // Details/summary toggle: hover cursor and click to expand/collapse
                     {
-                        var on_details = false;
                         for (tree.nodes.items) |*layout_node| {
                             if (layout_node.data == .details_header) {
                                 const draw_y = layout_node.rect.y - tab.scroll.y;
@@ -1369,14 +1371,15 @@ pub const App = struct {
                                     mouse_y >= draw_y and
                                     mouse_y <= draw_y + layout_node.rect.height)
                                 {
-                                    on_details = true;
                                     if (tab.link_handler.hovered_url == null) {
                                         rl.setMouseCursor(.pointing_hand);
                                     }
                                     if (rl.isMouseButtonReleased(.left)) {
                                         const section_id = layout_node.data.details_header.section_id;
                                         const current = tab.details_state.get(section_id) orelse layout_node.data.details_header.expanded;
-                                        tab.details_state.put(section_id, !current) catch {};
+                                        tab.details_state.put(section_id, !current) catch |err| {
+                                            std.log.err("Failed to update details state: {}", .{err});
+                                        };
                                         // Persist the toggle to the store immediately
                                         self.saveTabDetailsState(self.active_tab);
                                         // Trigger re-layout
@@ -1386,7 +1389,6 @@ pub const App = struct {
                                 }
                             }
                         }
-                        // on_details used to gate cursor reset (future enhancement)
                     }
                 }
             }
@@ -1418,7 +1420,9 @@ pub const App = struct {
                         current + diff * factor;
                     layout_node.data.details_header.anim_progress = new_progress;
                     // Mirror into tab.details_anim for re-layout seeding
-                    tab.details_anim.put(section_id, new_progress) catch {};
+                    tab.details_anim.put(section_id, new_progress) catch |err| {
+                        std.log.err("Failed to update details state: {}", .{err});
+                    };
 
                     // Update keyboard focus indicator in-place
                     const focused = if (tab.details_focused_section_id) |fid|

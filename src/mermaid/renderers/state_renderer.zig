@@ -1,14 +1,19 @@
-const rl = @import("raylib");
 const std = @import("std");
+const rl = @import("raylib");
 const sm = @import("../models/state_model.zig");
 const StateModel = sm.StateModel;
 const State = sm.State;
 const StateType = sm.StateType;
 const graph_mod = @import("../models/graph.zig");
+const state_layout = @import("../layout/state_layout.zig");
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
 const ru = @import("../render_utils.zig");
 const shapes = @import("shapes.zig");
+
+/// Background color for note annotations. Yellow-tinted to visually
+/// distinguish notes from state boxes. TODO: integrate with theme.
+const note_bg = rl.Color{ .r = 255, .g = 255, .b = 204, .a = 230 };
 
 /// Draw a complete stateDiagram-v2 to the current render target.
 ///
@@ -18,7 +23,16 @@ const shapes = @import("shapes.zig");
 ///
 /// Rendering order: background → transitions (edges) → states (nodes).
 /// Edges are drawn first so they appear behind state boxes.
-pub fn drawStateDiagram(model: *const StateModel, origin_x: f32, origin_y: f32, diagram_width: f32, diagram_height: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+pub fn drawStateDiagram(
+    model: *const StateModel,
+    origin_x: f32,
+    origin_y: f32,
+    diagram_width: f32,
+    diagram_height: f32,
+    theme: *const Theme,
+    fonts: *const Fonts,
+    scroll_y: f32,
+) void {
     // Background
     rl.drawRectangleRec(.{
         .x = origin_x,
@@ -65,7 +79,18 @@ pub fn drawStateDiagram(model: *const StateModel, origin_x: f32, origin_y: f32, 
 /// - `.composite`: Dashed rounded rectangle with header label
 /// - `.normal`: Rounded rectangle; if both label and description exist,
 ///   show label in a header zone with a divider line and description below.
-fn drawState(state: *const State, nx: f32, ny: f32, nw: f32, nh: f32, origin_x: f32, origin_y: f32, theme: *const Theme, fonts: *const Fonts, scroll_y: f32) void {
+fn drawState(
+    state: *const State,
+    nx: f32,
+    ny: f32,
+    nw: f32,
+    nh: f32,
+    origin_x: f32,
+    origin_y: f32,
+    theme: *const Theme,
+    fonts: *const Fonts,
+    scroll_y: f32,
+) void {
     const x = origin_x + nx;
     const y = origin_y + ny;
     const sy = y - scroll_y;
@@ -304,7 +329,7 @@ fn drawCompositeRegions(parent: *const State, origin_x: f32, origin_y: f32, them
         // Must match region_divider_gap from state_layout.zig.
         if (region_idx + 1 < parent.regions.items.len) {
             // region.x/y/width/height are global diagram coordinates after translation
-            const region_div_gap: f32 = 12; // must match state_layout.region_divider_gap
+            const region_div_gap: f32 = state_layout.region_divider_gap;
             const sep_x = origin_x + region.x + region.width + region_div_gap / 2.0;
             const sep_top_y = origin_y + region.y - scroll_y;
             const sep_bot_y = origin_y + region.y + region.height - scroll_y;
@@ -331,8 +356,6 @@ fn drawNote(note: *const sm.Note, nx: f32, ny: f32, nw: f32, nh: f32, origin_x: 
     };
     const note_y = origin_y + ny + (nh - note_h) / 2 - scroll_y;
 
-    // Note background (slightly tinted)
-    const note_bg = rl.Color{ .r = 255, .g = 255, .b = 204, .a = 230 };
     rl.drawRectangleRec(.{ .x = note_x, .y = note_y, .width = note_w, .height = note_h }, note_bg);
     rl.drawRectangleLinesEx(.{ .x = note_x, .y = note_y, .width = note_w, .height = note_h }, 1, theme.mermaid_node_border);
 
@@ -362,30 +385,7 @@ fn drawDashedRect(x: f32, y: f32, w: f32, h: f32, color: rl.Color) void {
 
 const testing = std.testing;
 
-test "arrowhead zero-length vector computes safe direction" {
-    // When tip == from, len == 0 and drawArrowHead should early-return.
-    // We verify the guard condition directly (calling the fn needs GL context).
-    const dx: f32 = 0;
-    const dy: f32 = 0;
-    const len = @sqrt(dx * dx + dy * dy);
-    try testing.expectEqual(@as(f32, 0), len);
-}
 
-test "arrowhead normal vector computes valid length" {
-    // Verify the math used in drawArrowHead for typical inputs
-    const dx: f32 = 100;
-    const dy: f32 = 0;
-    const len = @sqrt(dx * dx + dy * dy);
-    try testing.expect(len > 0);
-    try testing.expectEqual(@as(f32, 100), len);
-}
-
-test "StateType enum covers all diagram pseudostate types" {
-    // Verify all state types that the renderer handles are present.
-    // entry_point and exit_point were added in Sub-AC 7d.
-    const types = [_]StateType{ .normal, .start, .end, .fork, .join, .choice, .composite, .history, .deep_history, .entry_point, .exit_point };
-    try testing.expectEqual(@as(usize, 11), types.len);
-}
 
 test "drawTransition handles edge with no waypoints" {
     // Edge with empty waypoints should return early without crashing
@@ -494,23 +494,7 @@ test "state without description uses label" {
     try testing.expectEqualStrings("Idle", display);
 }
 
-test "history and deep_history state types are renderable" {
-    // Verify the renderer covers history pseudo-state types
-    const history_type = StateType.history;
-    const deep_history_type = StateType.deep_history;
 
-    // These should be valid enum values (compilation proves it)
-    try testing.expect(history_type != deep_history_type);
-    try testing.expect(history_type != .start);
-    try testing.expect(deep_history_type != .end);
-}
-
-test "note position determines placement side" {
-    // Verify note position enum covers both sides
-    const left = sm.NotePosition.left;
-    const right = sm.NotePosition.right;
-    try testing.expect(left != right);
-}
 
 test "composite state with children triggers recursive draw" {
     const Region = sm.Region;

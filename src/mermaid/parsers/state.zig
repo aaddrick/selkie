@@ -388,7 +388,7 @@ fn parseStateDeclaration(line: []const u8, model: *StateModel, ctx: *ParseContex
 /// Classify a state id to its StateType based on well-known pseudo-state patterns.
 /// `[*]` → start, `[H]` → history, `[H*]` → deep_history, else normal.
 /// Mirrors the private classifyStateId in state_model.zig for use within the parser.
-inline fn classifyChildStateId(id: []const u8) StateType {
+fn classifyChildStateId(id: []const u8) StateType {
     if (std.mem.eql(u8, id, "[*]")) return .start;
     if (std.mem.eql(u8, id, "[H]")) return .history;
     if (std.mem.eql(u8, id, "[H*]")) return .deep_history;

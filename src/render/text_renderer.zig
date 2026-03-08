@@ -4,6 +4,29 @@ const TextRun = @import("../layout/layout_types.zig").TextRun;
 const slice_utils = @import("../utils/slice_utils.zig");
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 
+// ---------------------------------------------------------------------------
+// Inline element colors — light-theme-only for now.
+// TODO: These should come from the Theme struct to support dark mode properly.
+// Until then, they provide reasonable contrast on light backgrounds.
+// ---------------------------------------------------------------------------
+
+/// <kbd> key background — light gray
+const kbd_bg_color = rl.Color{ .r = 235, .g = 238, .b = 242, .a = 255 };
+/// <kbd> border — slightly darker gray
+const kbd_border_color = rl.Color{ .r = 175, .g = 184, .b = 193, .a = 255 };
+/// <kbd> bottom shadow — simulates depth
+const kbd_shadow_color = rl.Color{ .r = 130, .g = 140, .b = 150, .a = 100 };
+/// <samp> background — pale blue
+const samp_bg_color = rl.Color{ .r = 240, .g = 246, .b = 252, .a = 255 };
+/// <samp> border — light blue-gray
+const samp_border_color = rl.Color{ .r = 208, .g = 215, .b = 222, .a = 255 };
+/// Inline math background — subtle lavender tint
+const math_inline_bg_color = rl.Color{ .r = 240, .g = 240, .b = 248, .a = 200 };
+/// <mark> highlight — semi-transparent yellow
+const mark_bg_color = rl.Color{ .r = 255, .g = 235, .b = 59, .a = 140 };
+/// <ins> underline — GitHub-green for insertions
+const ins_underline_color = rl.Color{ .r = 46, .g = 160, .b = 67, .a = 230 };
+
 /// Hover state for link color changes. When a link URL matches hovered_url,
 /// the link_hover_color is used instead of the normal link color.
 pub const LinkHoverState = struct {
@@ -14,6 +37,9 @@ pub const LinkHoverState = struct {
 
 fn drawTextSlice(font: rl.Font, text: []const u8, pos: rl.Vector2, font_size: f32, spacing: f32, color: rl.Color) void {
     if (text.len == 0) return;
+    // 2048-byte limit: text runs are split during layout, so individual runs
+    // are well within this size. If a run ever exceeds it, sliceToZ truncates
+    // safely (no UB), but the text will be visually cut off.
     var buf: [2048]u8 = undefined;
     const z = slice_utils.sliceToZ(&buf, text);
     rl.drawTextEx(font, z, pos, font_size, spacing, color);
@@ -42,19 +68,13 @@ pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hove
             .width = run.rect.width + pad * 2,
             .height = run.rect.height + pad * 2,
         };
-        // Background fill — light gray
-        const kbd_bg = rl.Color{ .r = 235, .g = 238, .b = 242, .a = 255 };
-        rl.drawRectangleRounded(kbd_rect, 0.25, 4, kbd_bg);
-        // Border — slightly darker gray
-        const kbd_border = rl.Color{ .r = 175, .g = 184, .b = 193, .a = 255 };
-        rl.drawRectangleRoundedLinesEx(kbd_rect, 0.25, 4, 1, kbd_border);
-        // Bottom shadow line — simulate depth with a darker 1px line at bottom
-        const shadow_color = rl.Color{ .r = 130, .g = 140, .b = 150, .a = 100 };
+        rl.drawRectangleRounded(kbd_rect, 0.25, 4, kbd_bg_color);
+        rl.drawRectangleRoundedLinesEx(kbd_rect, 0.25, 4, 1, kbd_border_color);
         rl.drawLineEx(
             .{ .x = kbd_rect.x + 2, .y = kbd_rect.y + kbd_rect.height + 1 },
             .{ .x = kbd_rect.x + kbd_rect.width - 2, .y = kbd_rect.y + kbd_rect.height + 1 },
             1.0,
-            shadow_color,
+            kbd_shadow_color,
         );
     } else if (run.style.is_samp) {
         // <samp> — sample output: monospace with a distinct lighter background and subtle border
@@ -65,10 +85,8 @@ pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hove
             .width = run.rect.width + pad * 2,
             .height = run.rect.height + pad * 2,
         };
-        const samp_bg = rl.Color{ .r = 240, .g = 246, .b = 252, .a = 255 };
-        rl.drawRectangleRounded(samp_rect, 0.2, 4, samp_bg);
-        const samp_border = rl.Color{ .r = 208, .g = 215, .b = 222, .a = 255 };
-        rl.drawRectangleRoundedLinesEx(samp_rect, 0.2, 4, 1, samp_border);
+        rl.drawRectangleRounded(samp_rect, 0.2, 4, samp_bg_color);
+        rl.drawRectangleRoundedLinesEx(samp_rect, 0.2, 4, 1, samp_border_color);
     } else if (run.style.is_code) {
         if (run.style.code_bg) |bg| {
             const pad: f32 = 2;
@@ -89,7 +107,6 @@ pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hove
     // Draw inline math background — subtle tinted background
     if (run.style.is_math) {
         const pad: f32 = 2;
-        const math_bg = rl.Color{ .r = 240, .g = 240, .b = 248, .a = 200 };
         rl.drawRectangleRounded(
             .{
                 .x = run.rect.x - pad,
@@ -99,20 +116,19 @@ pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hove
             },
             0.2,
             4,
-            math_bg,
+            math_inline_bg_color,
         );
     }
 
     // Draw <mark> highlight background — yellow with slight padding
     if (run.style.is_mark) {
         const pad: f32 = 1;
-        const mark_bg = rl.Color{ .r = 255, .g = 235, .b = 59, .a = 140 };
         rl.drawRectangle(
             @intFromFloat(run.rect.x - pad),
             @intFromFloat(draw_y - pad),
             @intFromFloat(run.rect.width + pad * 2),
             @intFromFloat(run.rect.height + pad * 2),
-            mark_bg,
+            mark_bg_color,
         );
     }
 
@@ -146,7 +162,7 @@ pub fn drawTextRun(run: *const TextRun, fonts: *const Fonts, scroll_y: f32, hove
         // This distinguishes it visually from link underlines (which use link color)
         // and plain text underlines (which use text color).
         const ul_color = if (run.style.is_ins)
-            rl.Color{ .r = 46, .g = 160, .b = 67, .a = 230 } // GitHub-green for insertions
+            ins_underline_color
         else
             color;
         const ul_thickness: f32 = if (run.style.is_ins) 1.5 else 1.0;
@@ -332,8 +348,7 @@ test "rendering composition: mark highlight is independent of kbd background" {
     };
     // kbd background layer is drawn (kbd wins)
     try testing.expectEqual(.kbd, backgroundLayer(style));
-    // AND mark highlight draws separately (not in else-if, always checked)
-    try testing.expect(style.is_mark);
+    // mark highlight draws separately (not in else-if, always checked)
 }
 
 test "rendering composition: ins underline is independent of all backgrounds" {

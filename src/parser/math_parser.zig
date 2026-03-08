@@ -26,10 +26,13 @@ pub const MathParseError = error{
     OutOfMemory,
 };
 
+/// Classification of a text segment after math delimiter scanning.
+const SegmentKind = enum { text, math_inline, math_block };
+
 /// A segment of text that has been classified as either plain text or math.
 const Segment = struct {
     content: []const u8,
-    kind: enum { text, math_inline, math_block },
+    kind: SegmentKind,
 };
 
 /// Scan a text string for math delimiters and return segments.
@@ -194,16 +197,20 @@ fn processTextNode(allocator: Allocator, literal: []const u8) MathParseError!?st
 ///
 /// This function modifies the AST in-place. The caller must ensure the
 /// document's allocator matches the one used here.
+///
+/// NOTE: On OOM, the AST may be left in a partially modified state. The
+/// caller (markdown_parser.parse) uses `errdefer root.deinit(allocator)` to
+/// ensure the entire tree is freed even if processing is interrupted.
 pub fn processMathNodes(allocator: Allocator, root: *ast.Node) MathParseError!void {
     // Process code blocks with `math` fence info → math_block
-    convertMathCodeBlocks(root);
+    convertMathCodeBlocks(allocator, root);
 
     // Process inline math in text nodes (recursive, bottom-up)
     try processNodeChildren(allocator, root);
 }
 
 /// Convert code_block nodes with fence_info "math" to math_block nodes.
-fn convertMathCodeBlocks(node: *ast.Node) void {
+fn convertMathCodeBlocks(allocator: Allocator, node: *ast.Node) void {
     for (node.children.items) |*child| {
         if (child.node_type == .code_block) {
             if (child.fence_info) |info| {
@@ -211,13 +218,13 @@ fn convertMathCodeBlocks(node: *ast.Node) void {
                 if (std.ascii.eqlIgnoreCase(trimmed, "math")) {
                     child.node_type = .math_block;
                     // Free the fence_info since math_block doesn't need it
-                    node.children.allocator.free(info);
+                    allocator.free(info);
                     child.fence_info = null;
                 }
             }
         }
         // Recurse into children for nested structures
-        convertMathCodeBlocks(child);
+        convertMathCodeBlocks(allocator, child);
     }
 }
 
@@ -257,10 +264,18 @@ fn processNodeChildren(allocator: Allocator, node: *ast.Node) MathParseError!voi
                         // Replace in-place with first replacement
                         node.children.items[i] = replacements.items[0];
 
-                        // Insert remaining replacements after position i
+                        // Insert remaining replacements after position i.
+                        // On OOM during insert, free any nodes that were not yet
+                        // inserted into the parent's children list.
                         var insert_idx = i + 1;
-                        for (replacements.items[1..]) |replacement| {
-                            try node.children.insert(insert_idx, replacement);
+                        for (replacements.items[1..], 0..) |replacement, offset| {
+                            node.children.insert(insert_idx, replacement) catch |err| {
+                                // Free nodes that haven't been inserted yet
+                                for (replacements.items[1 + offset..]) |*leftover| {
+                                    leftover.deinit(allocator);
+                                }
+                                return err;
+                            };
                             insert_idx += 1;
                         }
 
@@ -282,6 +297,14 @@ fn processNodeChildren(allocator: Allocator, node: *ast.Node) MathParseError!voi
 ///   $$
 /// becomes children: [text("$$"), softbreak, text("\\int..."), softbreak, text("$$")]
 /// This function detects such patterns and merges them into a single math_block node.
+///
+/// NOTE: Escape handling inconsistency — the inline path (`segmentMathDelimiters`)
+/// skips `\$` sequences during delimiter scanning, so escaped dollars are preserved
+/// as-is in the content. This multi-node path concatenates raw text node literals
+/// which have already been through cmark's text processing. Since the `$$` delimiters
+/// are on separate lines (separate text nodes), escaped dollars within the content
+/// text nodes are passed through verbatim. The caller (`unescapeDollars`) handles
+/// unescaping at render time for both paths.
 fn mergeMultiNodeBlockMath(allocator: Allocator, node: *ast.Node) MathParseError!void {
     var i: usize = 0;
     while (i < node.children.items.len) {
@@ -887,4 +910,40 @@ test "processMathNodes code block math: matrix from samples" {
     const literal = root.children.items[0].literal.?;
     try testing.expect(std.mem.indexOf(u8, literal, "\\begin{array}") != null);
     try testing.expect(std.mem.indexOf(u8, literal, "\\times") != null);
+}
+
+test "mergeMultiNodeBlockMath merges multi-node $$ pattern" {
+    // Simulate cmark output for:
+    //   $$
+    //   \int_0^\infty x dx
+    //   $$
+    // cmark produces: text("$$"), softbreak, text("\\int_0^\\infty x dx"), softbreak, text("$$")
+    const allocator = testing.allocator;
+    var para = ast.Node.init(allocator, .paragraph);
+    defer para.deinit(allocator);
+
+    var open = ast.Node.init(allocator, .text);
+    open.literal = try allocator.dupe(u8, "$$");
+    try para.children.append(open);
+
+    const sb1 = ast.Node.init(allocator, .softbreak);
+    try para.children.append(sb1);
+
+    var content_node = ast.Node.init(allocator, .text);
+    content_node.literal = try allocator.dupe(u8, "\\int_0^\\infty x dx");
+    try para.children.append(content_node);
+
+    const sb2 = ast.Node.init(allocator, .softbreak);
+    try para.children.append(sb2);
+
+    var close = ast.Node.init(allocator, .text);
+    close.literal = try allocator.dupe(u8, "$$");
+    try para.children.append(close);
+
+    try processMathNodes(allocator, &para);
+
+    // Should be merged into a single math_block node
+    try testing.expectEqual(@as(usize, 1), para.children.items.len);
+    try testing.expectEqual(ast.NodeType.math_block, para.children.items[0].node_type);
+    try testing.expectEqualStrings("\\int_0^\\infty x dx", para.children.items[0].literal.?);
 }

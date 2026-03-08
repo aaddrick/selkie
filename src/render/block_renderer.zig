@@ -129,11 +129,12 @@ pub fn drawDetailsHeader(node: *const LayoutNode, theme: *const Theme, fonts: *c
             .height = node.rect.height + focus_padding * 2,
         };
         // Semi-transparent focus ring using the link/accent colour
+        const focus_ring_alpha: u8 = 200;
         const focus_color = rl.Color{
             .r = theme.link.r,
             .g = theme.link.g,
             .b = theme.link.b,
-            .a = 200,
+            .a = focus_ring_alpha,
         };
         rl.drawRectangleLinesEx(focus_rect, 2.0, focus_color);
     }
@@ -142,8 +143,10 @@ pub fn drawDetailsHeader(node: *const LayoutNode, theme: *const Theme, fonts: *c
     // p = 0.0 → ▶ (collapsed), p = 1.0 → ▼ (expanded).
     // The three vertices are linearly interpolated between the two states.
     const p = std.math.clamp(details.anim_progress, 0.0, 1.0);
-    const tri_size: f32 = 10.0;
-    const tri_center_x = node.rect.x + 6.0;
+    const disclosure_tri_size: f32 = 10.0;
+    const disclosure_tri_left_margin: f32 = 6.0;
+    const tri_size = disclosure_tri_size;
+    const tri_center_x = node.rect.x + disclosure_tri_left_margin;
     const tri_center_y = draw_y + node.rect.height / 2.0;
 
     // Collapsed (▶ pointing right) vertex positions

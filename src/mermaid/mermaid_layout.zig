@@ -41,6 +41,8 @@ fn appendDiagramNode(
     y.* += height + spacing;
 }
 
+/// Parse a Mermaid code block, run diagram-specific layout, and append the
+/// resulting `LayoutNode` to `tree`. Advances `cursor_y` past the diagram.
 pub fn layoutMermaidBlock(
     allocator: Allocator,
     source: ?[]const u8,
@@ -54,7 +56,8 @@ pub fn layoutMermaidBlock(
     const src = source orelse "";
     if (src.len == 0) return;
 
-    const result = try detector.detect(allocator, src);
+    var result = try detector.detect(allocator, src);
+    errdefer result.deinit();
 
     switch (result) {
         .flowchart => |fc_val| {
@@ -65,6 +68,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = fc_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Run layout algorithm
             const layout_result = try dagre.layout(
@@ -89,6 +94,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = seq_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             const layout_result = try linear_layout.layout(
                 allocator,
@@ -112,6 +119,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = pie_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Pie layout: compute positions
             const pie_padding: f32 = 20;
@@ -151,6 +160,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = gantt_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Gantt layout: compute positions
             const gantt_padding: f32 = 20;
@@ -201,6 +212,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = cls_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Pre-compute node sizes based on class content
             precomputeClassNodeSizes(model_ptr, fonts, theme);
@@ -226,6 +239,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = er_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Pre-compute node sizes based on entity content
             precomputeERNodeSizes(model_ptr, fonts, theme);
@@ -251,6 +266,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = st_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             const layout_result = try state_layout.layout(
                 allocator,
@@ -273,6 +290,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = mm_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             const layout_result = tree_layout.layout(model_ptr, fonts, theme, content_width);
 
@@ -289,6 +308,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = gg_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Delegate to dedicated gitgraph layout engine
             const layout_result = gitgraph_layout.layout(model_ptr, fonts, theme, content_width);
@@ -303,6 +324,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = j_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Compute layout dimensions
             const padding: f32 = 20;
@@ -335,6 +358,8 @@ pub fn layoutMermaidBlock(
                 allocator.destroy(model_ptr);
             }
             model_ptr.* = tl_val;
+            // Ownership transferred to model_ptr; neutralize result to prevent double-free.
+            result = .{ .unsupported = "" };
 
             // Compute layout dimensions
             const padding: f32 = 20;

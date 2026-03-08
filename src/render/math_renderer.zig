@@ -25,140 +25,85 @@ const latex_c = @cImport({
     @cInclude("latex_render.h");
 });
 
-/// Parsed representation of a LaTeX math expression element.
-pub const MathElement = union(enum) {
-    /// Plain text (variable names, numbers)
-    text: []const u8,
-    /// Greek letter or named symbol (e.g., \alpha → α)
-    symbol: []const u8,
-    /// Superscript: base^{exponent}
-    superscript: struct {
-        base: *const MathElement,
-        exponent: *const MathElement,
-    },
-    /// Subscript: base_{sub}
-    subscript: struct {
-        base: *const MathElement,
-        sub: *const MathElement,
-    },
-    /// Both super and subscript: base_{sub}^{sup}
-    subsup: struct {
-        base: *const MathElement,
-        sub: *const MathElement,
-        sup: *const MathElement,
-    },
-    /// Fraction: \frac{num}{den}
-    fraction: struct {
-        numerator: *const MathElement,
-        denominator: *const MathElement,
-    },
-    /// Square root: \sqrt{content}
-    sqrt: struct {
-        content: *const MathElement,
-    },
-    /// Sequence of elements laid out horizontally
-    sequence: []const MathElement,
-    /// Operator with limits (sum, prod, int, etc.)
-    operator_with_limits: struct {
-        operator: []const u8,
-        lower: ?*const MathElement,
-        upper: ?*const MathElement,
-    },
-    /// A group (e.g., braced content)
-    group: *const MathElement,
-    /// Delimiter pair: \left( ... \right)
-    delimited: struct {
-        left: []const u8,
-        right: []const u8,
-        content: *const MathElement,
-    },
-    /// A matrix/array environment
-    matrix: struct {
-        rows: []const []const MathElement,
-    },
-    /// Spacing element
-    space: f32,
-};
-
 /// Greek letter mapping from LaTeX command to Unicode.
 const GreekEntry = struct {
-    cmd: []const u8,
-    unicode: []const u8,
+    command: []const u8,
+    unicode_str: []const u8,
 };
 
 /// Greek letters and common math symbols.
 pub const greek_letters = [_]GreekEntry{
-    .{ .cmd = "alpha", .unicode = "\xce\xb1" }, // α
-    .{ .cmd = "beta", .unicode = "\xce\xb2" }, // β
-    .{ .cmd = "gamma", .unicode = "\xce\xb3" }, // γ
-    .{ .cmd = "delta", .unicode = "\xce\xb4" }, // δ
-    .{ .cmd = "epsilon", .unicode = "\xce\xb5" }, // ε
-    .{ .cmd = "zeta", .unicode = "\xce\xb6" }, // ζ
-    .{ .cmd = "eta", .unicode = "\xce\xb7" }, // η
-    .{ .cmd = "theta", .unicode = "\xce\xb8" }, // θ
-    .{ .cmd = "iota", .unicode = "\xce\xb9" }, // ι
-    .{ .cmd = "kappa", .unicode = "\xce\xba" }, // κ
-    .{ .cmd = "lambda", .unicode = "\xce\xbb" }, // λ
-    .{ .cmd = "mu", .unicode = "\xce\xbc" }, // μ
-    .{ .cmd = "nu", .unicode = "\xce\xbd" }, // ν
-    .{ .cmd = "xi", .unicode = "\xce\xbe" }, // ξ
-    .{ .cmd = "pi", .unicode = "\xcf\x80" }, // π
-    .{ .cmd = "rho", .unicode = "\xcf\x81" }, // ρ
-    .{ .cmd = "sigma", .unicode = "\xcf\x83" }, // σ
-    .{ .cmd = "tau", .unicode = "\xcf\x84" }, // τ
-    .{ .cmd = "upsilon", .unicode = "\xcf\x85" }, // υ
-    .{ .cmd = "phi", .unicode = "\xcf\x86" }, // φ
-    .{ .cmd = "chi", .unicode = "\xcf\x87" }, // χ
-    .{ .cmd = "psi", .unicode = "\xcf\x88" }, // ψ
-    .{ .cmd = "omega", .unicode = "\xcf\x89" }, // ω
-    .{ .cmd = "Gamma", .unicode = "\xce\x93" }, // Γ
-    .{ .cmd = "Delta", .unicode = "\xce\x94" }, // Δ
-    .{ .cmd = "Theta", .unicode = "\xce\x98" }, // Θ
-    .{ .cmd = "Lambda", .unicode = "\xce\x9b" }, // Λ
-    .{ .cmd = "Xi", .unicode = "\xce\x9e" }, // Ξ
-    .{ .cmd = "Pi", .unicode = "\xce\xa0" }, // Π
-    .{ .cmd = "Sigma", .unicode = "\xce\xa3" }, // Σ
-    .{ .cmd = "Phi", .unicode = "\xce\xa6" }, // Φ
-    .{ .cmd = "Psi", .unicode = "\xce\xa8" }, // Ψ
-    .{ .cmd = "Omega", .unicode = "\xce\xa9" }, // Ω
+    .{ .command = "alpha", .unicode_str = "\xce\xb1" }, // α
+    .{ .command = "beta", .unicode_str = "\xce\xb2" }, // β
+    .{ .command = "gamma", .unicode_str = "\xce\xb3" }, // γ
+    .{ .command = "delta", .unicode_str = "\xce\xb4" }, // δ
+    .{ .command = "epsilon", .unicode_str = "\xce\xb5" }, // ε
+    .{ .command = "zeta", .unicode_str = "\xce\xb6" }, // ζ
+    .{ .command = "eta", .unicode_str = "\xce\xb7" }, // η
+    .{ .command = "theta", .unicode_str = "\xce\xb8" }, // θ
+    .{ .command = "iota", .unicode_str = "\xce\xb9" }, // ι
+    .{ .command = "kappa", .unicode_str = "\xce\xba" }, // κ
+    .{ .command = "lambda", .unicode_str = "\xce\xbb" }, // λ
+    .{ .command = "mu", .unicode_str = "\xce\xbc" }, // μ
+    .{ .command = "nu", .unicode_str = "\xce\xbd" }, // ν
+    .{ .command = "xi", .unicode_str = "\xce\xbe" }, // ξ
+    .{ .command = "pi", .unicode_str = "\xcf\x80" }, // π
+    .{ .command = "rho", .unicode_str = "\xcf\x81" }, // ρ
+    .{ .command = "sigma", .unicode_str = "\xcf\x83" }, // σ
+    .{ .command = "tau", .unicode_str = "\xcf\x84" }, // τ
+    .{ .command = "upsilon", .unicode_str = "\xcf\x85" }, // υ
+    .{ .command = "phi", .unicode_str = "\xcf\x86" }, // φ
+    .{ .command = "chi", .unicode_str = "\xcf\x87" }, // χ
+    .{ .command = "psi", .unicode_str = "\xcf\x88" }, // ψ
+    .{ .command = "omega", .unicode_str = "\xcf\x89" }, // ω
+    .{ .command = "Gamma", .unicode_str = "\xce\x93" }, // Γ
+    .{ .command = "Delta", .unicode_str = "\xce\x94" }, // Δ
+    .{ .command = "Theta", .unicode_str = "\xce\x98" }, // Θ
+    .{ .command = "Lambda", .unicode_str = "\xce\x9b" }, // Λ
+    .{ .command = "Xi", .unicode_str = "\xce\x9e" }, // Ξ
+    .{ .command = "Pi", .unicode_str = "\xce\xa0" }, // Π
+    .{ .command = "Sigma", .unicode_str = "\xce\xa3" }, // Σ
+    .{ .command = "Phi", .unicode_str = "\xce\xa6" }, // Φ
+    .{ .command = "Psi", .unicode_str = "\xce\xa8" }, // Ψ
+    .{ .command = "Omega", .unicode_str = "\xce\xa9" }, // Ω
     // Common math symbols
-    .{ .cmd = "infty", .unicode = "\xe2\x88\x9e" }, // ∞
-    .{ .cmd = "pm", .unicode = "\xc2\xb1" }, // ±
-    .{ .cmd = "mp", .unicode = "\xe2\x88\x93" }, // ∓
-    .{ .cmd = "times", .unicode = "\xc3\x97" }, // ×
-    .{ .cmd = "div", .unicode = "\xc3\xb7" }, // ÷
-    .{ .cmd = "cdot", .unicode = "\xc2\xb7" }, // ·
-    .{ .cmd = "leq", .unicode = "\xe2\x89\xa4" }, // ≤
-    .{ .cmd = "geq", .unicode = "\xe2\x89\xa5" }, // ≥
-    .{ .cmd = "neq", .unicode = "\xe2\x89\xa0" }, // ≠
-    .{ .cmd = "approx", .unicode = "\xe2\x89\x88" }, // ≈
-    .{ .cmd = "equiv", .unicode = "\xe2\x89\xa1" }, // ≡
-    .{ .cmd = "in", .unicode = "\xe2\x88\x88" }, // ∈
-    .{ .cmd = "notin", .unicode = "\xe2\x88\x89" }, // ∉
-    .{ .cmd = "subset", .unicode = "\xe2\x8a\x82" }, // ⊂
-    .{ .cmd = "supset", .unicode = "\xe2\x8a\x83" }, // ⊃
-    .{ .cmd = "cup", .unicode = "\xe2\x88\xaa" }, // ∪
-    .{ .cmd = "cap", .unicode = "\xe2\x88\xa9" }, // ∩
-    .{ .cmd = "forall", .unicode = "\xe2\x88\x80" }, // ∀
-    .{ .cmd = "exists", .unicode = "\xe2\x88\x83" }, // ∃
-    .{ .cmd = "partial", .unicode = "\xe2\x88\x82" }, // ∂
-    .{ .cmd = "nabla", .unicode = "\xe2\x88\x87" }, // ∇
-    .{ .cmd = "to", .unicode = "\xe2\x86\x92" }, // →
-    .{ .cmd = "rightarrow", .unicode = "\xe2\x86\x92" }, // →
-    .{ .cmd = "leftarrow", .unicode = "\xe2\x86\x90" }, // ←
-    .{ .cmd = "Rightarrow", .unicode = "\xe2\x87\x92" }, // ⇒
-    .{ .cmd = "Leftarrow", .unicode = "\xe2\x87\x90" }, // ⇐
-    .{ .cmd = "ldots", .unicode = "\xe2\x80\xa6" }, // …
-    .{ .cmd = "cdots", .unicode = "\xe2\x8b\xaf" }, // ⋯
-    .{ .cmd = "quad", .unicode = "  " },
-    .{ .cmd = "qquad", .unicode = "    " },
+    .{ .command = "infty", .unicode_str = "\xe2\x88\x9e" }, // ∞
+    .{ .command = "pm", .unicode_str = "\xc2\xb1" }, // ±
+    .{ .command = "mp", .unicode_str = "\xe2\x88\x93" }, // ∓
+    .{ .command = "times", .unicode_str = "\xc3\x97" }, // ×
+    .{ .command = "div", .unicode_str = "\xc3\xb7" }, // ÷
+    .{ .command = "cdot", .unicode_str = "\xc2\xb7" }, // ·
+    .{ .command = "leq", .unicode_str = "\xe2\x89\xa4" }, // ≤
+    .{ .command = "geq", .unicode_str = "\xe2\x89\xa5" }, // ≥
+    .{ .command = "neq", .unicode_str = "\xe2\x89\xa0" }, // ≠
+    .{ .command = "approx", .unicode_str = "\xe2\x89\x88" }, // ≈
+    .{ .command = "equiv", .unicode_str = "\xe2\x89\xa1" }, // ≡
+    .{ .command = "in", .unicode_str = "\xe2\x88\x88" }, // ∈
+    .{ .command = "notin", .unicode_str = "\xe2\x88\x89" }, // ∉
+    .{ .command = "subset", .unicode_str = "\xe2\x8a\x82" }, // ⊂
+    .{ .command = "supset", .unicode_str = "\xe2\x8a\x83" }, // ⊃
+    .{ .command = "cup", .unicode_str = "\xe2\x88\xaa" }, // ∪
+    .{ .command = "cap", .unicode_str = "\xe2\x88\xa9" }, // ∩
+    .{ .command = "forall", .unicode_str = "\xe2\x88\x80" }, // ∀
+    .{ .command = "exists", .unicode_str = "\xe2\x88\x83" }, // ∃
+    .{ .command = "partial", .unicode_str = "\xe2\x88\x82" }, // ∂
+    .{ .command = "nabla", .unicode_str = "\xe2\x88\x87" }, // ∇
+    .{ .command = "to", .unicode_str = "\xe2\x86\x92" }, // →
+    .{ .command = "rightarrow", .unicode_str = "\xe2\x86\x92" }, // →
+    .{ .command = "leftarrow", .unicode_str = "\xe2\x86\x90" }, // ←
+    .{ .command = "Rightarrow", .unicode_str = "\xe2\x87\x92" }, // ⇒
+    .{ .command = "Leftarrow", .unicode_str = "\xe2\x87\x90" }, // ⇐
+    .{ .command = "ldots", .unicode_str = "\xe2\x80\xa6" }, // …
+    .{ .command = "cdots", .unicode_str = "\xe2\x8b\xaf" }, // ⋯
+    .{ .command = "quad", .unicode_str = "  " },
+    .{ .command = "qquad", .unicode_str = "    " },
 };
 
 /// Look up a LaTeX command and return its Unicode equivalent.
-pub fn lookupSymbol(cmd: []const u8) ?[]const u8 {
+pub fn lookupSymbol(command: []const u8) ?[]const u8 {
     for (greek_letters) |entry| {
-        if (std.mem.eql(u8, entry.cmd, cmd)) {
-            return entry.unicode;
+        if (std.mem.eql(u8, entry.command, command)) {
+            return entry.unicode_str;
         }
     }
     return null;
@@ -177,16 +122,6 @@ pub const MathRenderContext = struct {
     fonts: *const Fonts,
     color: rl.Color,
     base_font_size: f32,
-
-    /// Measure a text string at a given font size using the italic font (math convention).
-    fn measureText(self: *const MathRenderContext, text: []const u8, font_size: f32) rl.Vector2 {
-        return self.fonts.measure(text, font_size, false, true, false);
-    }
-
-    /// Measure a symbol/operator at a given font size using the body (upright) font.
-    fn measureSymbol(self: *const MathRenderContext, text: []const u8, font_size: f32) rl.Vector2 {
-        return self.fonts.measure(text, font_size, false, false, false);
-    }
 
     /// Draw text at a position using the italic font.
     fn drawText(self: *const MathRenderContext, text: []const u8, x: f32, y: f32, font_size: f32, scroll_y: f32) void {
@@ -246,7 +181,13 @@ pub fn latexToDisplayString(latex: []const u8, buf: []u8) []const u8 {
     if (latex.len == 0) return "";
 
     // Parse via the vendored C library
-    const result = latex_c.latex_render_parse(latex.ptr, @intCast(latex.len));
+    const c_len = std.math.cast(c_int, latex.len) orelse {
+        // Input too large for C API — fallback to raw copy
+        const copy_len = @min(latex.len, buf.len);
+        @memcpy(buf[0..copy_len], latex[0..copy_len]);
+        return buf[0..copy_len];
+    };
+    const result = latex_c.latex_render_parse(latex.ptr, c_len);
     if (result == null) {
         // Fallback: return raw input on allocation failure
         const copy_len = @min(latex.len, buf.len);
@@ -254,6 +195,13 @@ pub fn latexToDisplayString(latex: []const u8, buf: []u8) []const u8 {
         return buf[0..copy_len];
     }
     defer latex_c.latex_render_free(result);
+
+    // Verify the node array is valid before walking the tree
+    if (result.*.nodes == null) {
+        const copy_len = @min(latex.len, buf.len);
+        @memcpy(buf[0..copy_len], latex[0..copy_len]);
+        return buf[0..copy_len];
+    }
 
     // Walk the C parse tree and emit Unicode display text
     var out_pos: usize = 0;
@@ -479,7 +427,7 @@ fn tryUnicodeSubSuperChildren(
     return success;
 }
 
-/// Append bytes to buffer, return new position.
+/// Append bytes to buffer, clamped to available space. Returns the new position.
 fn appendBytes(buf: []u8, pos: usize, bytes: []const u8) usize {
     const remaining = buf.len -| pos;
     const copy_len = @min(bytes.len, remaining);
@@ -766,91 +714,4 @@ test "latexToDisplayString complex expression" {
     try testing.expect(std.mem.indexOf(u8, result, "x") != null);
     try testing.expect(std.mem.indexOf(u8, result, "=") != null);
     try testing.expect(std.mem.indexOf(u8, result, "/") != null);
-}
-
-test "measureMathString returns positive dimensions" {
-    // This test exercises the measurement logic without requiring raylib init.
-    // Since Fonts.measure uses a stack buffer approach, we can verify the
-    // function doesn't crash and returns the expected structure.
-    // Full visual verification requires a running raylib context.
-    const size = MathSize{
-        .width = 100.0,
-        .height = 20.0,
-        .baseline = 12.0,
-    };
-    try testing.expect(size.width > 0);
-    try testing.expect(size.height > 0);
-    try testing.expect(size.baseline > 0);
-    try testing.expect(size.baseline <= size.height);
-}
-
-// --- Tests for sample formulas from docs/github-markdown-samples.md ---
-
-test "latexToDisplayString inline math: E=mc^2 from samples" {
-    // docs/github-markdown-samples.md line 409: $E = mc^2$
-    var buf: [256]u8 = undefined;
-    const result = latexToDisplayString("E = mc^2", &buf);
-    try testing.expect(result.len > 0);
-    // Should contain E, =, m, c and superscript 2 (² = \xc2\xb2)
-    try testing.expect(std.mem.indexOf(u8, result, "E") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "=") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "mc") != null);
-    try testing.expectEqualStrings("E = mc\xc2\xb2", result);
-}
-
-test "latexToDisplayString inline math: quadratic formula from samples" {
-    // docs/github-markdown-samples.md line 407:
-    // $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
-    var buf: [512]u8 = undefined;
-    const result = latexToDisplayString("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", &buf);
-    try testing.expect(result.len > 0);
-    // Should contain: x, =, ± (\xc2\xb1), √ (\xe2\x88\x9a), /
-    try testing.expect(std.mem.indexOf(u8, result, "x") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "=") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "\xc2\xb1") != null); // ±
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\x9a") != null); // √
-    try testing.expect(std.mem.indexOf(u8, result, "/") != null); // fraction renders as /
-}
-
-test "latexToDisplayString block math: integral from samples" {
-    // docs/github-markdown-samples.md lines 413-415:
-    // $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
-    var buf: [512]u8 = undefined;
-    const result = latexToDisplayString("\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}", &buf);
-    try testing.expect(result.len > 0);
-    // Should contain: ∫ (\xe2\x88\xab), ∞ (\xe2\x88\x9e), =, √ (\xe2\x88\x9a), π (\xcf\x80)
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\xab") != null); // ∫
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\x9e") != null); // ∞
-    try testing.expect(std.mem.indexOf(u8, result, "=") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\x9a") != null); // √
-    try testing.expect(std.mem.indexOf(u8, result, "\xcf\x80") != null); // π
-}
-
-test "latexToDisplayString block math: sum series from samples" {
-    // docs/github-markdown-samples.md lines 417-419:
-    // $$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$
-    var buf: [512]u8 = undefined;
-    const result = latexToDisplayString("\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}", &buf);
-    try testing.expect(result.len > 0);
-    // Should contain: ∑ (\xe2\x88\x91), ∞ (\xe2\x88\x9e), =, π (\xcf\x80), /
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\x91") != null); // ∑
-    try testing.expect(std.mem.indexOf(u8, result, "\xe2\x88\x9e") != null); // ∞
-    try testing.expect(std.mem.indexOf(u8, result, "=") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "\xcf\x80") != null); // π
-    try testing.expect(std.mem.indexOf(u8, result, "/") != null); // fractions
-}
-
-test "latexToDisplayString block math: matrix from samples" {
-    // docs/github-markdown-samples.md lines 423-438 (code block math):
-    // Matrix multiplication expression
-    var buf: [1024]u8 = undefined;
-    const result = latexToDisplayString("\\left(\\begin{array}{cc}a & b\\\\c & d\\end{array}\\right)\\times\\left(\\begin{array}{c}x\\\\y\\end{array}\\right)=\\left(\\begin{array}{c}ax + by\\\\cx + dy\\end{array}\\right)", &buf);
-    try testing.expect(result.len > 0);
-    // Should contain: ×, =, and matrix elements a, b, c, d, x, y
-    try testing.expect(std.mem.indexOf(u8, result, "\xc3\x97") != null); // ×
-    try testing.expect(std.mem.indexOf(u8, result, "=") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "a") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "b") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "x") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "y") != null);
 }

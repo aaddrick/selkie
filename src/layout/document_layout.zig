@@ -14,7 +14,7 @@ const ImageRenderer = @import("../render/image_renderer.zig").ImageRenderer;
 const alert_detector = @import("alert_detector.zig");
 const emoji = @import("emoji.zig");
 const math_layout = @import("math_layout.zig");
-const ffi_math = @import("math_renderer.zig");
+const layout_math_renderer = @import("math_renderer.zig");
 
 /// Compute a dynamic page margin that scales with available width.
 /// Returns 5% of available_width, but no less than min_margin and no more than
@@ -46,11 +46,11 @@ pub const LayoutContext = struct {
     // rendered as an ordered list at the document bottom by layoutFootnotes().
     /// Collected footnote definition AST nodes (borrowed pointers into the Document).
     /// Rendered in order at the document bottom after all other content.
-    footnote_defs: std.ArrayList(*const ast.Node) = undefined,
+    footnote_defs: std.ArrayList(*const ast.Node),
     /// Maps footnote label → 1-based display index for auto-incrementing numbering.
     /// Unique labels are assigned sequential numbers in order of first appearance.
     /// Keys borrow from the AST literal strings (valid for the layout pass lifetime).
-    footnote_ref_map: std.StringHashMap(u32) = undefined,
+    footnote_ref_map: std.StringHashMap(u32),
     /// Next available 1-based display index for an unseen footnote label.
     footnote_ref_next: u32 = 1,
     // Image renderer for loading textures
@@ -98,6 +98,12 @@ pub const LayoutContext = struct {
             .footnote_ref_map = std.StringHashMap(u32).init(allocator),
             .footnote_ref_next = 1,
         };
+    }
+
+    /// Free owned resources: footnote definition list and reference map.
+    pub fn deinit(self: *LayoutContext) void {
+        self.footnote_defs.deinit();
+        self.footnote_ref_map.deinit();
     }
 };
 
@@ -282,7 +288,10 @@ fn layoutInlines(
                 var texture: ?rl.Texture2D = null;
                 if (child.url) |url| {
                     if (ctx.image_renderer) |ir| {
-                        texture = ir.getOrLoad(url) catch null;
+                        texture = ir.getOrLoad(url) catch |err| blk: {
+                            std.log.warn("Image load failed for '{s}': {}", .{ url, err });
+                            break :blk null;
+                        };
                     }
                 }
 
@@ -328,7 +337,7 @@ fn layoutInlines(
                 if (child.literal) |latex| {
                     // Use the FFI tree-walker to produce positioned text runs,
                     // which correctly handles fractions, superscripts, and subscripts.
-                    _ = ffi_math.renderInlineMath(
+                    _ = layout_math_renderer.renderInlineMath(
                         latex,
                         ctx.fonts,
                         ctx.theme,
@@ -351,7 +360,9 @@ fn layoutInlines(
                             &ctx.cursor_y,
                             ctx.tree.arena.allocator(),
                             ctx.fonts,
-                        ) catch {};
+                        ) catch |fallback_err| {
+                            std.log.err("inline math fallback failed: {}", .{fallback_err});
+                        };
                     };
                     line_height.* = @max(line_height.*, effective_style.font_size);
                 }
@@ -365,7 +376,7 @@ fn layoutInlines(
                         line_height.* = 0;
                     }
                     // Use the FFI tree-walker for rich positioning.
-                    try ffi_math.layoutMathBlock(
+                    try layout_math_renderer.layoutMathBlock(
                         ctx.allocator,
                         latex,
                         ctx.theme,
@@ -848,7 +859,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
         .math_block => {
             const before_count = ctx.tree.nodes.items.len;
             // Use the FFI tree-walker for rich positioning (fractions, matrices, etc.).
-            try ffi_math.layoutMathBlock(
+            try layout_math_renderer.layoutMathBlock(
                 ctx.allocator,
                 node.literal,
                 ctx.theme,
@@ -870,7 +881,7 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
 
             if (is_math) {
                 // Use the FFI tree-walker for rich positioning (fractions, matrices, etc.).
-                try ffi_math.layoutMathBlock(
+                try layout_math_renderer.layoutMathBlock(
                     ctx.allocator,
                     node.literal,
                     ctx.theme,
@@ -1749,7 +1760,10 @@ fn layoutPictureBlock(ctx: *LayoutContext, html: []const u8, start_line: u32, en
     // Try to load the texture
     var texture: ?rl.Texture2D = null;
     if (ctx.image_renderer) |ir| {
-        texture = ir.getOrLoad(url) catch null;
+        texture = ir.getOrLoad(url) catch |err| blk: {
+            std.log.warn("Image load failed for '{s}': {}", .{ url, err });
+            break :blk null;
+        };
     }
 
     var img_height: f32 = 80; // placeholder height
@@ -1921,8 +1935,7 @@ pub fn layout(
     var tree = layout_types.LayoutTree.init(allocator);
     errdefer tree.deinit();
     var ctx = LayoutContext.init(allocator, theme, fonts, available_width, &tree, y_offset, left_offset);
-    errdefer ctx.footnote_defs.deinit();
-    errdefer ctx.footnote_ref_map.deinit();
+    defer ctx.deinit();
     ctx.image_renderer = image_renderer;
     ctx.is_dark = is_dark;
     ctx.details_state = details_state;
@@ -1952,8 +1965,6 @@ pub fn layout(
 
     // Render collected footnote definitions as an ordered list at the bottom
     try layoutFootnotes(&ctx);
-    ctx.footnote_defs.deinit();
-    ctx.footnote_ref_map.deinit();
 
     tree.total_height = ctx.cursor_y + ctx.dynamic_margin;
     return tree;

@@ -17,6 +17,7 @@ const EditorState = @import("editor/editor_state.zig").EditorState;
 const defaults = @import("theme/defaults.zig");
 const App = @import("app.zig").App;
 
+/// Per-file state: document, layout tree, scroll position, editor, and file watching.
 pub const Tab = struct {
     allocator: Allocator,
     document: ?ast.Document,
@@ -140,6 +141,7 @@ pub const Tab = struct {
         const new_path = try self.allocator.dupe(u8, path);
         if (self.file_path) |old| self.allocator.free(old);
         self.file_path = new_path;
+        if (self.file_watcher) |*w| w.deinit();
         self.file_watcher = FileWatcher.init(new_path);
     }
 

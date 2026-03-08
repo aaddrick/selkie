@@ -47,7 +47,7 @@ const composite_inner_padding: f32 = 16;
 
 /// Gap between concurrent regions (includes space for the dashed divider line).
 /// Must stay in sync with the matching constant in state_renderer.zig.
-const region_divider_gap: f32 = 12;
+pub const region_divider_gap: f32 = 12;
 
 pub const LayoutResult = struct {
     width: f32,

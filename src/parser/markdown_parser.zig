@@ -11,14 +11,14 @@ pub const ParseError = error{
     OutOfMemory,
 };
 
-pub fn dupeString(allocator: Allocator, c_str: ?[*:0]const u8) !?[]const u8 {
+fn dupeString(allocator: Allocator, c_str: ?[*:0]const u8) !?[]const u8 {
     const ptr = c_str orelse return null;
     const slice = std.mem.span(ptr);
     if (slice.len == 0) return null;
     return try allocator.dupe(u8, slice);
 }
 
-pub fn mapNodeType(cmark_type: cmark.cmark_node_type, type_string: ?[]const u8) ?ast.NodeType {
+fn mapNodeType(cmark_type: cmark.cmark_node_type, type_string: ?[]const u8) ?ast.NodeType {
     // Check for GFM extension types by type string
     if (type_string) |name| {
         if (std.mem.eql(u8, name, "table")) return .table;
@@ -60,7 +60,13 @@ fn getNodeTypeString(cmark_node: *cmark.cmark_node) ?[]const u8 {
 fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!ast.Node {
     const cmark_type = cmark.cmark_node_get_type(cmark_node);
     const type_string = getNodeTypeString(cmark_node);
-    const node_type = mapNodeType(cmark_type, type_string) orelse .paragraph;
+    const node_type = mapNodeType(cmark_type, type_string) orelse blk: {
+        std.log.warn("unknown cmark node type {d} (type_string={s}), falling back to paragraph", .{
+            cmark_type,
+            type_string orelse "<null>",
+        });
+        break :blk .paragraph;
+    };
 
     var node = ast.Node.init(allocator, node_type);
     errdefer node.deinit(allocator);
@@ -92,14 +98,19 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
             node.fence_info = try dupeString(allocator, cmark.cmark_node_get_fence_info(cmark_node));
         },
         .heading => {
-            node.heading_level = @intCast(cmark.cmark_node_get_heading_level(cmark_node));
+            const level = cmark.cmark_node_get_heading_level(cmark_node);
+            // cmark returns int; valid heading levels are 1-6, 0 means error.
+            // Clamp to u8 range defensively.
+            node.heading_level = if (level >= 1 and level <= 6) @intCast(level) else 1;
         },
         .list => {
             node.list_type = if (cmark.cmark_node_get_list_type(cmark_node) == cmark.CMARK_ORDERED_LIST)
                 .ordered
             else
                 .bullet;
-            node.list_start = @intCast(cmark.cmark_node_get_list_start(cmark_node));
+            const list_start_raw = cmark.cmark_node_get_list_start(cmark_node);
+            // cmark returns int; negative values indicate error. Default to 1.
+            node.list_start = if (list_start_raw >= 0) @intCast(list_start_raw) else 1;
             node.list_tight = cmark.cmark_node_get_list_tight(cmark_node) != 0;
         },
         .link, .image => {
@@ -107,6 +118,7 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
             node.title = try dupeString(allocator, cmark.cmark_node_get_title(cmark_node));
         },
         .table => {
+            // C returns uint16_t which maps directly to Zig u16 — no cast needed.
             const ncols = cmark.cmark_gfm_extensions_get_table_columns(cmark_node);
             node.table_columns = ncols;
             if (ncols > 0) {
@@ -172,6 +184,12 @@ fn attachExtension(parser: *cmark.cmark_parser, name: [*:0]const u8) ParseError!
     _ = cmark.cmark_parser_attach_syntax_extension(parser, ext);
 }
 
+/// Parse a GFM markdown string into a Zig AST document.
+///
+/// Registers cmark-gfm extensions (table, autolink, strikethrough, tasklist,
+/// tagfilter), parses the input, converts the cmark tree to a Zig AST, and
+/// post-processes for LaTeX math nodes. Caller owns the returned Document
+/// and must call `deinit()` to free all resources.
 pub fn parse(allocator: Allocator, text: []const u8) ParseError!ast.Document {
     // Register GFM extensions
     cmark.cmark_gfm_core_extensions_ensure_registered();

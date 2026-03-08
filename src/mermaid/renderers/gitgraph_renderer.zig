@@ -1,20 +1,41 @@
-const rl = @import("raylib");
 const std = @import("std");
+const rl = @import("raylib");
 const gg = @import("../models/gitgraph_model.zig");
 const GitGraphModel = gg.GitGraphModel;
 const CommitType = gg.CommitType;
+const Orientation = gg.Orientation;
 const Theme = @import("../../theme/theme.zig").Theme;
 const Fonts = @import("../../layout/text_measurer.zig").Fonts;
 const ru = @import("../render_utils.zig");
 
-const COMMIT_RADIUS: f32 = 8;
-const TAG_HEIGHT: f32 = 20;
-const ARROW_SIZE: f32 = 8;
-const MERGE_LINE_WIDTH: f32 = 2;
+const commit_radius: f32 = 8;
+const tag_height: f32 = 20;
+const arrow_size: f32 = 8;
+const merge_line_width: f32 = 2;
 /// Alpha for branch origin connector lines (semi-transparent, lighter than branch connectors)
-const BRANCH_ORIGIN_ALPHA: u8 = 160;
+const branch_origin_alpha: u8 = 160;
 /// Alpha for same-branch connector lines
-const BRANCH_CONNECTOR_ALPHA: u8 = 200;
+const branch_connector_alpha: u8 = 200;
+
+// -- Fallback colors (TODO: integrate with theme) --
+
+/// Fallback color for merge lines when the source branch is not found.
+const fallback_merge_color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = 200 };
+/// Fallback color for commit dots when the branch is not found.
+const fallback_commit_color = rl.Color{ .r = 100, .g = 100, .b = 200, .a = 255 };
+/// Fallback color for branch origin connector lines when the branch is not found.
+const fallback_origin_color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = branch_origin_alpha };
+/// Fallback color for same-branch connector lines when the branch is not found.
+const fallback_connector_color = rl.Color{ .r = 100, .g = 100, .b = 200, .a = 255 };
+
+// -- Tag badge colors (TODO: integrate with theme) --
+
+/// Golden background for tag badges.
+const tag_badge_bg = rl.Color{ .r = 255, .g = 215, .b = 0, .a = 220 };
+/// Darker gold border for tag badges.
+const tag_badge_border = rl.Color{ .r = 180, .g = 140, .b = 0, .a = 220 };
+/// Black text for contrast against gold tag badge background.
+const tag_badge_text = rl.Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
 
 // =============================================================================
 // Pure geometry helpers (no raylib drawing side effects)
@@ -43,17 +64,17 @@ fn computeArrowHeadPoints(tip_x: f32, tip_y: f32, from_x: f32, from_y: f32) ?Arr
 
     const nx = dx / len;
     const ny = dy / len;
-    const half_w: f32 = ARROW_SIZE * 0.5;
+    const half_w: f32 = arrow_size * 0.5;
 
     return .{
         .tip = .{ .x = tip_x, .y = tip_y },
         .p1 = .{
-            .x = tip_x - ARROW_SIZE * nx + half_w * ny,
-            .y = tip_y - ARROW_SIZE * ny - half_w * nx,
+            .x = tip_x - arrow_size * nx + half_w * ny,
+            .y = tip_y - arrow_size * ny - half_w * nx,
         },
         .p2 = .{
-            .x = tip_x - ARROW_SIZE * nx - half_w * ny,
-            .y = tip_y - ARROW_SIZE * ny + half_w * nx,
+            .x = tip_x - arrow_size * nx - half_w * ny,
+            .y = tip_y - arrow_size * ny + half_w * nx,
         },
     };
 }
@@ -82,11 +103,11 @@ fn computeElbowPoints(
     to_x: f32,
     to_y: f32,
     scroll_y: f32,
-    is_lr: bool,
+    orientation: Orientation,
 ) ElbowPoints {
     const sy_from = from_y - scroll_y;
     const sy_to = to_y - scroll_y;
-    if (is_lr) {
+    if (orientation == .lr) {
         return .{
             .from = .{ .x = from_x, .y = sy_from },
             .elbow = .{ .x = to_x, .y = sy_from },
@@ -166,7 +187,7 @@ pub fn drawGitGraph(
     // Draw branch origin connectors: elbow lines from a parent commit on one branch
     // to the first commit on a child branch. These visually show where branches
     // diverge. Drawn before branch connectors so they appear underneath.
-    drawBranchOriginConnectors(model, origin_x, origin_y, scroll_y, is_lr);
+    drawBranchOriginConnectors(model, origin_x, origin_y, scroll_y, model.orientation);
 
     // Draw connector lines between consecutive commits on the same branch.
     // This visually links commits along a branch with the branch color.
@@ -185,13 +206,13 @@ pub fn drawGitGraph(
         const to_y = origin_y + to.y;
 
         // Determine merge line color from the source branch
-        var merge_color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = 200 };
+        var merge_color = fallback_merge_color;
         if (model.findBranch(merge.from_branch)) |bidx| {
             merge_color = ru.withAlpha(model.branches.items[bidx].color, 200);
         }
 
         // Draw elbow-style merge line with arrowhead
-        drawMergeArrow(from_x, from_y, to_x, to_y, merge_color, scroll_y, is_lr);
+        drawMergeArrow(from_x, from_y, to_x, to_y, merge_color, scroll_y, model.orientation);
     }
 
     // Draw commits (on top of lines so they're visually prominent)
@@ -200,7 +221,7 @@ pub fn drawGitGraph(
         const cy = origin_y + commit.y;
 
         // Get branch color
-        var commit_color = rl.Color{ .r = 100, .g = 100, .b = 200, .a = 255 };
+        var commit_color = fallback_commit_color;
         if (model.findBranch(commit.branch)) |bidx| {
             commit_color = model.branches.items[bidx].color;
         }
@@ -210,22 +231,22 @@ pub fn drawGitGraph(
         // Draw commit dot with style based on commit type
         switch (commit.commit_type) {
             .normal => {
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, commit_color);
-                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, ru.darken(commit_color));
+                rl.drawCircleV(.{ .x = cx, .y = sy }, commit_radius, commit_color);
+                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, commit_radius, ru.darken(commit_color));
             },
             .highlight => {
                 // Double-ring style: outer ring + inner dot + inner background
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS + 3, commit_color);
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, theme.mermaid_subgraph_bg);
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS - 3, commit_color);
-                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS + 3, ru.darken(commit_color));
+                rl.drawCircleV(.{ .x = cx, .y = sy }, commit_radius + 3, commit_color);
+                rl.drawCircleV(.{ .x = cx, .y = sy }, commit_radius, theme.mermaid_subgraph_bg);
+                rl.drawCircleV(.{ .x = cx, .y = sy }, commit_radius - 3, commit_color);
+                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, commit_radius + 3, ru.darken(commit_color));
             },
             .reverse => {
                 // Dark filled circle with X pattern (inverted commit)
-                rl.drawCircleV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, ru.darken(commit_color));
-                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, COMMIT_RADIUS, commit_color);
+                rl.drawCircleV(.{ .x = cx, .y = sy }, commit_radius, ru.darken(commit_color));
+                rl.drawCircleLinesV(.{ .x = cx, .y = sy }, commit_radius, commit_color);
                 // Cross pattern
-                const r: f32 = COMMIT_RADIUS * 0.55;
+                const r: f32 = commit_radius * 0.55;
                 rl.drawLineEx(
                     .{ .x = cx - r, .y = sy - r },
                     .{ .x = cx + r, .y = sy + r },
@@ -245,9 +266,9 @@ pub fn drawGitGraph(
         const label = if (commit.message.len > 0) commit.message else commit.id;
         if (label.len > 0) {
             if (is_lr) {
-                ru.drawText(label, cx, cy + COMMIT_RADIUS + 10, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, true);
+                ru.drawText(label, cx, cy + commit_radius + 10, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, true);
             } else {
-                ru.drawText(label, cx + COMMIT_RADIUS + 6, cy, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
+                ru.drawText(label, cx + commit_radius + 6, cy, fonts, theme.body_font_size * 0.7, theme.mermaid_node_text, scroll_y, false);
             }
         }
     }
@@ -275,7 +296,7 @@ fn drawBranchOriginConnectors(
     origin_x: f32,
     origin_y: f32,
     scroll_y: f32,
-    is_lr: bool,
+    orientation: Orientation,
 ) void {
     for (model.commits.items, 0..) |commit, commit_idx| {
         for (commit.parents.items) |parent_id| {
@@ -293,9 +314,9 @@ fn drawBranchOriginConnectors(
             if (is_merge_arrow) continue;
 
             // Use the child branch color for the origin connector
-            var color = rl.Color{ .r = 150, .g = 150, .b = 150, .a = BRANCH_ORIGIN_ALPHA };
+            var color = fallback_origin_color;
             if (model.findBranch(commit.branch)) |bidx| {
-                color = ru.withAlpha(model.branches.items[bidx].color, BRANCH_ORIGIN_ALPHA);
+                color = ru.withAlpha(model.branches.items[bidx].color, branch_origin_alpha);
             }
 
             const from_x = origin_x + parent.x;
@@ -304,7 +325,7 @@ fn drawBranchOriginConnectors(
             const to_y = origin_y + commit.y;
 
             // Draw elbow-style line (same routing as merge arrows, but no arrowhead)
-            drawElbowLine(from_x, from_y, to_x, to_y, color, scroll_y, is_lr, MERGE_LINE_WIDTH);
+            drawElbowLine(from_x, from_y, to_x, to_y, color, scroll_y, orientation, merge_line_width);
         }
     }
 }
@@ -325,7 +346,7 @@ fn drawBranchConnectors(model: *const GitGraphModel, origin_x: f32, origin_y: f3
                 const to_x = origin_x + next.x;
                 const to_y = origin_y + next.y - scroll_y;
 
-                var color = rl.Color{ .r = 100, .g = 100, .b = 200, .a = 255 };
+                var color = fallback_connector_color;
                 if (model.findBranch(commit.branch)) |bidx| {
                     color = model.branches.items[bidx].color;
                 }
@@ -333,8 +354,8 @@ fn drawBranchConnectors(model: *const GitGraphModel, origin_x: f32, origin_y: f3
                 rl.drawLineEx(
                     .{ .x = from_x, .y = from_y },
                     .{ .x = to_x, .y = to_y },
-                    MERGE_LINE_WIDTH,
-                    ru.withAlpha(color, BRANCH_CONNECTOR_ALPHA),
+                    merge_line_width,
+                    ru.withAlpha(color, branch_connector_alpha),
                 );
                 break; // only connect to the immediately next commit on same branch
             }
@@ -357,13 +378,13 @@ fn drawMergeArrow(
     to_y: f32,
     color: rl.Color,
     scroll_y: f32,
-    is_lr: bool,
+    orientation: Orientation,
 ) void {
-    const ep = computeElbowPoints(from_x, from_y, to_x, to_y, scroll_y, is_lr);
+    const ep = computeElbowPoints(from_x, from_y, to_x, to_y, scroll_y, orientation);
     // First segment: from → elbow
-    rl.drawLineEx(ep.from, ep.elbow, MERGE_LINE_WIDTH, color);
+    rl.drawLineEx(ep.from, ep.elbow, merge_line_width, color);
     // Second segment: elbow → to
-    rl.drawLineEx(ep.elbow, ep.to, MERGE_LINE_WIDTH, color);
+    rl.drawLineEx(ep.elbow, ep.to, merge_line_width, color);
     // Arrowhead at the target end, pointing from the elbow corner
     drawArrowHead(ep.to.x, ep.to.y, ep.elbow.x, ep.elbow.y, color);
 }
@@ -377,10 +398,10 @@ fn drawElbowLine(
     to_y: f32,
     color: rl.Color,
     scroll_y: f32,
-    is_lr: bool,
+    orientation: Orientation,
     line_width: f32,
 ) void {
-    const ep = computeElbowPoints(from_x, from_y, to_x, to_y, scroll_y, is_lr);
+    const ep = computeElbowPoints(from_x, from_y, to_x, to_y, scroll_y, orientation);
     rl.drawLineEx(ep.from, ep.elbow, line_width, color);
     rl.drawLineEx(ep.elbow, ep.to, line_width, color);
 }
@@ -414,7 +435,7 @@ fn drawTagLabel(text: []const u8, x: f32, y: f32, fonts: *const Fonts, theme: *c
         .y = y - pad,
         .width = measured.x + pad * 2,
         .height = measured.y + pad * 2,
-    }, 0.3, 4, rl.Color{ .r = 255, .g = 215, .b = 0, .a = 220 });
+    }, 0.3, 4, tag_badge_bg);
 
     // Tag border (slightly darker gold)
     rl.drawRectangleRoundedLinesEx(.{
@@ -422,10 +443,10 @@ fn drawTagLabel(text: []const u8, x: f32, y: f32, fonts: *const Fonts, theme: *c
         .y = y - pad,
         .width = measured.x + pad * 2,
         .height = measured.y + pad * 2,
-    }, 0.3, 4, 1.5, rl.Color{ .r = 180, .g = 140, .b = 0, .a = 220 });
+    }, 0.3, 4, 1.5, tag_badge_border);
 
     // Tag text (black for contrast against gold background)
-    rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 255 });
+    rl.drawTextEx(font, z, .{ .x = x, .y = y }, font_size, spacing, tag_badge_text);
 }
 
 // =============================================================================
@@ -454,20 +475,20 @@ test "computeArrowHeadPoints wing vertices symmetric for horizontal arrow" {
     // Arrow pointing right: from (100,100) to tip (200,100).
     const pts = computeArrowHeadPoints(200, 100, 100, 100).?;
     // p1 and p2 should be symmetric about the horizontal axis.
-    try testing.expectApproxEqAbs(pts.p1.y + pts.p2.y, 2.0 * pts.tip.y - 2.0 * ARROW_SIZE * 0.0, 0.01);
+    try testing.expectApproxEqAbs(pts.p1.y + pts.p2.y, 2.0 * pts.tip.y - 2.0 * arrow_size * 0.0, 0.01);
     // Both wing-points must lie to the LEFT of the tip (behind the arrowhead).
     try testing.expect(pts.p1.x < pts.tip.x);
     try testing.expect(pts.p2.x < pts.tip.x);
 }
 
-test "computeArrowHeadPoints wing separation equals ARROW_SIZE" {
+test "computeArrowHeadPoints wing separation equals arrow_size" {
     // The distance between p1 and p2 (the "base width" of the triangle)
-    // should be ARROW_SIZE because half_w = ARROW_SIZE * 0.5 on each side.
+    // should be arrow_size because half_w = arrow_size * 0.5 on each side.
     const pts = computeArrowHeadPoints(200, 100, 100, 100).?;
     const dx = pts.p1.x - pts.p2.x;
     const dy = pts.p1.y - pts.p2.y;
     const wing_len = @sqrt(dx * dx + dy * dy);
-    try testing.expectApproxEqAbs(wing_len, ARROW_SIZE, 0.01);
+    try testing.expectApproxEqAbs(wing_len, arrow_size, 0.01);
 }
 
 test "computeArrowHeadPoints works for vertical arrow" {
@@ -489,7 +510,7 @@ test "computeArrowHeadPoints works for diagonal arrow" {
 }
 
 test "computeElbowPoints LR: first segment horizontal, second vertical" {
-    const ep = computeElbowPoints(100, 100, 200, 150, 0, true);
+    const ep = computeElbowPoints(100, 100, 200, 150, 0, .lr);
     // In LR mode: from.y == elbow.y (horizontal segment)
     try testing.expectEqual(ep.from.y, ep.elbow.y);
     // elbow.x == to.x (vertical second segment)
@@ -502,7 +523,7 @@ test "computeElbowPoints LR: first segment horizontal, second vertical" {
 }
 
 test "computeElbowPoints TB: first segment vertical, second horizontal" {
-    const ep = computeElbowPoints(100, 100, 150, 200, 0, false);
+    const ep = computeElbowPoints(100, 100, 150, 200, 0, .tb);
     // In TB mode: from.x == elbow.x (vertical segment)
     try testing.expectEqual(ep.from.x, ep.elbow.x);
     // elbow.y == to.y (horizontal second segment)
@@ -514,7 +535,7 @@ test "computeElbowPoints TB: first segment vertical, second horizontal" {
 }
 
 test "computeElbowPoints scroll_y applied to y coordinates" {
-    const ep = computeElbowPoints(100, 200, 200, 300, 50, true);
+    const ep = computeElbowPoints(100, 200, 200, 300, 50, .lr);
     // All y values should be shifted by -scroll_y
     try testing.expectEqual(@as(f32, 150), ep.from.y); // 200 - 50
     try testing.expectEqual(@as(f32, 150), ep.elbow.y); // 200 - 50
@@ -525,11 +546,11 @@ test "computeElbowPoints scroll_y applied to y coordinates" {
 }
 
 test "computeElbowPoints same from/to coordinates does not crash" {
-    const ep_lr = computeElbowPoints(100, 100, 100, 100, 0, true);
+    const ep_lr = computeElbowPoints(100, 100, 100, 100, 0, .lr);
     try testing.expectEqual(ep_lr.from.x, ep_lr.to.x);
     try testing.expectEqual(ep_lr.from.y, ep_lr.to.y);
 
-    const ep_tb = computeElbowPoints(100, 100, 100, 100, 0, false);
+    const ep_tb = computeElbowPoints(100, 100, 100, 100, 0, .tb);
     try testing.expectEqual(ep_tb.from.x, ep_tb.to.x);
     try testing.expectEqual(ep_tb.from.y, ep_tb.to.y);
 }
@@ -553,43 +574,43 @@ test "drawArrowHead does not crash with valid points" {
 
 test "drawMergeArrow does not crash LR orientation" {
     if (!rl.isWindowReady()) return;
-    drawMergeArrow(100, 100, 200, 150, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, true);
+    drawMergeArrow(100, 100, 200, 150, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, .lr);
 }
 
 test "drawMergeArrow does not crash TB orientation" {
     if (!rl.isWindowReady()) return;
-    drawMergeArrow(100, 100, 150, 200, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, false);
+    drawMergeArrow(100, 100, 150, 200, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, .tb);
 }
 
 test "drawMergeArrow same position does not crash" {
     if (!rl.isWindowReady()) return;
-    drawMergeArrow(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, true);
-    drawMergeArrow(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, false);
+    drawMergeArrow(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, .lr);
+    drawMergeArrow(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 0, .tb);
 }
 
 test "drawMergeArrow with scroll offset" {
     if (!rl.isWindowReady()) return;
-    drawMergeArrow(100, 200, 200, 300, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 50, true);
+    drawMergeArrow(100, 200, 200, 300, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 200 }, 50, .lr);
 }
 
 test "drawElbowLine does not crash LR" {
     if (!rl.isWindowReady()) return;
-    drawElbowLine(50, 50, 200, 100, rl.Color{ .r = 100, .g = 180, .b = 100, .a = 160 }, 0, true, 2);
+    drawElbowLine(50, 50, 200, 100, rl.Color{ .r = 100, .g = 180, .b = 100, .a = 160 }, 0, .lr, 2);
 }
 
 test "drawElbowLine does not crash TB" {
     if (!rl.isWindowReady()) return;
-    drawElbowLine(50, 50, 100, 200, rl.Color{ .r = 100, .g = 180, .b = 100, .a = 160 }, 0, false, 2);
+    drawElbowLine(50, 50, 100, 200, rl.Color{ .r = 100, .g = 180, .b = 100, .a = 160 }, 0, .tb, 2);
 }
 
 test "drawElbowLine same position does not crash" {
     if (!rl.isWindowReady()) return;
-    drawElbowLine(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 160 }, 0, true, 2);
+    drawElbowLine(100, 100, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 160 }, 0, .lr, 2);
 }
 
 test "drawElbowLine with scroll offset" {
     if (!rl.isWindowReady()) return;
-    drawElbowLine(100, 200, 250, 300, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 160 }, 75, true, 2);
+    drawElbowLine(100, 200, 250, 300, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 160 }, 75, .lr, 2);
 }
 
 test "drawBranchOriginConnectors does not crash on empty model" {
@@ -597,7 +618,7 @@ test "drawBranchOriginConnectors does not crash on empty model" {
     var model = gg.GitGraphModel.init(allocator);
     defer model.deinit();
     // No commits → nothing to draw, should return immediately
-    drawBranchOriginConnectors(&model, 0, 0, 0, true);
+    drawBranchOriginConnectors(&model, 0, 0, 0, .lr);
 }
 
 test "drawBranchOriginConnectors does not crash with single-branch commits" {
@@ -622,7 +643,7 @@ test "drawBranchOriginConnectors does not crash with single-branch commits" {
     try model.appendCommit(&c2);
 
     // All commits are on the same branch → no origin connectors to draw
-    drawBranchOriginConnectors(&model, 0, 0, 0, true);
+    drawBranchOriginConnectors(&model, 0, 0, 0, .lr);
 }
 
 test "drawBranchOriginConnectors does not crash with cross-branch parent" {
@@ -653,8 +674,8 @@ test "drawBranchOriginConnectors does not crash with cross-branch parent" {
 
     // c2 should have c1 as parent (cross-branch) → origin connector drawn
     if (!rl.isWindowReady()) return; // drawElbowLine requires OpenGL context
-    drawBranchOriginConnectors(&model, 0, 0, 0, true);
-    drawBranchOriginConnectors(&model, 0, 0, 0, false);
+    drawBranchOriginConnectors(&model, 0, 0, 0, .lr);
+    drawBranchOriginConnectors(&model, 0, 0, 0, .tb);
 }
 
 test "drawBranchOriginConnectors skips merge connections" {
@@ -692,7 +713,7 @@ test "drawBranchOriginConnectors skips merge connections" {
 
     // Should not crash — merge connections are filtered out, only c1→c2 origin drawn
     if (!rl.isWindowReady()) return; // drawElbowLine requires OpenGL context
-    drawBranchOriginConnectors(&model, 0, 0, 0, true);
+    drawBranchOriginConnectors(&model, 0, 0, 0, .lr);
 }
 
 test "drawBranchConnectors does not crash on empty model" {

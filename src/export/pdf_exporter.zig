@@ -73,7 +73,10 @@ pub fn exportPdf(
         null, // details_state — PDF export renders all sections expanded
         null, // details_anim — PDF export has no animations
         null, // details_focused_section_id — PDF export has no focus
-    ) catch return ExportError.RenderFailed;
+    ) catch |err| {
+        log.err("Failed to layout document for PDF: {}", .{err});
+        return ExportError.RenderFailed;
+    };
     defer pdf_tree.deinit();
 
     const total_height = pdf_tree.total_height;
@@ -168,14 +171,14 @@ pub fn exportPdf(
     // Load font data for embedding
     for (0..pdf_writer.num_fonts) |fi| {
         const asset_name = pdf_writer.PdfWriter.font_asset_names[fi];
-        const path = asset_paths.resolveAssetPath(allocator, asset_name) catch {
-            log.err("Failed to resolve font path: {s}", .{asset_name});
+        const path = asset_paths.resolveAssetPath(allocator, asset_name) catch |err| {
+            log.err("Failed to resolve font path: {s}: {}", .{ asset_name, err });
             return ExportError.RenderFailed;
         };
         defer allocator.free(path);
 
-        const font_data = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch {
-            log.err("Failed to read font file: {s}", .{asset_name});
+        const font_data = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch |err| {
+            log.err("Failed to read font file: {s}: {}", .{ asset_name, err });
             return ExportError.RenderFailed;
         };
         pw.font_data[fi] = font_data;
@@ -379,7 +382,10 @@ fn rasterizeNode(
     };
 
     // Keep the buffer alive until PDF is written
-    png_buffers.append(buf) catch return;
+    png_buffers.append(buf) catch {
+        buf.free();
+        return;
+    };
 
     // Emit image draw command
     const x_pt = rect.x / scale;

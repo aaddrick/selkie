@@ -106,6 +106,7 @@ pub const DetailsStateStore = struct {
                 };
                 const owned_sec_key = try self.allocator.dupe(u8, sec_key);
                 errdefer self.allocator.free(owned_sec_key);
+                // Duplicate JSON keys are not expected; if present, later values overwrite earlier ones.
                 try sections.put(owned_sec_key, expanded);
             }
 
@@ -183,7 +184,9 @@ pub const DetailsStateStore = struct {
         var it = sections.iterator();
         while (it.next()) |entry| {
             const section_id = std.fmt.parseInt(u32, entry.key_ptr.*, 10) catch continue;
-            details_state.put(section_id, entry.value_ptr.*) catch {};
+            details_state.put(section_id, entry.value_ptr.*) catch |err| {
+                std.log.err("Failed to restore details state for section {d}: {}", .{ section_id, err });
+            };
         }
     }
 
@@ -233,13 +236,13 @@ pub const DetailsStateStore = struct {
             transferred = true;
 
             if (self.map.count() > max_files) {
-                self.evictOldest();
+                self.evictSmallest();
             }
         }
     }
 
     /// Evict the file entry whose inner map has the fewest sections (simple heuristic).
-    fn evictOldest(self: *DetailsStateStore) void {
+    fn evictSmallest(self: *DetailsStateStore) void {
         var min_key: ?[]const u8 = null;
         var min_count: usize = std.math.maxInt(usize);
 

@@ -5,7 +5,7 @@
 /// production rules used by the recursive-descent parser (state_rd_parser.zig).
 ///
 /// Grammar terminals defined here:
-///   header      → kw_stateDiagram_v2 | kw_stateDiagram
+///   header      → kw_state_diagram_v2 | kw_state_diagram
 ///   keyword     → kw_state | kw_note | kw_end | kw_direction | kw_as | kw_of
 ///                 | kw_right | kw_left
 ///   direction   → dir_lr | dir_rl | dir_tb | dir_bt
@@ -23,9 +23,9 @@ const Allocator = std.mem.Allocator;
 pub const TokenTag = enum {
     // ── Diagram header ────────────────────────────────────────────────────────
     /// "stateDiagram-v2"
-    kw_stateDiagram_v2,
+    kw_state_diagram_v2,
     /// "stateDiagram"
-    kw_stateDiagram,
+    kw_state_diagram,
 
     // ── Statement keywords ────────────────────────────────────────────────────
     /// "state"
@@ -309,8 +309,8 @@ fn isIdentContinue(ch: u8) bool {
 /// Map a raw word to its keyword tag, or `.identifier` if not a keyword.
 fn classifyWord(word: []const u8) TokenTag {
     // Header keywords (checked first so they override bare "stateDiagram")
-    if (std.mem.eql(u8, word, "stateDiagram-v2")) return .kw_stateDiagram_v2;
-    if (std.mem.eql(u8, word, "stateDiagram")) return .kw_stateDiagram;
+    if (std.mem.eql(u8, word, "stateDiagram-v2")) return .kw_state_diagram_v2;
+    if (std.mem.eql(u8, word, "stateDiagram")) return .kw_state_diagram;
     // Statement keywords
     if (std.mem.eql(u8, word, "state")) return .kw_state;
     if (std.mem.eql(u8, word, "note")) return .kw_note;
@@ -347,7 +347,7 @@ test "tokenize: stateDiagram-v2 header" {
     const allocator = testing.allocator;
     var toks = try tokenize(allocator, "stateDiagram-v2");
     defer toks.deinit();
-    try testing.expectEqual(TokenTag.kw_stateDiagram_v2, toks.items[0].tag);
+    try testing.expectEqual(TokenTag.kw_state_diagram_v2, toks.items[0].tag);
     try testing.expectEqualStrings("stateDiagram-v2", toks.items[0].text);
 }
 
@@ -355,7 +355,7 @@ test "tokenize: stateDiagram header (without v2)" {
     const allocator = testing.allocator;
     var toks = try tokenize(allocator, "stateDiagram");
     defer toks.deinit();
-    try testing.expectEqual(TokenTag.kw_stateDiagram, toks.items[0].tag);
+    try testing.expectEqual(TokenTag.kw_state_diagram, toks.items[0].tag);
 }
 
 test "tokenize: arrow -->" {
@@ -530,7 +530,7 @@ test "tokenize: full simple diagram" {
     var has_colon = false;
     var has_label = false;
     for (toks.items) |t| {
-        if (t.tag == .kw_stateDiagram_v2) has_header = true;
+        if (t.tag == .kw_state_diagram_v2) has_header = true;
         if (t.tag == .arrow) has_arrow = true;
         if (t.tag == .colon) has_colon = true;
         if (t.tag == .label_text) has_label = true;

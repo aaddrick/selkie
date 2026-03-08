@@ -48,6 +48,9 @@ const NotePosition = sm.NotePosition;
 // =============================================================================
 
 /// Position of a note annotation relative to the referenced state.
+/// Intentionally separate from `state_model.NotePosition` to keep the AST
+/// layer decoupled from the domain model. The lowering pass in `state.zig`
+/// maps `AstNotePosition` -> `NotePosition` when building the `StateModel`.
 pub const AstNotePosition = enum { left, right };
 
 /// Stereotype kind from `state ID <<fork|join|choice|entryPoint|exitPoint>>`.

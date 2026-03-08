@@ -8,7 +8,7 @@ const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
 /// Used for LaTeX→display-string conversion in table cells containing math_inline nodes.
-const display_math = @import("../render/math_renderer.zig");
+const render_math = @import("../render/math_renderer.zig");
 
 /// Layout a table AST node into LayoutNodes appended to the tree.
 pub fn layoutTable(
@@ -327,7 +327,7 @@ fn measureInlineRuns(
                 // we only measure the width -- the buffer is discarded after this call.
                 if (child.literal) |latex| {
                     var buf: [4096]u8 = undefined;
-                    const display = display_math.latexToDisplayString(latex, &buf);
+                    const display = render_math.latexToDisplayString(latex, &buf);
                     // Math is rendered italic by convention; measure with the italic font.
                     const m = fonts.measure(display, style.font_size, false, true, false);
                     total_w.* += m.x;
@@ -428,7 +428,7 @@ fn walkInlineContent(
                 // The result is rendered italic with a subtle background (is_math = true).
                 if (child.literal) |latex| {
                     var buf: [4096]u8 = undefined;
-                    const display_str = display_math.latexToDisplayString(latex, &buf);
+                    const display_str = render_math.latexToDisplayString(latex, &buf);
                     // Measure with the italic font (math rendering convention).
                     const measured = fonts.measure(display_str, style.font_size, false, true, false);
 
@@ -579,7 +579,7 @@ test "math display: E=mc^2 produces superscript 2 via C library" {
     // Verifies the latexToDisplayString integration for the sample table:
     // | Math | `$x^2$` | $x^2$ | LaTeX |
     var buf: [256]u8 = undefined;
-    const display = display_math.latexToDisplayString("E = mc^2", &buf);
+    const display = render_math.latexToDisplayString("E = mc^2", &buf);
     // C library converts ^2 -> superscript 2 (U+00B2 = \xc2\xb2)
     try testing.expectEqualStrings("E = mc\xc2\xb2", display);
 }
@@ -587,7 +587,7 @@ test "math display: E=mc^2 produces superscript 2 via C library" {
 test "math display: quadratic formula from github-markdown-samples.md" {
     // Verifies display string for: $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
     var buf: [512]u8 = undefined;
-    const display = display_math.latexToDisplayString("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", &buf);
+    const display = render_math.latexToDisplayString("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", &buf);
     try testing.expect(display.len > 0);
     // Should contain plus-minus sign (U+00B1) and square root sign (U+221A)
     try testing.expect(std.mem.indexOf(u8, display, "\xc2\xb1") != null); // +-
@@ -598,7 +598,7 @@ test "math display: integral formula symbols present" {
     // docs/github-markdown-samples.md lines 413-415:
     // $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
     var buf: [512]u8 = undefined;
-    const display = display_math.latexToDisplayString("\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}", &buf);
+    const display = render_math.latexToDisplayString("\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}", &buf);
     try testing.expect(display.len > 0);
     try testing.expect(std.mem.indexOf(u8, display, "\xe2\x88\xab") != null); // integral sign
     try testing.expect(std.mem.indexOf(u8, display, "\xe2\x88\x9e") != null); // infinity

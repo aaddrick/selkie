@@ -277,7 +277,8 @@ fn renderNode(ctx: *RenderContext, node_idx: c_int) error{OutOfMemory}!void {
             try renderChildren(ctx, node.first_child);
         },
         _ => {
-            // Unknown node type — render children
+            // Unknown node type — render children as best-effort fallback
+            std.log.debug("math_renderer: unknown node type {d}, rendering children", .{node.type});
             try renderChildren(ctx, node.first_child);
         },
     }
@@ -411,7 +412,7 @@ pub fn layoutMathBlock(
     };
 
     // Render the root node
-    if (result.*.count > 0) {
+    if (result.*.count > 0 and result.*.nodes != null) {
         try renderNode(&ctx, 0);
     }
 
@@ -475,7 +476,7 @@ pub fn renderInlineMath(
         .max_y = baseline_y + font_size,
     };
 
-    if (result.*.count > 0) {
+    if (result.*.count > 0 and result.*.nodes != null) {
         try renderNode(&ctx, 0);
     }
 
@@ -636,7 +637,7 @@ test "latex_render_parse produces text nodes with correct content" {
     while (i < @as(usize, @intCast(result.*.count))) : (i += 1) {
         const node = &result.*.nodes[i];
         if (node.type == c.LATEX_NODE_TEXT and node.text != null and node.text_len > 0) {
-            const tlen: usize = @intCast(@as(usize, @intCast(node.text_len)));
+            const tlen: usize = @intCast(node.text_len);
             const text: []const u8 = node.text[0..tlen];
             // α is U+03B1 = CE B1 in UTF-8
             if (std.mem.eql(u8, text, "\xce\xb1")) {

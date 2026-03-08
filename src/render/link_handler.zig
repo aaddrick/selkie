@@ -65,6 +65,10 @@ pub const LinkHandler = struct {
 
     /// Find the y-position of a layout node with a matching anchor_id.
     /// Returns the node's y coordinate for scrolling, or null if not found.
+    ///
+    /// Static method (no `self`): lives on LinkHandler because anchor resolution
+    /// is part of the link-handling domain. Called from `handleClick` above and
+    /// also directly from tests.
     pub fn resolveAnchor(tree: *const LayoutTree, anchor_id: []const u8) ?f32 {
         if (anchor_id.len == 0) return null;
         for (tree.nodes.items) |*node| {
@@ -142,11 +146,18 @@ test "resolveAnchor skips nodes without anchor_id" {
 fn openUrl(url: []const u8) void {
     if (url.len == 0) return;
 
+    // Reject URLs that exceed the stack buffer — truncation could open a
+    // wrong or malicious URL via xdg-open.
+    if (url.len >= 8192) {
+        log.err("URL too long ({d} bytes, max 8191) — refusing to open", .{url.len});
+        return;
+    }
     // Need null-terminated string for execve
-    var buf: [2048]u8 = undefined;
+    var buf: [8192]u8 = undefined;
     const z = slice_utils.sliceToZ(&buf, url);
     const z_ptr: [*:0]const u8 = z.ptr;
 
+    // Linux-only: uses xdg-open
     // Double-fork to avoid zombie processes:
     // 1. Parent forks child, immediately waits for it (child exits fast)
     // 2. Child forks grandchild, then exits
