@@ -414,14 +414,14 @@ fn performHeadlessExport(app: *App, cfg: PngExportConfig) u8 {
 /// tab bar) at the top of the image, increasing total height by the chrome
 /// height. Without it, only the document content is captured.
 fn performFullDocumentExport(app: *App, cfg: PngExportConfig) u8 {
-    const err_label = if (cfg.include_chrome) "Full-document PNG export (with chrome)" else "Full-document PNG export";
-    var capture = blk: {
-        break :blk (if (cfg.include_chrome)
-            if (cfg.width > 0) app.captureFullDocumentWithChromeAndWidth(cfg.width) else app.captureFullDocumentWithChrome()
-        else if (cfg.width > 0) app.captureFullDocumentWithWidth(cfg.width) else app.captureFullDocument()) catch |err| {
-            std.log.err("{s} failed: {}", .{ err_label, err });
-            return 1;
-        };
+    const capture_result = if (cfg.include_chrome)
+        if (cfg.width > 0) app.captureFullDocumentWithChromeAndWidth(cfg.width) else app.captureFullDocumentWithChrome()
+    else if (cfg.width > 0) app.captureFullDocumentWithWidth(cfg.width) else app.captureFullDocument();
+
+    var capture = capture_result catch |err| {
+        const err_label = if (cfg.include_chrome) "Full-document PNG export (with chrome)" else "Full-document PNG export";
+        std.log.err("{s} failed: {}", .{ err_label, err });
+        return 1;
     };
     defer capture.deinit();
 

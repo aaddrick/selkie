@@ -33,17 +33,15 @@ pub fn render(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts,
 /// the scrollbar is omitted — used by content-only PNG export to exclude
 /// UI chrome (tab bar, menu bar, and scrollbar are all suppressed).
 pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Fonts, scroll_y: f32, content_top_y: f32, left_offset: f32, hovered_url: ?[]const u8, viewport_w: f32, viewport_h: f32, show_scrollbar: bool) void {
-    const screen_h: f32 = viewport_h;
-    const screen_w: f32 = viewport_w;
     const view_top = scroll_y;
-    const view_bottom = scroll_y + screen_h;
+    const view_bottom = scroll_y + viewport_h;
 
     // Clip rendering to below chrome and right of sidebar
     rl.beginScissorMode(
         @intFromFloat(left_offset),
         @intFromFloat(content_top_y),
-        @intFromFloat(screen_w - left_offset),
-        @intFromFloat(screen_h - content_top_y),
+        @intFromFloat(viewport_w - left_offset),
+        @intFromFloat(viewport_h - content_top_y),
     );
     defer rl.endScissorMode();
 
@@ -57,9 +55,9 @@ pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Font
         if (!node.rect.overlapsVertically(view_top, view_bottom)) continue;
 
         switch (node.data) {
-            .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y, hover, screen_h),
-            .details_header => block_renderer.drawDetailsHeader(node, theme, fonts, scroll_y, screen_h),
-            .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y, screen_h),
+            .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y, hover, viewport_h),
+            .details_header => block_renderer.drawDetailsHeader(node, theme, fonts, scroll_y, viewport_h),
+            .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y, viewport_h),
             .code_block_header => block_renderer.drawCodeBlockHeader(node, fonts, scroll_y),
             .thematic_break => block_renderer.drawThematicBreak(node, scroll_y),
             .block_quote_border => block_renderer.drawBlockQuoteBorder(node, scroll_y),
@@ -67,18 +65,18 @@ pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Font
             .table_row_bg => table_renderer.drawTableRowBg(node, scroll_y),
             .table_border => table_renderer.drawTableBorder(node, scroll_y),
             .table_cell => {
-                table_renderer.drawTableCell(node, fonts, scroll_y, hover, screen_h);
+                table_renderer.drawTableCell(node, fonts, scroll_y, hover, viewport_h);
                 // Restore viewport scissor after per-cell clipping (drawTableCell
                 // temporarily replaces it to prevent text overflow into adjacent columns).
                 rl.beginScissorMode(
                     @intFromFloat(left_offset),
                     @intFromFloat(content_top_y),
-                    @intFromFloat(screen_w - left_offset),
-                    @intFromFloat(screen_h - content_top_y),
+                    @intFromFloat(viewport_w - left_offset),
+                    @intFromFloat(viewport_h - content_top_y),
                 );
             },
             .image => block_renderer.drawImage(node, fonts, scroll_y),
-            .math_block => math_renderer.drawBlockMath(node, fonts, scroll_y, screen_h),
+            .math_block => math_renderer.drawBlockMath(node, fonts, scroll_y, viewport_h),
             .mermaid_diagram => |mermaid| {
                 const r = node.rect;
                 switch (mermaid) {
@@ -99,16 +97,16 @@ pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Font
     }
 
     // Draw source line number gutter (if enabled)
-    gutter_renderer.drawGutter(tree, theme, fonts, scroll_y, content_top_y, left_offset, screen_h);
+    gutter_renderer.drawGutter(tree, theme, fonts, scroll_y, content_top_y, left_offset, viewport_h);
 
     // Draw scrollbar (starts below chrome, right-aligned) — omitted in content-only export
     if (show_scrollbar) {
-        drawScrollbar(tree.total_height, scroll_y, screen_h, content_top_y, theme);
+        drawScrollbar(tree.total_height, scroll_y, viewport_h, content_top_y, theme);
     }
 }
 
-fn drawScrollbar(total_height: f32, scroll_y: f32, screen_h: f32, content_top_y: f32, theme: *const Theme) void {
-    const geo = scrollbar.compute(total_height, scroll_y, screen_h, content_top_y);
+fn drawScrollbar(total_height: f32, scroll_y: f32, viewport_h: f32, content_top_y: f32, theme: *const Theme) void {
+    const geo = scrollbar.compute(total_height, scroll_y, viewport_h, content_top_y);
     if (!geo.visible) return;
 
     // Track

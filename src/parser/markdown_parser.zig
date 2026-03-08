@@ -76,20 +76,16 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
         .text, .code, .html_block, .html_inline => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
         },
-        // For footnote_reference: cmark replaces the author-supplied label with the
-        // 1-based ordinal string (e.g. "1", "2") during its processing phase.
-        // We store that string in `literal` and also parse it into `footnote_index`.
-        .footnote_reference => {
+        // footnote_reference: literal is the 1-based ordinal string from cmark (e.g. "1", "2")
+        // footnote_definition: literal is the author-supplied label (e.g. "note");
+        //   ordinal is assigned post-children in the document node handler below
+        .footnote_reference, .footnote_definition => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
-            if (node.literal) |lit| {
-                node.footnote_index = std.fmt.parseInt(u32, lit, 10) catch 0;
+            if (node_type == .footnote_reference) {
+                if (node.literal) |lit| {
+                    node.footnote_index = std.fmt.parseInt(u32, lit, 10) catch 0;
+                }
             }
-        },
-        // For footnote_definition: `literal` holds the author-supplied label (e.g. "note").
-        // The ordinal is assigned externally after all definitions have been visited
-        // (see the post-processing step in convertNode for document nodes).
-        .footnote_definition => {
-            node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
         },
         .code_block => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));

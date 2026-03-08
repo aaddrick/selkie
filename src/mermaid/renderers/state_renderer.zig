@@ -99,68 +99,45 @@ fn drawState(state: *const State, nx: f32, ny: f32, nw: f32, nh: f32, origin_x: 
             // Diamond — conditional pseudostate
             shapes.drawShape(.diamond, x, y, nw, nh, theme.mermaid_node_fill, theme.mermaid_node_border, scroll_y);
         },
-        .history => {
-            // Circle with "H" label — shallow history pseudostate
+        .history, .deep_history, .entry_point, .exit_point => {
+            // Circle pseudo-states: filled circle with double border ring.
+            // history/deep_history add a centered text label; exit_point adds an X.
             const cx = x + nw / 2;
             const cy = sy + nh / 2;
             const radius = @min(nw, nh) / 2;
             rl.drawCircleV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_fill);
             rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_border);
             rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius - 1, theme.mermaid_node_border);
-            shapes.drawTextCentered("H", x, y, nw, nh, fonts, theme.body_font_size * 0.8, theme.mermaid_node_border, scroll_y);
-        },
-        .deep_history => {
-            // Circle with "H*" label — deep history pseudostate
-            const cx = x + nw / 2;
-            const cy = sy + nh / 2;
-            const radius = @min(nw, nh) / 2;
-            rl.drawCircleV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_fill);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_border);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius - 1, theme.mermaid_node_border);
-            shapes.drawTextCentered("H*", x, y, nw, nh, fonts, theme.body_font_size * 0.75, theme.mermaid_node_border, scroll_y);
-        },
-        .entry_point => {
-            // UML entry point: small filled circle on composite border.
-            const cx = x + nw / 2;
-            const cy = sy + nh / 2;
-            const radius = @min(nw, nh) / 2;
-            rl.drawCircleV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_fill);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_border);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius - 1, theme.mermaid_node_border);
-        },
-        .exit_point => {
-            // UML exit point: circled X on composite border.
-            const cx = x + nw / 2;
-            const cy = sy + nh / 2;
-            const radius = @min(nw, nh) / 2;
-            rl.drawCircleV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_fill);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius, theme.mermaid_node_border);
-            rl.drawCircleLinesV(.{ .x = cx, .y = cy }, radius - 1, theme.mermaid_node_border);
-            // Draw X inside the circle
-            const arm = radius * 0.55;
-            rl.drawLineEx(
-                .{ .x = cx - arm, .y = cy - arm },
-                .{ .x = cx + arm, .y = cy + arm },
-                1.5,
-                theme.mermaid_node_border,
-            );
-            rl.drawLineEx(
-                .{ .x = cx + arm, .y = cy - arm },
-                .{ .x = cx - arm, .y = cy + arm },
-                1.5,
-                theme.mermaid_node_border,
-            );
+
+            switch (state.state_type) {
+                .history => shapes.drawTextCentered("H", x, y, nw, nh, fonts, theme.body_font_size * 0.8, theme.mermaid_node_border, scroll_y),
+                .deep_history => shapes.drawTextCentered("H*", x, y, nw, nh, fonts, theme.body_font_size * 0.75, theme.mermaid_node_border, scroll_y),
+                .exit_point => {
+                    // Draw X inside the circle
+                    const arm = radius * 0.55;
+                    rl.drawLineEx(
+                        .{ .x = cx - arm, .y = cy - arm },
+                        .{ .x = cx + arm, .y = cy + arm },
+                        1.5,
+                        theme.mermaid_node_border,
+                    );
+                    rl.drawLineEx(
+                        .{ .x = cx + arm, .y = cy - arm },
+                        .{ .x = cx - arm, .y = cy + arm },
+                        1.5,
+                        theme.mermaid_node_border,
+                    );
+                },
+                else => {}, // entry_point: circle only, no interior decoration
+            }
         },
         .composite => {
             // Dashed rounded rectangle with header label and divider
             rl.drawRectangleRounded(.{ .x = x, .y = sy, .width = nw, .height = nh }, 0.15, 6, theme.mermaid_node_fill);
             drawDashedRect(x, sy, nw, nh, theme.mermaid_node_border);
 
-            const label = if (state.description) |d| d else state.label;
             const header_h: f32 = @min(nh * 0.4, 28);
-
-            // Draw label in header area
-            shapes.drawTextCentered(label, x, y, nw, header_h, fonts, theme.body_font_size * 0.9, theme.mermaid_node_text, scroll_y);
+            shapes.drawTextCentered(state.displayLabel(), x, y, nw, header_h, fonts, theme.body_font_size * 0.9, theme.mermaid_node_text, scroll_y);
 
             // Divider line below header
             if (nh > header_h + 4) {
@@ -172,28 +149,27 @@ fn drawState(state: *const State, nx: f32, ny: f32, nw: f32, nh: f32, origin_x: 
             rl.drawRectangleRounded(.{ .x = x, .y = sy, .width = nw, .height = nh }, 0.3, 6, theme.mermaid_node_fill);
             rl.drawRectangleRoundedLinesEx(.{ .x = x, .y = sy, .width = nw, .height = nh }, 0.3, 6, 2, theme.mermaid_node_border);
 
-            // When both label and description exist, show label as header
-            // with a divider line and description below.
-            if (state.description != null and !std.mem.eql(u8, state.label, state.description.?)) {
-                const header_h: f32 = @min(nh * 0.45, 26);
+            // When both label and description exist and differ, show label
+            // as header with a divider line and description below.
+            if (state.description) |desc| {
+                if (!std.mem.eql(u8, state.label, desc)) {
+                    const header_h: f32 = @min(nh * 0.45, 26);
 
-                // Label in header zone
-                shapes.drawTextCentered(state.label, x, y, nw, header_h, fonts, theme.body_font_size * 0.85, theme.mermaid_node_text, scroll_y);
+                    shapes.drawTextCentered(state.label, x, y, nw, header_h, fonts, theme.body_font_size * 0.85, theme.mermaid_node_text, scroll_y);
 
-                // Divider
-                rl.drawLineEx(
-                    .{ .x = x + 4, .y = sy + header_h },
-                    .{ .x = x + nw - 4, .y = sy + header_h },
-                    1,
-                    theme.mermaid_node_border,
-                );
+                    rl.drawLineEx(
+                        .{ .x = x + 4, .y = sy + header_h },
+                        .{ .x = x + nw - 4, .y = sy + header_h },
+                        1,
+                        theme.mermaid_node_border,
+                    );
 
-                // Description below divider
-                shapes.drawTextCentered(state.description.?, x, y + header_h, nw, nh - header_h, fonts, theme.body_font_size * 0.8, theme.mermaid_node_text, scroll_y);
+                    shapes.drawTextCentered(desc, x, y + header_h, nw, nh - header_h, fonts, theme.body_font_size * 0.8, theme.mermaid_node_text, scroll_y);
+                } else {
+                    shapes.drawTextCentered(state.displayLabel(), x, y, nw, nh, fonts, theme.body_font_size, theme.mermaid_node_text, scroll_y);
+                }
             } else {
-                // Single label centered
-                const label = if (state.description) |d| d else state.label;
-                shapes.drawTextCentered(label, x, y, nw, nh, fonts, theme.body_font_size, theme.mermaid_node_text, scroll_y);
+                shapes.drawTextCentered(state.displayLabel(), x, y, nw, nh, fonts, theme.body_font_size, theme.mermaid_node_text, scroll_y);
             }
         },
     }
@@ -990,7 +966,10 @@ test "entry and exit point can be placed inside composite state" {
         .id = "ep",
         .label = "ep",
         .state_type = .entry_point,
-        .x = 5, .y = 5, .width = 24, .height = 24,
+        .x = 5,
+        .y = 5,
+        .width = 24,
+        .height = 24,
         .children = std.ArrayList(State).init(testing.allocator),
         .child_transitions = std.ArrayList(Transition).init(testing.allocator),
         .regions = std.ArrayList(Region).init(testing.allocator),
@@ -999,7 +978,10 @@ test "entry and exit point can be placed inside composite state" {
         .id = "xp",
         .label = "xp",
         .state_type = .exit_point,
-        .x = 5, .y = 100, .width = 24, .height = 24,
+        .x = 5,
+        .y = 100,
+        .width = 24,
+        .height = 24,
         .children = std.ArrayList(State).init(testing.allocator),
         .child_transitions = std.ArrayList(Transition).init(testing.allocator),
         .regions = std.ArrayList(Region).init(testing.allocator),

@@ -124,8 +124,8 @@ pub const NodeData = union(enum) {
     math_block: struct {
         latex: []const u8,
         font_size: f32,
-        color: @import("raylib").Color,
-        bg_color: ?@import("raylib").Color,
+        color: rl.Color,
+        bg_color: ?rl.Color,
     },
 };
 
@@ -555,12 +555,14 @@ test "details_header focused can be set to true" {
 
 test "details_header anim_progress and focused are independent of expanded" {
     // Collapsed header can have anim_progress at 1.0 while animating back to 0.
-    var node = LayoutNode.init(testing.allocator, .{ .details_header = .{
-        .expanded = false,
-        .section_id = 10,
-        .anim_progress = 1.0, // mid-collapse animation
-        .focused = true,
-    } });
+    var node = LayoutNode.init(testing.allocator, .{
+        .details_header = .{
+            .expanded = false,
+            .section_id = 10,
+            .anim_progress = 1.0, // mid-collapse animation
+            .focused = true,
+        },
+    });
     defer node.deinit();
     try testing.expect(!node.data.details_header.expanded);
     try testing.expectApproxEqAbs(@as(f32, 1.0), node.data.details_header.anim_progress, 0.001);
@@ -569,11 +571,13 @@ test "details_header anim_progress and focused are independent of expanded" {
 
 test "details_header in-place anim_progress update" {
     // Simulate one animation frame: update anim_progress in-place.
-    var node = LayoutNode.init(testing.allocator, .{ .details_header = .{
-        .expanded = true, // target = 1.0
-        .section_id = 20,
-        .anim_progress = 0.0, // starting collapsed
-    } });
+    var node = LayoutNode.init(testing.allocator, .{
+        .details_header = .{
+            .expanded = true, // target = 1.0
+            .section_id = 20,
+            .anim_progress = 0.0, // starting collapsed
+        },
+    });
     defer node.deinit();
 
     // Simulate lerp step toward 1.0

@@ -108,21 +108,18 @@ fn emitText(ctx: *RenderContext, text: []const u8, y_offset: f32) !void {
         });
     }
     ctx.cursor_x += w;
-    if (ctx.cursor_x > ctx.max_x) ctx.max_x = ctx.cursor_x;
-    const bottom = ctx.baseline_y + y_offset + ctx.font_size;
-    if (bottom > ctx.max_y) ctx.max_y = bottom;
+    ctx.max_x = @max(ctx.max_x, ctx.cursor_x);
+    ctx.max_y = @max(ctx.max_y, ctx.baseline_y + y_offset + ctx.font_size);
 }
 
 /// Get the text of a C node as a Zig slice. Returns empty string if null.
 fn nodeText(ctx: *const RenderContext, node_idx: c_int) []const u8 {
     if (node_idx < 0 or node_idx >= ctx.result.count) return "";
-    const node = &ctx.result.nodes[@intCast(@as(usize, @intCast(node_idx)))];
-    if (node.text) |txt| {
-        if (node.text_len > 0) {
-            return txt[0..@intCast(@as(usize, @intCast(node.text_len)))];
-        }
-    }
-    return "";
+    const idx: usize = @intCast(node_idx);
+    const node = &ctx.result.nodes[idx];
+    const txt = node.text orelse return "";
+    if (node.text_len <= 0) return "";
+    return txt[0..@intCast(node.text_len)];
 }
 
 /// Walk a node and its children, emitting text runs.
@@ -130,16 +127,15 @@ fn nodeText(ctx: *const RenderContext, node_idx: c_int) []const u8 {
 fn renderNode(ctx: *RenderContext, node_idx: c_int) error{OutOfMemory}!void {
     if (node_idx < 0 or node_idx >= ctx.result.count) return;
 
-    const idx: usize = @intCast(@as(usize, @intCast(node_idx)));
+    const idx: usize = @intCast(node_idx);
     const node = &ctx.result.nodes[idx];
     const node_type: NodeType = @enumFromInt(node.type);
 
     switch (node_type) {
         .root, .group => {
-            // Render all children sequentially
             try renderChildren(ctx, node.first_child);
         },
-        .text => {
+        .text, .delimiter, .operator_name => {
             const text = nodeText(ctx, node_idx);
             if (text.len > 0) {
                 try emitText(ctx, text, 0);
@@ -152,18 +148,6 @@ fn renderNode(ctx: *RenderContext, node_idx: c_int) error{OutOfMemory}!void {
             } else {
                 // Default thin space
                 ctx.cursor_x += ctx.font_size * 0.25;
-            }
-        },
-        .delimiter => {
-            const text = nodeText(ctx, node_idx);
-            if (text.len > 0) {
-                try emitText(ctx, text, 0);
-            }
-        },
-        .operator_name => {
-            const text = nodeText(ctx, node_idx);
-            if (text.len > 0) {
-                try emitText(ctx, text, 0);
             }
         },
         .superscript => {
@@ -208,8 +192,7 @@ fn renderNode(ctx: *RenderContext, node_idx: c_int) error{OutOfMemory}!void {
             // Get second child (denominator)
             var second_child: c_int = -1;
             if (first_child >= 0) {
-                const fc_idx: usize = @intCast(@as(usize, @intCast(first_child)));
-                second_child = ctx.result.nodes[fc_idx].next_sibling;
+                second_child = ctx.result.nodes[@as(usize, @intCast(first_child))].next_sibling;
             }
 
             // Measure denominator width — use measuring=true to avoid spurious text_runs.
@@ -269,7 +252,7 @@ fn renderNode(ctx: *RenderContext, node_idx: c_int) error{OutOfMemory}!void {
             ctx.font_size = saved_size;
             ctx.baseline_y = saved_y;
             ctx.cursor_x = frac_x + frac_width;
-            if (ctx.cursor_x > ctx.max_x) ctx.max_x = ctx.cursor_x;
+            ctx.max_x = @max(ctx.max_x, ctx.cursor_x);
         },
         .sqrt => {
             // Render √ symbol followed by child content
@@ -305,8 +288,7 @@ fn renderChildren(ctx: *RenderContext, first_child: c_int) error{OutOfMemory}!vo
     var child = first_child;
     while (child >= 0 and child < ctx.result.count) {
         try renderNode(ctx, child);
-        const child_idx: usize = @intCast(@as(usize, @intCast(child)));
-        child = ctx.result.nodes[child_idx].next_sibling;
+        child = ctx.result.nodes[@as(usize, @intCast(child))].next_sibling;
     }
 }
 
@@ -314,20 +296,18 @@ fn renderChildren(ctx: *RenderContext, first_child: c_int) error{OutOfMemory}!vo
 fn countMatrixDims(ctx: *const RenderContext, matrix_idx: c_int) struct { rows: usize, cols: usize } {
     var rows: usize = 0;
     var max_cols: usize = 0;
-    const idx: usize = @intCast(@as(usize, @intCast(matrix_idx)));
-    var row_child = ctx.result.nodes[idx].first_child;
+    var row_child = ctx.result.nodes[@as(usize, @intCast(matrix_idx))].first_child;
     while (row_child >= 0 and row_child < ctx.result.count) {
-        const row_idx: usize = @intCast(@as(usize, @intCast(row_child)));
+        const ri: usize = @intCast(row_child);
         rows += 1;
         var cols: usize = 0;
-        var cell_child = ctx.result.nodes[row_idx].first_child;
+        var cell_child = ctx.result.nodes[ri].first_child;
         while (cell_child >= 0 and cell_child < ctx.result.count) {
             cols += 1;
-            const cell_idx: usize = @intCast(@as(usize, @intCast(cell_child)));
-            cell_child = ctx.result.nodes[cell_idx].next_sibling;
+            cell_child = ctx.result.nodes[@as(usize, @intCast(cell_child))].next_sibling;
         }
-        if (cols > max_cols) max_cols = cols;
-        row_child = ctx.result.nodes[row_idx].next_sibling;
+        max_cols = @max(max_cols, cols);
+        row_child = ctx.result.nodes[ri].next_sibling;
     }
     return .{ .rows = rows, .cols = max_cols };
 }
@@ -342,35 +322,32 @@ fn renderMatrix(ctx: *RenderContext, matrix_idx: c_int) error{OutOfMemory}!void 
     const start_x = ctx.cursor_x;
     const start_y = ctx.baseline_y;
 
-    // Render each row
-    const m_idx: usize = @intCast(@as(usize, @intCast(matrix_idx)));
-    var row_child = ctx.result.nodes[m_idx].first_child;
+    var row_child = ctx.result.nodes[@as(usize, @intCast(matrix_idx))].first_child;
     var row_num: usize = 0;
     while (row_child >= 0 and row_child < ctx.result.count) {
-        const row_idx: usize = @intCast(@as(usize, @intCast(row_child)));
-        var cell_child = ctx.result.nodes[row_idx].first_child;
+        const ri: usize = @intCast(row_child);
+        var cell_child = ctx.result.nodes[ri].first_child;
         var col_num: usize = 0;
         while (cell_child >= 0 and cell_child < ctx.result.count) {
-            const cell_x = start_x + @as(f32, @floatFromInt(col_num)) * (ctx.font_size * 2.5 + cell_padding);
-            ctx.cursor_x = cell_x;
+            ctx.cursor_x = start_x + @as(f32, @floatFromInt(col_num)) * (ctx.font_size * 2.5 + cell_padding);
             ctx.baseline_y = start_y + @as(f32, @floatFromInt(row_num)) * row_height;
 
-            const cell_idx: usize = @intCast(@as(usize, @intCast(cell_child)));
-            try renderChildren(ctx, ctx.result.nodes[cell_idx].first_child);
+            const ci: usize = @intCast(cell_child);
+            try renderChildren(ctx, ctx.result.nodes[ci].first_child);
 
             col_num += 1;
-            cell_child = ctx.result.nodes[cell_idx].next_sibling;
+            cell_child = ctx.result.nodes[ci].next_sibling;
         }
         row_num += 1;
-        row_child = ctx.result.nodes[row_idx].next_sibling;
+        row_child = ctx.result.nodes[ri].next_sibling;
     }
 
     // Update cursor to after the matrix
     ctx.cursor_x = start_x + @as(f32, @floatFromInt(dims.cols)) * (ctx.font_size * 2.5 + cell_padding);
     ctx.baseline_y = start_y;
     const bottom = start_y + @as(f32, @floatFromInt(dims.rows)) * row_height;
-    if (ctx.cursor_x > ctx.max_x) ctx.max_x = ctx.cursor_x;
-    if (bottom > ctx.max_y) ctx.max_y = bottom;
+    ctx.max_x = @max(ctx.max_x, ctx.cursor_x);
+    ctx.max_y = @max(ctx.max_y, bottom);
 }
 
 /// Lay out a block math expression (from `$$…$$` or ` ```math ` code blocks).

@@ -285,16 +285,11 @@ fn drawBranchOriginConnectors(
             // Only draw for cross-branch parent relationships
             if (std.mem.eql(u8, parent.branch, commit.branch)) continue;
 
-            // Skip if this cross-branch connection is already a merge arrow.
-            // A merge arrow is drawn for MergeInfo entries where from_commit=parent_idx
-            // and to_commit=commit_idx.
-            var is_merge_arrow = false;
-            for (model.merges.items) |merge| {
-                if (merge.from_commit == parent_idx and merge.to_commit == commit_idx) {
-                    is_merge_arrow = true;
-                    break;
-                }
-            }
+            // Skip if this cross-branch connection is already a merge arrow
+            const is_merge_arrow = for (model.merges.items) |merge| {
+                if (merge.from_commit == parent_idx and merge.to_commit == commit_idx)
+                    break true;
+            } else false;
             if (is_merge_arrow) continue;
 
             // Use the child branch color for the origin connector

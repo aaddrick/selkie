@@ -319,8 +319,7 @@ fn layoutCompositeChildren(
     // Add child states as nodes
     for (parent.children.items) |*child| {
         const shape: NodeShape = switch (child.state_type) {
-            .start, .end, .history, .deep_history,
-            .entry_point, .exit_point => .circle,
+            .start, .end, .history, .deep_history, .entry_point, .exit_point => .circle,
             .choice => .diamond,
             .fork, .join => .rectangle,
             .composite, .normal => .rounded,
@@ -331,7 +330,7 @@ fn layoutCompositeChildren(
     // Measure child nodes
     for (parent.children.items) |*child| {
         if (sub_graph.nodes.getPtr(child.id)) |gnode| {
-            measureChildState(child, gnode, fonts, theme);
+            measureSingleState(child, gnode, fonts, theme);
         }
     }
 
@@ -374,130 +373,16 @@ fn layoutCompositeChildren(
     const content_width = sub_result.width;
     const content_height = sub_result.height;
 
-    parent.width = @max(min_normal_width + composite_padding,
-        content_width + composite_inner_padding * 2);
+    parent.width = @max(min_normal_width + composite_padding, content_width + composite_inner_padding * 2);
     parent.height = composite_header_height + content_height + composite_inner_padding * 2;
 }
 
-/// Measure a single child state node (used during composite sub-graph layout).
-/// Handles already-laid-out composite children by using their pre-computed size.
-fn measureChildState(
-    state: *const State,
-    gnode: *GraphNode,
-    fonts: *const Fonts,
-    theme: *const Theme,
-) void {
-    switch (state.state_type) {
-        .start, .end => {
-            gnode.width = start_end_radius * 2;
-            gnode.height = start_end_radius * 2;
-        },
-        // Entry/exit point pseudo-states are small circles drawn on composite
-        // state borders (similar in size to start/end markers).
-        .entry_point, .exit_point => {
-            gnode.width = start_end_radius * 2;
-            gnode.height = start_end_radius * 2;
-        },
-        .history, .deep_history => {
-            gnode.width = 28;
-            gnode.height = 28;
-        },
-        .fork, .join => {
-            gnode.width = bar_width;
-            gnode.height = bar_height;
-        },
-        .choice => {
-            gnode.width = choice_size;
-            gnode.height = choice_size;
-        },
-        .composite => {
-            // Use pre-computed dimensions from recursive layout
-            if (state.width > 0 and state.height > 0) {
-                gnode.width = state.width;
-                gnode.height = state.height;
-            } else {
-                // Fallback: estimate
-                const label = if (state.description) |d| d else state.label;
-                const font_size = theme.body_font_size;
-                const measured = fonts.measure(label, font_size, false, false, false);
-                gnode.width = @max(min_normal_width + composite_padding, measured.x + node_padding_h * 2 + composite_padding);
-                gnode.height = @max(min_normal_height + composite_padding, measured.y + node_padding_v * 2 + composite_padding);
-            }
-        },
-        .normal => {
-            const label = if (state.description) |d| d else state.label;
-            const font_size = theme.body_font_size;
-            const measured = fonts.measure(label, font_size, false, false, false);
-            gnode.width = @max(min_normal_width, measured.x + node_padding_h * 2);
-            gnode.height = @max(min_normal_height, measured.y + node_padding_v * 2);
-        },
-    }
-}
+// NOTE: measureChildState was removed — it was identical to measureSingleState.
+// All call sites now use measureSingleState directly.
 
-/// After top-level layout, translate child positions from their relative
-/// (within composite) coordinates to global diagram coordinates.
-/// Handles both direct-children composites and concurrent-region composites.
-fn translateCompositeChildren(model: *StateModel) void {
-    for (model.states.items) |*state| {
-        if (state.state_type == .composite) {
-            if (state.hasChildren()) {
-                translateChildrenRecursive(state);
-            } else if (state.hasRegions()) {
-                translateRegionStates(state);
-            }
-        }
-    }
-}
-
-/// Recursively translate child state positions. Each child's x/y is relative
-/// to the parent's content area. We offset by the parent's global position
-/// plus header height and inner padding.
-fn translateChildrenRecursive(parent: *State) void {
-    const offset_x = parent.x + composite_inner_padding;
-    const offset_y = parent.y + composite_header_height + composite_inner_padding;
-
-    for (parent.children.items) |*child| {
-        child.x += offset_x;
-        child.y += offset_y;
-
-        // Recurse into nested composites — handle both children and region variants
-        if (child.state_type == .composite) {
-            if (child.hasChildren()) {
-                translateChildrenRecursive(child);
-            } else if (child.hasRegions()) {
-                translateRegionStates(child);
-            }
-        }
-    }
-}
-
-/// Translate all state positions within concurrent regions to global diagram
-/// coordinates. Region.x/y (local to content area) are also translated.
-/// Must be called after syncStatePositions so parent.x/y are set.
-fn translateRegionStates(parent: *State) void {
-    const offset_x = parent.x + composite_inner_padding;
-    const offset_y = parent.y + composite_header_height + composite_inner_padding;
-
-    for (parent.regions.items) |*region| {
-        // Translate the region bounding box itself
-        region.x += offset_x;
-        region.y += offset_y;
-
-        for (region.states.items) |*child| {
-            child.x += offset_x;
-            child.y += offset_y;
-
-            // Recurse into nested composites within the region — handle both variants
-            if (child.state_type == .composite) {
-                if (child.hasChildren()) {
-                    translateChildrenRecursive(child);
-                } else if (child.hasRegions()) {
-                    translateRegionStates(child);
-                }
-            }
-        }
-    }
-}
+// NOTE: translateCompositeChildren, translateChildrenRecursive, and
+// translateRegionStates were removed — they were superseded by
+// translateAllChildren / translateChildrenAbsolute (defined above).
 
 /// Lay out the concurrent regions of a composite state side-by-side.
 ///
@@ -507,7 +392,7 @@ fn translateRegionStates(parent: *State) void {
 ///
 /// Region positions (region.x/y/width/height) and child positions (child.x/y)
 /// are stored relative to the parent's content area (0,0 = top-left of content).
-/// translateRegionStates() later converts these to global diagram coordinates.
+/// translateAllChildren() later converts these to global diagram coordinates.
 fn layoutCompositeRegions(
     allocator: Allocator,
     parent: *State,
@@ -535,8 +420,7 @@ fn layoutCompositeRegions(
 
         for (region.states.items) |*child| {
             const shape: NodeShape = switch (child.state_type) {
-                .start, .end, .history, .deep_history,
-                .entry_point, .exit_point => .circle,
+                .start, .end, .history, .deep_history, .entry_point, .exit_point => .circle,
                 .choice => .diamond,
                 .fork, .join => .rectangle,
                 .composite, .normal => .rounded,
@@ -547,7 +431,7 @@ fn layoutCompositeRegions(
         // Measure child nodes
         for (region.states.items) |*child| {
             if (sub_graph.nodes.getPtr(child.id)) |gnode| {
-                measureChildState(child, gnode, fonts, theme);
+                measureSingleState(child, gnode, fonts, theme);
             }
         }
 
@@ -596,7 +480,7 @@ fn layoutCompositeRegions(
         if (region_idx + 1 < parent.regions.items.len) {
             total_width += region_divider_gap;
         }
-        if (sub_result.height > max_height) max_height = sub_result.height;
+        max_height = @max(max_height, sub_result.height);
     }
 
     // Size parent composite to contain all regions with padding and header
@@ -607,45 +491,8 @@ fn layoutCompositeRegions(
     parent.height = composite_header_height + max_height + composite_inner_padding * 2;
 }
 
-/// Copy child/region state positions into model.graph nodes so that routeEdges
-/// computes accurate waypoints for intra-composite transitions.
-///
-/// After assignCoordinates, top-level composite nodes have their positions in
-/// model.graph. Children have positions stored in State.x/y (relative to the
-/// parent's content area from the sub-graph layout). This function computes the
-/// global position for each child node and stores it in model.graph so that
-/// routeEdges can route connecting edges correctly.
-fn syncChildStatesToGraphNodes(model: *StateModel) void {
-    for (model.states.items) |*state| {
-        if (state.state_type != .composite) continue;
-
-        const parent_gnode = model.graph.nodes.get(state.id) orelse continue;
-        const content_x = parent_gnode.x + composite_inner_padding;
-        const content_y = parent_gnode.y + composite_header_height + composite_inner_padding;
-
-        // Direct children
-        for (state.children.items) |*child| {
-            if (model.graph.nodes.getPtr(child.id)) |gnode| {
-                gnode.x = content_x + child.x;
-                gnode.y = content_y + child.y;
-                gnode.width = child.width;
-                gnode.height = child.height;
-            }
-        }
-
-        // Region states
-        for (state.regions.items) |*region| {
-            for (region.states.items) |*child| {
-                if (model.graph.nodes.getPtr(child.id)) |gnode| {
-                    gnode.x = content_x + child.x;
-                    gnode.y = content_y + child.y;
-                    gnode.width = child.width;
-                    gnode.height = child.height;
-                }
-            }
-        }
-    }
-}
+// NOTE: syncChildStatesToGraphNodes was removed — it was superseded by
+// propagateAbsoluteCoords which handles arbitrary nesting depth.
 
 // =============================================================================
 // Step 1: Measure state nodes (top-level)
@@ -660,14 +507,9 @@ fn measureStateNodes(model: *StateModel, fonts: *const Fonts, theme: *const Them
 
 fn measureSingleState(state: *const State, gnode: *GraphNode, fonts: *const Fonts, theme: *const Theme) void {
     switch (state.state_type) {
-        .start, .end => {
-            // Small circle markers — fixed size
-            gnode.width = start_end_radius * 2;
-            gnode.height = start_end_radius * 2;
-        },
-        // Entry/exit point pseudo-states appear on composite state borders.
-        // Rendered as small circles (entry) or circled-X (exit); sized like start/end.
-        .entry_point, .exit_point => {
+        // Circle pseudo-states: start/end markers and entry/exit points share
+        // the same fixed dimensions (start_end_radius * 2).
+        .start, .end, .entry_point, .exit_point => {
             gnode.width = start_end_radius * 2;
             gnode.height = start_end_radius * 2;
         },
@@ -693,9 +535,7 @@ fn measureSingleState(state: *const State, gnode: *GraphNode, fonts: *const Font
                 gnode.height = state.height;
             } else {
                 // Fallback for composites with no children
-                const label = if (state.description) |d| d else state.label;
-                const font_size = theme.body_font_size;
-                const measured = fonts.measure(label, font_size, false, false, false);
+                const measured = fonts.measure(state.displayLabel(), theme.body_font_size, false, false, false);
                 const label_w = measured.x + node_padding_h * 2;
                 const label_h = measured.y + node_padding_v * 2;
                 gnode.width = @max(min_normal_width + composite_padding, label_w + composite_padding);
@@ -703,10 +543,7 @@ fn measureSingleState(state: *const State, gnode: *GraphNode, fonts: *const Font
             }
         },
         .normal => {
-            // Normal states: measure from label text
-            const label = if (state.description) |d| d else state.label;
-            const font_size = theme.body_font_size;
-            const measured = fonts.measure(label, font_size, false, false, false);
+            const measured = fonts.measure(state.displayLabel(), theme.body_font_size, false, false, false);
             gnode.width = @max(min_normal_width, measured.x + node_padding_h * 2);
             gnode.height = @max(min_normal_height, measured.y + node_padding_v * 2);
         },
@@ -1944,7 +1781,7 @@ test "state_layout: translateChildrenRecursive offsets children by parent positi
     child.width = 80;
     child.height = 40;
 
-    translateCompositeChildren(&model);
+    translateAllChildren(&model);
 
     // Child position should be offset by parent position + header + inner padding
     const expected_x = 100 + composite_inner_padding + 10;
@@ -1979,7 +1816,7 @@ test "state_layout: translateChildrenRecursive handles nested composites" {
     deep.width = 60;
     deep.height = 30;
 
-    translateCompositeChildren(&model);
+    translateAllChildren(&model);
 
     // Inner's global position
     const inner_x = 100 + composite_inner_padding + 20;
@@ -1995,32 +1832,9 @@ test "state_layout: translateChildrenRecursive handles nested composites" {
     try testing.expectApproxEqAbs(deep_y, deep.y, 0.01);
 }
 
-test "state_layout: measureChildState uses pre-computed composite size" {
-    const allocator = testing.allocator;
-    var model = StateModel.init(allocator);
-    defer model.deinit();
-
-    const parent = try model.ensureState("Composite");
-    parent.state_type = .composite;
-    parent.width = 200;
-    parent.height = 150;
-
-    var gnode = GraphNode{
-        .id = "Composite",
-        .label = "Composite",
-        .shape = .rounded,
-        .x = 0,
-        .y = 0,
-        .width = 0,
-        .height = 0,
-        .layer = 0,
-    };
-
-    measureChildState(parent, &gnode, undefined, undefined);
-
-    try testing.expectApproxEqAbs(@as(f32, 200), gnode.width, 0.01);
-    try testing.expectApproxEqAbs(@as(f32, 150), gnode.height, 0.01);
-}
+// NOTE: "measureChildState uses pre-computed composite size" test removed —
+// measureChildState was consolidated into measureSingleState.
+// The equivalent test is "measureSingleState uses pre-computed composite size" below.
 
 test "state_layout: measureSingleState uses pre-computed composite size" {
     const allocator = testing.allocator;
@@ -2176,8 +1990,8 @@ test "state_layout: layoutCompositeRegions sets region bounds" {
     try testing.expectEqual(@as(usize, 1), r1.transitions.items.len);
 }
 
-test "state_layout: syncChildStatesToGraphNodes region states" {
-    // Verify that syncChildStatesToGraphNodes correctly propagates
+test "state_layout: propagateAbsoluteCoords region states" {
+    // Verify that propagateAbsoluteCoords correctly propagates
     // region child positions into model.graph nodes.
     const allocator = testing.allocator;
 
@@ -2210,8 +2024,8 @@ test "state_layout: syncChildStatesToGraphNodes region states" {
     // Add RegChild to graph with default 0 positions
     try model.graph.addNode("RegChild", "RegChild", .rounded);
 
-    // Call syncChildStatesToGraphNodes — it should propagate child positions
-    syncChildStatesToGraphNodes(&model);
+    // propagateAbsoluteCoords propagates child positions to model.graph
+    propagateAbsoluteCoords(&model);
 
     const child_gnode = model.graph.nodes.get("RegChild").?;
     // Expected: parent_gnode.x + composite_inner_padding + child.x
@@ -2224,7 +2038,7 @@ test "state_layout: syncChildStatesToGraphNodes region states" {
     try testing.expectApproxEqAbs(@as(f32, 40), child_gnode.height, 0.01);
 }
 
-test "state_layout: syncChildStatesToGraphNodes direct children" {
+test "state_layout: propagateAbsoluteCoords direct children" {
     const allocator = testing.allocator;
 
     var model = StateModel.init(allocator);
@@ -2247,7 +2061,7 @@ test "state_layout: syncChildStatesToGraphNodes direct children" {
 
     try model.graph.addNode("Child", "Child", .rounded);
 
-    syncChildStatesToGraphNodes(&model);
+    propagateAbsoluteCoords(&model);
 
     const cg = model.graph.nodes.get("Child").?;
     // parent_x + composite_inner_padding + child.x = 0 + 16 + 5 = 21
@@ -2256,7 +2070,7 @@ test "state_layout: syncChildStatesToGraphNodes direct children" {
     try testing.expectApproxEqAbs(@as(f32, 54), cg.y, 0.01);
 }
 
-test "state_layout: translateRegionStates offsets by parent origin" {
+test "state_layout: translateChildrenAbsolute offsets region states by parent origin" {
     const allocator = testing.allocator;
 
     var model = StateModel.init(allocator);
@@ -2276,7 +2090,7 @@ test "state_layout: translateRegionStates offsets by parent origin" {
     comp.regions.items[0].states.items[0].x = 10;
     comp.regions.items[0].states.items[0].y = 5;
 
-    translateRegionStates(comp);
+    translateChildrenAbsolute(comp, comp.x, comp.y);
 
     // region.x should be offset_x + 5 = (50 + 16) + 5 = 71
     // offset_y = 30 + 28 + 16 = 74; region.y = 74 + 0 = 74
@@ -3018,8 +2832,8 @@ test "state_layout: propagateAbsoluteCoords recurses through region children" {
 
 test "state_layout: propagateAbsoluteCoords handles mixed nesting (children to regions)" {
     // Three levels: Top(children) → Mid(regions) → Leaf states in region.
-    // This is the key mixed-nesting case that the old one-level-only
-    // syncChildStatesToGraphNodes could not handle.
+    // This is the key mixed-nesting case that propagateAbsoluteCoords
+    // handles correctly for arbitrary depth.
     const allocator = testing.allocator;
 
     var model = StateModel.init(allocator);
@@ -3235,7 +3049,7 @@ test "measureSingleState: entry_point sized as small circle" {
     try testing.expectEqual(@as(f32, 12 * 2), expected); // start_end_radius = 12
 }
 
-test "measureChildState: exit_point has correct fixed size" {
+test "measureSingleState: exit_point has correct fixed size" {
     // exit_point inside a composite should be sized identically to entry_point.
     const allocator = testing.allocator;
     var model = StateModel.init(allocator);
@@ -3280,15 +3094,13 @@ test "layoutCompositeChildren: entry_point gets circle shape in sub-graph" {
 
     // The NodeShape switch in layoutCompositeChildren must map both to .circle.
     const ep_shape: NodeShape = switch (ep.state_type) {
-        .start, .end, .history, .deep_history,
-        .entry_point, .exit_point => .circle,
+        .start, .end, .history, .deep_history, .entry_point, .exit_point => .circle,
         .choice => .diamond,
         .fork, .join => .rectangle,
         .composite, .normal => .rounded,
     };
     const xp_shape: NodeShape = switch (xp.state_type) {
-        .start, .end, .history, .deep_history,
-        .entry_point, .exit_point => .circle,
+        .start, .end, .history, .deep_history, .entry_point, .exit_point => .circle,
         .choice => .diamond,
         .fork, .join => .rectangle,
         .composite, .normal => .rounded,

@@ -55,8 +55,8 @@ pub fn exportPdf(
 ) !void {
     const scale = pdf_writer.render_scale;
     const page_h_pt = pdf_writer.a4_height_pt;
-    const page_h_px = @as(f32, @floatFromInt(pdf_writer.page_pixel_height));
-    const page_w_px = @as(f32, @floatFromInt(pdf_writer.page_pixel_width));
+    const page_h_px: f32 = @floatFromInt(pdf_writer.page_pixel_height);
+    const page_w_px: f32 = @floatFromInt(pdf_writer.page_pixel_width);
 
     // Re-layout document at A4 pixel width
     var pdf_tree = document_layout.layout(
@@ -133,12 +133,7 @@ pub fn exportPdf(
                 .table_border => |tb| {
                     try emitRect(page, node.rect, tb.color, page_top_px, scale, page_h_pt);
                 },
-                .image => {
-                    // Rasterize image to PNG and embed as XObject
-                    try rasterizeNode(allocator, &pw, page, node, &pdf_tree, theme, page_top_px, scale, page_h_pt, &png_buffers);
-                },
-                .mermaid_diagram => {
-                    // Rasterize mermaid diagram to PNG and embed as XObject
+                .image, .mermaid_diagram => {
                     try rasterizeNode(allocator, &pw, page, node, &pdf_tree, theme, page_top_px, scale, page_h_pt, &png_buffers);
                 },
                 .code_block_header => |hdr| {
@@ -322,20 +317,17 @@ fn emitHLine(
 
 /// Rasterize a node (image or mermaid) to a PNG and embed as an image XObject.
 fn rasterizeNode(
-    allocator: Allocator,
+    _: Allocator,
     pw: *pdf_writer.PdfWriter,
     page: *pdf_writer.PageContent,
     node: *const LayoutNode,
-    tree: *const LayoutTree,
+    _: *const LayoutTree,
     theme: *const Theme,
     page_top_px: f32,
     scale: f32,
     page_h_pt: f32,
     png_buffers: *std.ArrayList(PngBuffer),
 ) !void {
-    _ = tree;
-    _ = allocator;
-
     const rect = node.rect;
     const w: u32 = @intFromFloat(@max(1, rect.width));
     const h: u32 = @intFromFloat(@max(1, rect.height));
@@ -357,43 +349,10 @@ fn rasterizeNode(
                 ImageRenderer.drawImage(texture, .{ .x = 0, .y = 0, .width = rect.width, .height = rect.height }, 0);
             }
         },
-        .mermaid_diagram => |mermaid| {
-            const dummy_fonts = @import("../layout/text_measurer.zig").Fonts{
-                .body = undefined,
-                .bold = undefined,
-                .italic = undefined,
-                .bold_italic = undefined,
-                .mono = undefined,
-            };
-            _ = dummy_fonts;
-            // Draw the mermaid diagram at origin
-            const flowchart_renderer = @import("../mermaid/renderers/flowchart_renderer.zig");
-            const sequence_renderer = @import("../mermaid/renderers/sequence_renderer.zig");
-            const pie_renderer = @import("../mermaid/renderers/pie_renderer.zig");
-            const gantt_renderer = @import("../mermaid/renderers/gantt_renderer.zig");
-            const class_renderer = @import("../mermaid/renderers/class_renderer.zig");
-            const er_renderer = @import("../mermaid/renderers/er_renderer.zig");
-            const state_renderer = @import("../mermaid/renderers/state_renderer.zig");
-            const mindmap_renderer = @import("../mermaid/renderers/mindmap_renderer.zig");
-            const gitgraph_renderer = @import("../mermaid/renderers/gitgraph_renderer.zig");
-            const journey_renderer = @import("../mermaid/renderers/journey_renderer.zig");
-            const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
-
-            // We need fonts for mermaid rendering — use the app's loaded fonts
-            // For now, we skip mermaid diagrams in text-based PDF (they require loaded fonts)
-            // Instead just render a placeholder
-            _ = mermaid;
-            _ = flowchart_renderer;
-            _ = sequence_renderer;
-            _ = pie_renderer;
-            _ = gantt_renderer;
-            _ = class_renderer;
-            _ = er_renderer;
-            _ = state_renderer;
-            _ = mindmap_renderer;
-            _ = gitgraph_renderer;
-            _ = journey_renderer;
-            _ = timeline_renderer;
+        .mermaid_diagram => {
+            // Mermaid diagrams require loaded fonts for proper rendering.
+            // For now, the rasterized output will show an empty background;
+            // full mermaid PDF support requires passing fonts through.
         },
         else => {},
     }

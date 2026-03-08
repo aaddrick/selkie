@@ -328,8 +328,7 @@ fn layoutInlines(
                 if (child.literal) |latex| {
                     // Use the FFI tree-walker to produce positioned text runs,
                     // which correctly handles fractions, superscripts, and subscripts.
-                    const start_x = cursor_x.*;
-                    const rendered_width = ffi_math.renderInlineMath(
+                    _ = ffi_math.renderInlineMath(
                         latex,
                         ctx.fonts,
                         ctx.theme,
@@ -339,8 +338,8 @@ fn layoutInlines(
                         ctx.cursor_y,
                         effective_style.font_size,
                         effective_style.color,
-                    ) catch blk: {
-                        // On error (e.g., parse failure), fall back to display-string approach.
+                    ) catch {
+                        // On parse failure, fall back to display-string approach.
                         math_layout.layoutInlineMath(
                             latex,
                             effective_style,
@@ -353,13 +352,8 @@ fn layoutInlines(
                             ctx.tree.arena.allocator(),
                             ctx.fonts,
                         ) catch {};
-                        break :blk cursor_x.* - start_x;
                     };
-                    // Update line_height to account for the math content height
-                    // (font_size is the main metric; sub/superscripts are handled
-                    //  by y_offset on individual text runs).
                     line_height.* = @max(line_height.*, effective_style.font_size);
-                    _ = rendered_width;
                 }
             },
             .math_block => {
@@ -1056,9 +1050,11 @@ fn layoutBlock(ctx: *LayoutContext, node: *const ast.Node) !void {
 
             // For alerts, insert a translucent background behind all content
             if (alert_info) |_| {
-                var bg_node = layout_types.LayoutNode.init(ctx.allocator, .{ .alert_bg = .{
-                    .color = .{ .r = border_color.r, .g = border_color.g, .b = border_color.b, .a = 20 }, // subtle tint
-                } });
+                var bg_node = layout_types.LayoutNode.init(ctx.allocator, .{
+                    .alert_bg = .{
+                        .color = .{ .r = border_color.r, .g = border_color.g, .b = border_color.b, .a = 20 }, // subtle tint
+                    },
+                });
                 errdefer bg_node.deinit();
                 bg_node.source_line = node.start_line;
                 bg_node.source_end_line = node.end_line;
@@ -1585,12 +1581,9 @@ fn layoutDefinitionList(ctx: *LayoutContext, html: []const u8, start_line: u32, 
 /// Returns the byte offset of the '<' of the close tag, or null if not found.
 fn findCloseTag(html: []const u8, start: usize, comptime name: []const u8) ?usize {
     const close = "</" ++ name ++ ">";
-    const close_upper = "</" ++ comptime toUpper(name) ++ ">";
     var i = start;
     while (i + close.len <= html.len) : (i += 1) {
-        if (std.ascii.eqlIgnoreCase(html[i .. i + close.len], close) or
-            std.ascii.eqlIgnoreCase(html[i .. i + close.len], close_upper))
-        {
+        if (std.ascii.eqlIgnoreCase(html[i .. i + close.len], close)) {
             return i;
         }
     }
@@ -1600,17 +1593,6 @@ fn findCloseTag(html: []const u8, start: usize, comptime name: []const u8) ?usiz
 /// Returns the byte length of a close tag `</name>`.
 fn findCloseTagLen(comptime name: []const u8) usize {
     return 3 + name.len; // </name>
-}
-
-/// Convert a comptime string to uppercase.
-fn toUpper(comptime s: []const u8) *const [s.len]u8 {
-    comptime {
-        var result: [s.len]u8 = undefined;
-        for (s, 0..) |c, i| {
-            result[i] = std.ascii.toUpper(c);
-        }
-        return &result;
-    }
 }
 
 /// Extract plain text content from an HTML fragment, stripping any nested tags.

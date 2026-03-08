@@ -1,6 +1,5 @@
 const rl = @import("raylib");
 const LayoutNode = @import("../layout/layout_types.zig").LayoutNode;
-const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const text_renderer = @import("text_renderer.zig");
 

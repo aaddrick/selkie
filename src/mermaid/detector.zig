@@ -74,51 +74,29 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
         const tok = tokens.items[i];
         if (tok.type == .newline or tok.type == .comment) continue;
         if (tok.type == .keyword or tok.type == .identifier) {
-            if (std.mem.eql(u8, tok.text, "graph") or std.mem.eql(u8, tok.text, "flowchart")) {
-                const model = try flowchart_parser.parse(allocator, tokens);
-                return .{ .flowchart = model };
-            }
-            if (std.mem.eql(u8, tok.text, "sequenceDiagram")) {
-                const model = try sequence_parser.parse(allocator, source);
-                return .{ .sequence = model };
-            }
-            if (std.mem.eql(u8, tok.text, "pie")) {
-                const model = try pie_parser.parse(allocator, source);
-                return .{ .pie = model };
-            }
-            if (std.mem.eql(u8, tok.text, "gantt")) {
-                const model = try gantt_parser.parse(allocator, source);
-                return .{ .gantt = model };
-            }
-            if (std.mem.eql(u8, tok.text, "classDiagram")) {
-                const model = try class_parser.parse(allocator, source);
-                return .{ .class_diagram = model };
-            }
-            if (std.mem.eql(u8, tok.text, "erDiagram")) {
-                const model = try er_parser.parse(allocator, source);
-                return .{ .er_diagram = model };
-            }
+            if (std.mem.eql(u8, tok.text, "graph") or std.mem.eql(u8, tok.text, "flowchart"))
+                return .{ .flowchart = try flowchart_parser.parse(allocator, tokens) };
+            if (std.mem.eql(u8, tok.text, "sequenceDiagram"))
+                return .{ .sequence = try sequence_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "pie"))
+                return .{ .pie = try pie_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "gantt"))
+                return .{ .gantt = try gantt_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "classDiagram"))
+                return .{ .class_diagram = try class_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "erDiagram"))
+                return .{ .er_diagram = try er_parser.parse(allocator, source) };
             // stateDiagram or stateDiagram-v2 — tokenizer keeps hyphen in identifier
-            if (std.mem.eql(u8, tok.text, "stateDiagram") or std.mem.startsWith(u8, tok.text, "stateDiagram-")) {
-                const model = try state_parser.parse(allocator, source);
-                return .{ .state_diagram = model };
-            }
-            if (std.mem.eql(u8, tok.text, "mindmap")) {
-                const model = try mindmap_parser.parse(allocator, source);
-                return .{ .mindmap = model };
-            }
-            if (std.mem.eql(u8, tok.text, "gitGraph") or std.mem.eql(u8, tok.text, "gitgraph")) {
-                const model = try gitgraph_parser.parse(allocator, source);
-                return .{ .gitgraph = model };
-            }
-            if (std.mem.eql(u8, tok.text, "journey")) {
-                const model = try journey_parser.parse(allocator, source);
-                return .{ .journey = model };
-            }
-            if (std.mem.eql(u8, tok.text, "timeline")) {
-                const model = try timeline_parser.parse(allocator, source);
-                return .{ .timeline = model };
-            }
+            if (std.mem.eql(u8, tok.text, "stateDiagram") or std.mem.startsWith(u8, tok.text, "stateDiagram-"))
+                return .{ .state_diagram = try state_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "mindmap"))
+                return .{ .mindmap = try mindmap_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "gitGraph") or std.mem.eql(u8, tok.text, "gitgraph"))
+                return .{ .gitgraph = try gitgraph_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "journey"))
+                return .{ .journey = try journey_parser.parse(allocator, source) };
+            if (std.mem.eql(u8, tok.text, "timeline"))
+                return .{ .timeline = try timeline_parser.parse(allocator, source) };
             // Return unsupported for other diagram types
             return .{ .unsupported = tok.text };
         }

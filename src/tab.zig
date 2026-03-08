@@ -140,7 +140,7 @@ pub const Tab = struct {
         const new_path = try self.allocator.dupe(u8, path);
         if (self.file_path) |old| self.allocator.free(old);
         self.file_path = new_path;
-        self.file_watcher = FileWatcher.init(self.file_path.?);
+        self.file_watcher = FileWatcher.init(new_path);
     }
 
     /// Set the base directory for resolving relative image paths.
@@ -813,4 +813,3 @@ test "Tab.deinit cleans up details_anim without leaks" {
     // deinit via defer — leak detector will catch any issues
     tab.deinit();
 }
-

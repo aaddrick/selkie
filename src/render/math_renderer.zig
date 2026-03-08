@@ -156,7 +156,7 @@ pub const greek_letters = [_]GreekEntry{
 
 /// Look up a LaTeX command and return its Unicode equivalent.
 pub fn lookupSymbol(cmd: []const u8) ?[]const u8 {
-    for (&greek_letters) |*entry| {
+    for (greek_letters) |entry| {
         if (std.mem.eql(u8, entry.cmd, cmd)) {
             return entry.unicode;
         }
@@ -271,7 +271,7 @@ pub fn latexToDisplayString(latex: []const u8, buf: []u8) []const u8 {
 fn flattenCNode(result: *latex_c.LatexParseResult, node_idx: c_int, buf: []u8, pos: *usize) void {
     if (node_idx < 0 or node_idx >= result.count) return;
 
-    const idx: usize = @intCast(@as(usize, @intCast(node_idx)));
+    const idx: usize = @intCast(node_idx);
     const node = &result.nodes[idx];
 
     switch (node.type) {
@@ -283,7 +283,7 @@ fn flattenCNode(result: *latex_c.LatexParseResult, node_idx: c_int, buf: []u8, p
             // Emit text directly
             if (node.text) |txt| {
                 if (node.text_len > 0) {
-                    const text_len: usize = @intCast(@as(usize, @intCast(node.text_len)));
+                    const text_len: usize = @intCast(node.text_len);
                     const text = txt[0..text_len];
                     pos.* = appendBytes(buf, pos.*, text);
                 }
@@ -292,7 +292,7 @@ fn flattenCNode(result: *latex_c.LatexParseResult, node_idx: c_int, buf: []u8, p
         latex_c.LATEX_NODE_SPACE => {
             if (node.text) |txt| {
                 if (node.text_len > 0) {
-                    const text_len: usize = @intCast(@as(usize, @intCast(node.text_len)));
+                    const text_len: usize = @intCast(node.text_len);
                     pos.* = appendBytes(buf, pos.*, txt[0..text_len]);
                 }
             } else {
@@ -305,7 +305,7 @@ fn flattenCNode(result: *latex_c.LatexParseResult, node_idx: c_int, buf: []u8, p
         latex_c.LATEX_NODE_DELIMITER => {
             if (node.text) |txt| {
                 if (node.text_len > 0) {
-                    const text_len: usize = @intCast(@as(usize, @intCast(node.text_len)));
+                    const text_len: usize = @intCast(node.text_len);
                     pos.* = appendBytes(buf, pos.*, txt[0..text_len]);
                 }
             }
@@ -316,7 +316,7 @@ fn flattenCNode(result: *latex_c.LatexParseResult, node_idx: c_int, buf: []u8, p
             if (first_child >= 0) {
                 flattenCNode(result, first_child, buf, pos);
                 // Get second child (denominator)
-                const fc_idx: usize = @intCast(@as(usize, @intCast(first_child)));
+                const fc_idx: usize = @intCast(first_child);
                 const second_child = result.nodes[fc_idx].next_sibling;
                 if (pos.* < buf.len) {
                     buf[pos.*] = '/';
@@ -391,7 +391,7 @@ fn flattenCChildren(result: *latex_c.LatexParseResult, first_child: c_int, buf: 
     var child = first_child;
     while (child >= 0 and child < result.count) {
         flattenCNode(result, child, buf, pos);
-        const child_idx: usize = @intCast(@as(usize, @intCast(child)));
+        const child_idx: usize = @intCast(child);
         child = result.nodes[child_idx].next_sibling;
     }
 }
@@ -406,7 +406,7 @@ fn flattenCMatrixRows(result: *latex_c.LatexParseResult, first_row: c_int, buf: 
         }
         first = false;
         flattenCNode(result, row, buf, pos);
-        const row_idx: usize = @intCast(@as(usize, @intCast(row)));
+        const row_idx: usize = @intCast(row);
         row = result.nodes[row_idx].next_sibling;
     }
 }
@@ -424,7 +424,7 @@ fn flattenCMatrixCells(result: *latex_c.LatexParseResult, first_cell: c_int, buf
         }
         first = false;
         flattenCNode(result, cell, buf, pos);
-        const cell_idx: usize = @intCast(@as(usize, @intCast(cell)));
+        const cell_idx: usize = @intCast(cell);
         cell = result.nodes[cell_idx].next_sibling;
     }
 }
@@ -443,11 +443,11 @@ fn tryUnicodeSubSuperChildren(
     var success = true;
     var child_it = first_child;
     while (child_it >= 0 and child_it < result.count) {
-        const ci: usize = @intCast(@as(usize, @intCast(child_it)));
+        const ci: usize = @intCast(child_it);
         const c_node = &result.nodes[ci];
 
         if (c_node.type == latex_c.LATEX_NODE_TEXT and c_node.text != null and c_node.text_len > 0) {
-            const tlen: usize = @intCast(@as(usize, @intCast(c_node.text_len)));
+            const tlen: usize = @intCast(c_node.text_len);
             const tptr: [*]const u8 = @ptrCast(c_node.text);
             const text = tptr[0..tlen];
             for (text) |ch| {
@@ -479,44 +479,12 @@ fn tryUnicodeSubSuperChildren(
     return success;
 }
 
-/// Get the text content of a single text child (for Unicode super/subscript).
-/// Returns null if the child structure is too complex.
-fn getSingleChildText(result: *latex_c.LatexParseResult, first_child: c_int) ?[]const u8 {
-    if (first_child < 0 or first_child >= result.count) return null;
-    const child_idx: usize = @intCast(@as(usize, @intCast(first_child)));
-    const child = &result.nodes[child_idx];
-
-    // Direct text node
-    if (child.type == latex_c.LATEX_NODE_TEXT and child.text != null and child.text_len > 0) {
-        const text_len: usize = @intCast(@as(usize, @intCast(child.text_len)));
-        const text_ptr: [*]const u8 = @ptrCast(child.text);
-        return text_ptr[0..text_len];
-    }
-
-    // Group with a single text child
-    if (child.type == latex_c.LATEX_NODE_GROUP and child.first_child >= 0) {
-        const gc_idx: usize = @intCast(@as(usize, @intCast(child.first_child)));
-        const gc = &result.nodes[gc_idx];
-        if (gc.type == latex_c.LATEX_NODE_TEXT and gc.next_sibling < 0 and gc.text != null and gc.text_len > 0) {
-            const text_len: usize = @intCast(@as(usize, @intCast(gc.text_len)));
-            const text_ptr: [*]const u8 = @ptrCast(gc.text);
-            return text_ptr[0..text_len];
-        }
-    }
-
-    return null;
-}
-
 /// Append bytes to buffer, return new position.
 fn appendBytes(buf: []u8, pos: usize, bytes: []const u8) usize {
-    var p = pos;
-    for (bytes) |b| {
-        if (p < buf.len) {
-            buf[p] = b;
-            p += 1;
-        }
-    }
-    return p;
+    const remaining = buf.len -| pos;
+    const copy_len = @min(bytes.len, remaining);
+    @memcpy(buf[pos..][0..copy_len], bytes[0..copy_len]);
+    return pos + copy_len;
 }
 
 /// Return Unicode superscript for common characters.

@@ -106,8 +106,8 @@ fn segmentMathDelimiters(allocator: Allocator, text: []const u8) MathParseError!
 fn findClosingDoubleDollar(text: []const u8, start: usize) ?usize {
     var i = start;
     while (i + 1 < text.len) {
-        // Skip escaped dollars
-        if (text[i] == '\\' and i + 1 < text.len and text[i + 1] == '$') {
+        // Skip escaped dollars — i+1 bounds already checked by while condition
+        if (text[i] == '\\' and text[i + 1] == '$') {
             i += 2;
             continue;
         }
@@ -161,24 +161,10 @@ fn processTextNode(allocator: Allocator, literal: []const u8) MathParseError!?st
     var segments = try segmentMathDelimiters(allocator, literal);
     defer segments.deinit();
 
-    // If there's only one segment and it's text, no math was found
-    if (segments.items.len <= 1) {
-        if (segments.items.len == 1 and segments.items[0].kind == .text) {
-            return null;
-        }
-        if (segments.items.len == 0) {
-            return null;
-        }
-    }
-
-    // Check if any segment is actually math
-    var has_math = false;
-    for (segments.items) |seg| {
-        if (seg.kind != .text) {
-            has_math = true;
-            break;
-        }
-    }
+    // Only proceed if at least one segment is math
+    const has_math = for (segments.items) |seg| {
+        if (seg.kind != .text) break true;
+    } else false;
     if (!has_math) return null;
 
     var nodes = std.ArrayList(ast.Node).init(allocator);
@@ -225,11 +211,8 @@ fn convertMathCodeBlocks(node: *ast.Node) void {
                 if (std.ascii.eqlIgnoreCase(trimmed, "math")) {
                     child.node_type = .math_block;
                     // Free the fence_info since math_block doesn't need it
-                    // (the content is in literal)
-                    if (child.fence_info) |fi| {
-                        node.children.allocator.free(fi);
-                        child.fence_info = null;
-                    }
+                    node.children.allocator.free(info);
+                    child.fence_info = null;
                 }
             }
         }
@@ -889,7 +872,8 @@ test "processMathNodes code block math: matrix from samples" {
     // Simulate a fenced code block with language "math" (matrix from samples lines 423-438)
     var code_block = ast.Node.init(allocator, .code_block);
     code_block.fence_info = try allocator.dupe(u8, "math");
-    code_block.literal = try allocator.dupe(u8,
+    code_block.literal = try allocator.dupe(
+        u8,
         "\\left(\\begin{array}{cc}\na & b \\\\\nc & d\n\\end{array}\\right)\n\\times\n\\left(\\begin{array}{c}\nx \\\\\ny\n\\end{array}\\right)\n=\n\\left(\\begin{array}{c}\nax + by \\\\\ncx + dy\n\\end{array}\\right)\n",
     );
     try root.children.append(code_block);

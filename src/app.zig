@@ -2087,21 +2087,17 @@ pub const App = struct {
     // =========================================================================
 
     pub fn deinit(self: *App) void {
-        // Persist scroll positions for all open tabs before shutdown
+        // Persist scroll positions and details state for all open tabs before shutdown
+        for (0..self.tabs.items.len) |i| {
+            self.saveTabScrollPosition(i);
+            self.saveTabDetailsState(i);
+        }
         if (self.scroll_store) |store| {
-            for (0..self.tabs.items.len) |i| {
-                self.saveTabScrollPosition(i);
-            }
             store.save() catch |err| {
                 std.log.err("Failed to save scroll positions: {}", .{err});
             };
         }
-
-        // Persist details expand/collapse state for all open tabs before shutdown
         if (self.details_store) |store| {
-            for (0..self.tabs.items.len) |i| {
-                self.saveTabDetailsState(i);
-            }
             store.save() catch |err| {
                 std.log.err("Failed to save details state: {}", .{err});
             };
@@ -2145,8 +2141,8 @@ pub const App = struct {
     /// After cycling, the viewport scrolls to keep the focused header visible.
     fn cycleDetailsFocus(
         self: *App,
-        tab: *@import("tab.zig").Tab,
-        tree: *@import("layout/layout_types.zig").LayoutTree,
+        tab: *Tab,
+        tree: *LayoutTree,
         direction: i32,
     ) void {
         const nodes = tree.nodes.items;
