@@ -142,19 +142,49 @@ pub fn isEmailAutolink(node: *const ast.Node) bool {
 
 // --- Footnote helpers ---
 
-/// Information about a footnote reference.
+/// Information about a footnote reference (inline [^label] syntax).
 pub const FootnoteRefInfo = struct {
-    /// The reference label (e.g., "1" for [^1]).
+    /// The 1-based ordinal assigned by cmark (e.g., "1" for the first referenced footnote).
+    /// Note: cmark replaces the author-supplied label with the ordinal string during
+    /// processing, so this is a numeric string like "1", "2", not the original label.
     /// Borrowed from the node's literal field.
-    label: []const u8,
+    ordinal_str: []const u8,
+    /// Pre-parsed ordinal integer (same value as ordinal_str parsed as u32).
+    /// 0 if the string could not be parsed.
+    ordinal: u32,
 };
 
 /// Extract footnote reference information from a footnote_reference node.
-/// Returns null if the node is not a footnote_reference or has no label.
+/// Returns null if the node is not a footnote_reference or has no ordinal.
 pub fn getFootnoteRefInfo(node: *const ast.Node) ?FootnoteRefInfo {
     if (node.node_type != .footnote_reference) return null;
+    const ordinal_str = node.literal orelse return null;
+    return .{
+        .ordinal_str = ordinal_str,
+        .ordinal = node.footnote_index,
+    };
+}
+
+/// Information about a footnote definition ([^label]: content syntax).
+pub const FootnoteDefInfo = struct {
+    /// The author-supplied label string (e.g., "1" for [^1] or "note" for [^note]).
+    /// Borrowed from the node's literal field.
+    label: []const u8,
+    /// The 1-based ordinal reflecting the position among all referenced footnote
+    /// definitions in the document (in the order they were first referenced).
+    /// 0 if this definition was never referenced and was not appended to the document.
+    index: u32,
+};
+
+/// Extract footnote definition information from a footnote_definition node.
+/// Returns null if the node is not a footnote_definition or has no label.
+pub fn getFootnoteDefInfo(node: *const ast.Node) ?FootnoteDefInfo {
+    if (node.node_type != .footnote_definition) return null;
     const label = node.literal orelse return null;
-    return .{ .label = label };
+    return .{
+        .label = label,
+        .index = node.footnote_index,
+    };
 }
 
 /// Check if a node is a footnote definition.
@@ -675,12 +705,14 @@ test "getFootnoteRefInfo returns null for non-footnote-reference" {
     try testing.expectEqual(null, getFootnoteRefInfo(&node));
 }
 
-test "getFootnoteRefInfo extracts label" {
+test "getFootnoteRefInfo extracts ordinal" {
     var node = ast.Node.init(testing.allocator, .footnote_reference);
     defer node.deinit(testing.allocator);
     node.literal = try testing.allocator.dupe(u8, "1");
+    node.footnote_index = 1;
     const info = getFootnoteRefInfo(&node).?;
-    try testing.expectEqualStrings("1", info.label);
+    try testing.expectEqualStrings("1", info.ordinal_str);
+    try testing.expectEqual(@as(u32, 1), info.ordinal);
 }
 
 test "parse footnote reference and definition via cmark-gfm" {
@@ -739,4 +771,129 @@ test "countFootnoteReferences returns 0 when none present" {
     var doc = try parser.parse(testing.allocator, "Just a paragraph.\n");
     defer doc.deinit();
     try testing.expectEqual(@as(usize, 0), countFootnoteReferences(&doc.root));
+}
+
+// --- FootnoteDefInfo tests ---
+
+test "getFootnoteDefInfo returns null for non-footnote-definition" {
+    var node = ast.Node.init(testing.allocator, .paragraph);
+    defer node.deinit(testing.allocator);
+    try testing.expectEqual(null, getFootnoteDefInfo(&node));
+}
+
+test "getFootnoteDefInfo returns null when no literal" {
+    var node = ast.Node.init(testing.allocator, .footnote_definition);
+    defer node.deinit(testing.allocator);
+    // literal is null by default
+    try testing.expectEqual(null, getFootnoteDefInfo(&node));
+}
+
+test "getFootnoteDefInfo extracts label and index" {
+    var node = ast.Node.init(testing.allocator, .footnote_definition);
+    defer node.deinit(testing.allocator);
+    node.literal = try testing.allocator.dupe(u8, "note");
+    node.footnote_index = 2;
+    const info = getFootnoteDefInfo(&node).?;
+    try testing.expectEqualStrings("note", info.label);
+    try testing.expectEqual(@as(u32, 2), info.index);
+}
+
+// --- Ordinal assignment integration tests ---
+
+test "footnote_reference gets footnote_index from cmark ordinal" {
+    const input = "Text[^1].\n\n[^1]: Footnote.\n";
+    var doc = try parser.parse(testing.allocator, input);
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    for (para.children.items) |*child| {
+        if (child.node_type == .footnote_reference) {
+            // cmark replaces the label literal with ordinal "1"
+            try testing.expectEqual(@as(u32, 1), child.footnote_index);
+            const info = getFootnoteRefInfo(child).?;
+            try testing.expectEqualStrings("1", info.ordinal_str);
+            try testing.expectEqual(@as(u32, 1), info.ordinal);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "footnote_definition gets sequential footnote_index" {
+    const input = "Text[^1].\n\n[^1]: Footnote.\n";
+    var doc = try parser.parse(testing.allocator, input);
+    defer doc.deinit();
+
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            try testing.expectEqual(@as(u32, 1), child.footnote_index);
+            const info = getFootnoteDefInfo(child).?;
+            try testing.expectEqual(@as(u32, 1), info.index);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "multiple footnotes get sequential ordinals" {
+    const input = "First[^a] and second[^b].\n\n[^a]: Footnote A.\n\n[^b]: Footnote B.\n";
+    var doc = try parser.parse(testing.allocator, input);
+    defer doc.deinit();
+
+    // Collect footnote definitions in document order
+    var defs = std.ArrayList(*const ast.Node).init(testing.allocator);
+    defer defs.deinit();
+
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            try defs.append(child);
+        }
+    }
+
+    try testing.expectEqual(@as(usize, 2), defs.items.len);
+    // First definition should have index 1, second index 2
+    try testing.expectEqual(@as(u32, 1), defs.items[0].footnote_index);
+    try testing.expectEqual(@as(u32, 2), defs.items[1].footnote_index);
+}
+
+test "named footnote definition retains original label" {
+    const input = "Text[^note].\n\n[^note]: Definition content.\n";
+    var doc = try parser.parse(testing.allocator, input);
+    defer doc.deinit();
+
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            const info = getFootnoteDefInfo(child).?;
+            // Original label "note" is preserved in the definition's literal
+            try testing.expectEqualStrings("note", info.label);
+            try testing.expectEqual(@as(u32, 1), info.index);
+            // Definition should have paragraph children with content
+            try testing.expect(child.children.items.len > 0);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "footnote reference ordinal_str reflects first-reference order" {
+    // [^b] is referenced before [^a] in text, so [^b] gets ordinal 1
+    const input = "Second[^b] then first[^a].\n\n[^a]: Footnote A.\n\n[^b]: Footnote B.\n";
+    var doc = try parser.parse(testing.allocator, input);
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    var refs = std.ArrayList(*const ast.Node).init(testing.allocator);
+    defer refs.deinit();
+
+    for (para.children.items) |*child| {
+        if (child.node_type == .footnote_reference) {
+            try refs.append(child);
+        }
+    }
+
+    try testing.expectEqual(@as(usize, 2), refs.items.len);
+    // First ref in text ([^b]) gets ordinal 1
+    try testing.expectEqual(@as(u32, 1), refs.items[0].footnote_index);
+    // Second ref in text ([^a]) gets ordinal 2
+    try testing.expectEqual(@as(u32, 2), refs.items[1].footnote_index);
 }

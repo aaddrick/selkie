@@ -1,0 +1,533 @@
+# stateDiagram-v2 Sub-Grammar Specification
+# Selkie project — src/mermaid/parsers/state_diagram_v2.peg
+#
+# Notation: PEG (Parsing Expression Grammar)
+#
+#   e1 e2        — sequence: e1 followed by e2
+#   e1 / e2      — ordered choice: try e1, if it fails try e2 (no backtracking after first match)
+#   e*           — zero or more repetitions of e
+#   e+           — one or more repetitions of e
+#   e?           — optional: zero or one occurrence of e
+#   !e           — negative lookahead: succeeds if e would fail, consumes no input
+#   &e           — positive lookahead: succeeds if e would match, consumes no input
+#   ( e )        — grouping
+#   "..."        — literal string, case-sensitive
+#   [a-z]        — character class
+#   .            — any single character
+#   #            — comment to end of line (this file only, not diagram syntax)
+#
+# IMPLEMENTATION NOTE
+# -------------------
+# The Selkie parser (src/mermaid/parsers/state.zig) is a hand-written line-by-line
+# parser, not a generated PEG parser. This file serves as the authoritative grammar
+# reference for the stateDiagram-v2 sub-grammar; it drives test case design and
+# documents the expected token taxonomy. Production names map directly to functions
+# and conditional branches in state.zig.
+#
+# SCOPE
+# -----
+# Covers: stateDiagram-v2 and stateDiagram (v1-compatible) diagram types.
+# Based on: Mermaid 10.x stateDiagram-v2 specification.
+# Reference: https://mermaid.js.org/syntax/stateDiagram.html
+
+
+# =============================================================================
+# TOKEN TYPES  (Lexical Layer — T_ prefix)
+# =============================================================================
+#
+# Tokens are the indivisible units recognised by the lexer before any structural
+# parsing occurs.  Each T_ rule defines one token category.  Tokens consume
+# leading whitespace unless noted.  Newlines are NEVER consumed by token rules;
+# they are significant structural delimiters at the statement level.
+#
+# Token taxonomy:
+#
+#   T_DIAGRAM_TYPE    — diagram header keyword ("stateDiagram-v2" / "stateDiagram")
+#   T_KW_STATE        — keyword "state" introducing a state declaration
+#   T_KW_NOTE         — keyword "note" introducing a note annotation
+#   T_KW_END_NOTE     — exact phrase "end note" closing a multi-line note block
+#   T_KW_AS           — keyword "as" in aliased state declarations
+#   T_KW_DIRECTION    — keyword "direction" for layout directives
+#   T_KW_RIGHT_OF     — phrase "right of" in note position
+#   T_KW_LEFT_OF      — phrase "left of" in note position
+#   T_STEREOTYPE      — stereotype tag: "<<fork>>", "<<join>>", or "<<choice>>"
+#   T_PSEUDO_START    — initial/final pseudostate marker "[*]"
+#   T_PSEUDO_HISTORY  — shallow history pseudostate "[H]"
+#   T_PSEUDO_DEEP_HIST— deep history pseudostate "[H*]"
+#   T_IDENTIFIER      — user-defined state name / label (alphanumeric + _ -)
+#   T_QUOTED_STRING   — double-quoted description literal "..."
+#   T_ARROW           — transition arrow "-->"
+#   T_REGION_SEP      — concurrent-region separator "--" (exactly 2 dashes)
+#   T_LBRACE          — composite state block opener "{"
+#   T_RBRACE          — composite state block closer "}"
+#   T_COLON           — label delimiter ":" (preceded and followed by whitespace in transitions)
+#   T_COMMENT         — line comment beginning with "%%"
+#   T_DIRECTION_VALUE — layout direction value (LR / RL / TB / BT / TD)
+#   T_LABEL_TEXT      — free-form text to end of line (used for transition labels, note text)
+#   T_GUARD_TEXT      — conditional guard expression (transition label from <<choice>> state)
+#   T_EOL             — end of logical line (\n, \r\n, or \r)
+#   T_EOF             — end of input
+#
+# Note: T_GUARD_TEXT and T_LABEL_TEXT are syntactically identical; the distinction
+# is purely semantic and resolved at validation time by inspecting the source state type.
+
+T_DIAGRAM_TYPE   <- "stateDiagram-v2" / "stateDiagram"
+T_KW_STATE       <- "state"
+T_KW_NOTE        <- "note"
+T_KW_END_NOTE    <- "end note"
+T_KW_AS          <- "as"
+T_KW_DIRECTION   <- "direction"
+T_KW_RIGHT_OF    <- "right of"
+T_KW_LEFT_OF     <- "left of"
+
+T_STEREOTYPE     <- "<<" StereoName ">>"
+StereoName       <- "fork" / "join" / "choice"
+
+T_PSEUDO_START     <- "[*]"
+T_PSEUDO_HISTORY   <- "[H]"
+T_PSEUDO_DEEP_HIST <- "[H*]"
+
+T_IDENTIFIER     <- [A-Za-z_] [A-Za-z0-9_\-]*
+
+T_QUOTED_STRING  <- '"' (!'"' .)* '"'
+
+# T_ARROW must be matched before T_REGION_SEP to avoid consuming the leading "--"
+T_ARROW          <- "-->"
+T_REGION_SEP     <- "--" !"-" !">"    # exactly 2 dashes, not part of --> or ---
+
+T_LBRACE         <- "{"
+T_RBRACE         <- "}"
+
+T_COLON          <- ":"
+
+T_COMMENT        <- "%%" (!T_EOL .)*
+
+T_DIRECTION_VALUE <- ( "LR" / "RL" / "TB" / "BT" / "TD"
+                     / "lr" / "rl" / "tb" / "bt" / "td" )
+
+T_LABEL_TEXT     <- (!T_EOL .)+
+
+# A guard condition on a <<choice>> transition.
+# Recognised patterns (convention only — the lexer does not enforce):
+#   "if <boolean-expression>"   — conditional branch
+#   "else" / "default"          — fallback branch
+# Any T_LABEL_TEXT is a valid guard; semantic validation is deferred to the
+# caller after resolving the source state's stereotype.
+T_GUARD_TEXT     <- T_LABEL_TEXT
+
+T_EOL  <- "\n" / "\r\n" / "\r"
+T_EOF  <- !.
+
+
+# =============================================================================
+# TOP-LEVEL GRAMMAR  (Syntactic Layer)
+# =============================================================================
+
+# Entry point.
+Diagram          <- WS* Header WS* Body T_EOF
+
+# First non-blank, non-comment line must be the diagram type keyword.
+# An optional free-form front-matter token (e.g. "title My Diagram") may follow
+# on the same line; it is currently ignored by the Selkie parser.
+Header           <- T_DIAGRAM_TYPE ( SP+ Frontmatter )? T_EOL
+Frontmatter      <- (!T_EOL .)*     # ignored; reserved for future directives
+
+# The body is a sequence of zero or more statements separated by line endings.
+Body             <- ( Statement T_EOL* )*
+
+# A statement is one of the recognised constructs, tried in priority order.
+# Ordered choice ensures that longer/more-specific patterns are preferred.
+Statement        <- T_COMMENT
+                 / DirectionDecl
+                 / NoteDecl
+                 / StateDecl
+                 / Transition
+                 / RegionSep
+                 / CloseBrace
+
+
+# =============================================================================
+# DIRECTION DIRECTIVE
+# =============================================================================
+#
+# Syntax:   direction LR
+#           direction RL
+#           direction TB  (alias: TD)
+#           direction BT
+#
+# Applies to the enclosing diagram (or composite state when nested).
+# Case-insensitive.
+
+DirectionDecl    <- T_KW_DIRECTION SP+ T_DIRECTION_VALUE
+
+
+# =============================================================================
+# STATE DECLARATIONS
+# =============================================================================
+#
+# All state declaration forms begin with the keyword "state".
+# Forms (tried in priority order, longest match wins):
+#
+#   1. state "Description" as StateId {   — composite with quoted alias + block
+#   2. state "Description" as StateId     — non-composite quoted alias
+#   3. state StateId <<fork>>             — fork pseudo-state declaration
+#   4. state StateId <<join>>             — join pseudo-state declaration
+#   5. state StateId <<choice>>           — choice pseudo-state declaration
+#   6. state StateId {                    — simple composite (opens a block)
+#   7. state StateId                      — simple forward declaration
+
+StateDecl        <- T_KW_STATE SP+ StateDeclBody
+
+StateDeclBody    <- DescribedComposite
+                 / DescribedAlias
+                 / StereotypeDecl
+                 / CompositeDecl
+                 / SimpleDecl
+
+# Form 1: state "Description" as StateId {
+DescribedComposite <- T_QUOTED_STRING SP+ T_KW_AS SP+ T_IDENTIFIER SP* T_LBRACE
+
+# Form 2: state "Description" as StateId
+DescribedAlias   <- T_QUOTED_STRING SP+ T_KW_AS SP+ T_IDENTIFIER
+
+# Forms 3-5: state StateId <<fork>> / <<join>> / <<choice>>
+StereotypeDecl   <- T_IDENTIFIER SP+ T_STEREOTYPE
+
+# Form 6: state StateId {
+CompositeDecl    <- T_IDENTIFIER SP* T_LBRACE
+
+# Form 7: state StateId  (simple declaration / forward reference)
+SimpleDecl       <- T_IDENTIFIER
+
+
+# =============================================================================
+# COMPOSITE STATE BLOCK DELIMITERS
+# =============================================================================
+#
+# A composite state body is enclosed between T_LBRACE and T_RBRACE.
+# Opening brace is part of StateDecl (DescribedComposite / CompositeDecl).
+# Closing brace appears as its own statement on a dedicated line.
+#
+# The parser maintains a ParseContext stack (see state.zig: ParseContext) to
+# track nesting depth; each T_LBRACE pushes the current state id, each
+# T_RBRACE pops it.
+#
+# Grammar of a composite body (informally):
+#
+#   CompositeBody  <- ( CompositeStmt T_EOL* )*
+#   CompositeStmt  <- RegionSep / Statement
+#
+# This is structurally recursive: a CompositeDecl inside a CompositeBody
+# opens another level of nesting.
+
+CloseBrace       <- T_RBRACE
+
+
+# =============================================================================
+# REGION SEPARATOR
+# =============================================================================
+#
+# Syntax:   --
+#
+# May appear only inside a composite state block.  Splits the composite into
+# concurrent (orthogonal) regions.  The first occurrence moves any preceding
+# children into region 0 and starts region 1; subsequent occurrences start
+# additional regions.
+#
+# Rule: T_REGION_SEP must be matched BEFORE T_ARROW to avoid consuming the
+# leading "--" of a "-->".
+
+RegionSep        <- T_REGION_SEP
+
+
+# =============================================================================
+# TRANSITIONS
+# =============================================================================
+#
+# A transition connects two states with a directed arrow and an optional label.
+#
+# Syntax:
+#   StateA --> StateB
+#   StateA --> StateB : label text
+#
+# StateId may be any of:
+#   - T_PSEUDO_START     [*]    (initial or final pseudostate)
+#   - T_PSEUDO_DEEP_HIST [H*]   (deep history pseudostate)
+#   - T_PSEUDO_HISTORY   [H]    (shallow history pseudostate)
+#   - T_IDENTIFIER             (user-defined state name)
+#
+# The optional label text is everything after the colon and leading whitespace
+# to the end of the line.
+#
+# CONDITIONAL GUARDS
+# ------------------
+# When the source state has stereotype <<choice>>, the transition label is
+# interpreted as a conditional guard expression:
+#
+#   is_ready --> Yes  : if value > threshold
+#   is_ready --> No   : else
+#
+# Guard syntax (conventional — not enforced by the lexer):
+#   ConditionalGuard <- IfGuard / ElseGuard
+#   IfGuard          <- "if" SP+ GuardExpr
+#   ElseGuard        <- "else" / "default"
+#   GuardExpr        <- (!T_EOL .)+    # arbitrary boolean expression text
+#
+# The parser does NOT validate guard syntax; it stores the full label string
+# and leaves semantic interpretation to the renderer/layout engine.
+
+Transition       <- StateId SP* T_ARROW SP* StateId ( SP* T_COLON SP* TransitionLabel )?
+
+# StateId ordered longest-match first to prevent partial matches
+StateId          <- T_PSEUDO_DEEP_HIST    # [H*]  (must precede T_PSEUDO_HISTORY)
+                 / T_PSEUDO_HISTORY       # [H]
+                 / T_PSEUDO_START         # [*]
+                 / T_IDENTIFIER
+
+# Transition label: free-form text to end of line.
+# When source is <<choice>>: this doubles as a guard expression (T_GUARD_TEXT).
+TransitionLabel  <- T_LABEL_TEXT
+
+# Conditional guard — a TransitionLabel whose source state is <<choice>>.
+# Recognised conventional prefixes (validation deferred to caller):
+ConditionalGuard <- IfGuard / ElseGuard / T_GUARD_TEXT
+IfGuard          <- "if" SP+ GuardExpr
+ElseGuard        <- "else" / "default"
+GuardExpr        <- (!T_EOL .)+
+
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# A note attaches descriptive text to a specific state.
+# Two forms: inline (single line) and multi-line.
+#
+# Inline syntax:
+#   note right of StateId : note text here
+#   note left of StateId : note text here
+#
+# Multi-line syntax:
+#   note right of StateId
+#       line one of note
+#       line two of note
+#   end note
+#
+# NotePosition is the two-word phrase "right of" or "left of".
+
+NoteDecl         <- MultilineNote / InlineNote
+
+InlineNote       <- T_KW_NOTE SP+ NotePosition SP+ T_IDENTIFIER SP* T_COLON SP* NoteText
+
+MultilineNote    <- T_KW_NOTE SP+ NotePosition SP+ T_IDENTIFIER T_EOL
+                    NoteBody
+                    T_KW_END_NOTE
+
+NotePosition     <- T_KW_RIGHT_OF / T_KW_LEFT_OF
+
+NoteText         <- T_LABEL_TEXT
+
+# NoteBody: zero or more lines that do not begin with "end note"
+NoteBody         <- ( !(T_KW_END_NOTE T_EOL) (!T_EOL .)* T_EOL )*
+
+
+# =============================================================================
+# LEXICAL HELPERS
+# =============================================================================
+
+# Horizontal whitespace (spaces and tabs, NOT newlines)
+SP               <- " " / "\t"
+
+# Any whitespace including newlines (used only at diagram boundaries)
+WS               <- SP / T_EOL
+
+
+# =============================================================================
+# COMPLETE TOKEN TYPE SUMMARY
+# =============================================================================
+#
+# The following table lists all token types defined in this grammar, their
+# corresponding Zig identifiers (as they appear in the parser implementation
+# and any future dedicated lexer), and example input text.
+#
+# ┌──────────────────────┬──────────────────────────────────┬─────────────────────────────────────┐
+# │ Token Type           │ Zig Name (conceptual)            │ Example Input                       │
+# ├──────────────────────┼──────────────────────────────────┼─────────────────────────────────────┤
+# │ T_DIAGRAM_TYPE       │ .diagram_type                    │ stateDiagram-v2                     │
+# │ T_KW_STATE           │ .kw_state                        │ state                               │
+# │ T_KW_NOTE            │ .kw_note                         │ note                                │
+# │ T_KW_END_NOTE        │ .kw_end_note                     │ end note                            │
+# │ T_KW_AS              │ .kw_as                           │ as                                  │
+# │ T_KW_DIRECTION       │ .kw_direction                    │ direction                           │
+# │ T_KW_RIGHT_OF        │ .kw_right_of                     │ right of                            │
+# │ T_KW_LEFT_OF         │ .kw_left_of                      │ left of                             │
+# │ T_STEREOTYPE         │ .stereotype                      │ <<fork>>  <<join>>  <<choice>>      │
+# │ T_PSEUDO_START       │ .pseudo_start                    │ [*]                                 │
+# │ T_PSEUDO_HISTORY     │ .pseudo_history                  │ [H]                                 │
+# │ T_PSEUDO_DEEP_HIST   │ .pseudo_deep_history             │ [H*]                                │
+# │ T_IDENTIFIER         │ .identifier                      │ Idle  Active  my_state_1            │
+# │ T_QUOTED_STRING      │ .quoted_string                   │ "Waiting for input"                 │
+# │ T_ARROW              │ .arrow                           │ -->                                 │
+# │ T_REGION_SEP         │ .region_sep                      │ --                                  │
+# │ T_LBRACE             │ .lbrace                          │ {                                   │
+# │ T_RBRACE             │ .rbrace                          │ }                                   │
+# │ T_COLON              │ .colon                           │ :                                   │
+# │ T_COMMENT            │ .comment                         │ %% this is ignored                  │
+# │ T_DIRECTION_VALUE    │ .direction_value                 │ LR  RL  TB  BT  TD                  │
+# │ T_LABEL_TEXT         │ .label_text                      │ start event                         │
+# │ T_GUARD_TEXT         │ .guard_text  (= label_text)      │ if value > 0                        │
+# │ T_EOL                │ .eol                             │ \n  \r\n  \r                        │
+# │ T_EOF                │ .eof                             │ (end of input)                      │
+# └──────────────────────┴──────────────────────────────────┴─────────────────────────────────────┘
+
+
+# =============================================================================
+# EXAMPLE DIAGRAMS (with grammar rule annotations)
+# =============================================================================
+
+# --- Example 1: Basic state machine ---
+#
+#   stateDiagram-v2          ← Header / T_DIAGRAM_TYPE
+#       direction LR         ← DirectionDecl
+#       [*] --> Idle         ← Transition (T_PSEUDO_START T_ARROW T_IDENTIFIER)
+#       Idle --> Active : start event
+#                            ← Transition with TransitionLabel "start event"
+#       Active --> Idle : stop
+#       Active --> [*]       ← Transition to T_PSEUDO_START (rendered as end state)
+
+
+# --- Example 2: Composite state with concurrent regions ---
+#
+#   stateDiagram-v2
+#       state MealPrep {            ← StateDecl / CompositeDecl → T_LBRACE
+#           [*] --> Chop
+#           Chop --> Done
+#           --                      ← RegionSep (concurrent region boundary)
+#           [*] --> Boil
+#           Boil --> Done
+#       }                           ← CloseBrace / T_RBRACE
+
+
+# --- Example 3: Quoted alias and composite state ---
+#
+#   stateDiagram-v2
+#       state "Waiting for input" as Wait {   ← StateDecl / DescribedComposite
+#           [*] --> Typing
+#           Typing --> Submit
+#       }
+#       [*] --> Wait
+#       Wait --> Done
+
+
+# --- Example 4: Fork / join parallel execution ---
+#
+#   stateDiagram-v2
+#       state fork_state <<fork>>    ← StateDecl / StereotypeDecl (fork)
+#       state join_state <<join>>    ← StateDecl / StereotypeDecl (join)
+#       [*] --> fork_state
+#       fork_state --> TaskA
+#       fork_state --> TaskB
+#       TaskA --> join_state
+#       TaskB --> join_state
+#       join_state --> [*]
+
+
+# --- Example 5: Conditional guards (choice pseudostate) ---
+#
+#   stateDiagram-v2
+#       state is_ready <<choice>>    ← StateDecl / StereotypeDecl (choice)
+#       [*] --> is_ready
+#       is_ready --> Ready   : if value > 0
+#                             ← Transition; label = ConditionalGuard / IfGuard
+#       is_ready --> NotReady : else
+#                             ← Transition; label = ConditionalGuard / ElseGuard
+
+
+# --- Example 6: History pseudostates ---
+#
+#   stateDiagram-v2
+#       state Outer {
+#           [H]  --> A       ← Transition from T_PSEUDO_HISTORY (shallow history)
+#           [H*] --> A       ← Transition from T_PSEUDO_DEEP_HIST (deep history)
+#           A --> B
+#       }
+
+
+# --- Example 7: Notes ---
+#
+#   stateDiagram-v2
+#       [*] --> Active
+#       note right of Active : This state handles user input
+#                             ← InlineNote (T_KW_RIGHT_OF, T_IDENTIFIER, T_COLON, NoteText)
+#       Active --> [*]
+#       note left of Active
+#           Multi-line        ← MultilineNote (NoteBody lines)
+#           description here
+#       end note              ← T_KW_END_NOTE
+
+
+# --- Example 8: Deeply nested composite states ---
+#
+#   stateDiagram-v2
+#       state Outer {            ← CompositeDecl depth=1
+#           state Inner {        ← CompositeDecl depth=2 (recursive)
+#               [*] --> X
+#               X --> Y
+#           }                    ← CloseBrace depth=2
+#           [*] --> Inner
+#       }                        ← CloseBrace depth=1
+#
+# The parser implements this recursion via a parent_stack in ParseContext.
+# Grammar recursion: CompositeDecl → CompositeBody → Statement → CompositeDecl
+
+
+# =============================================================================
+# DISAMBIGUATION RULES
+# =============================================================================
+#
+# The following precedence rules resolve ambiguity between overlapping tokens:
+#
+# 1. T_PSEUDO_DEEP_HIST ("[H*]") must be tried before T_PSEUDO_HISTORY ("[H]")
+#    in StateId because "[H*]" starts with "[H]".
+#
+# 2. T_ARROW ("-->") must be tried before T_REGION_SEP ("--") because "-->"
+#    starts with "--".  T_REGION_SEP matches only exactly two dashes not
+#    followed by ">".
+#
+# 3. DescribedComposite must be tried before DescribedAlias because both start
+#    with a T_QUOTED_STRING, but the composite variant has a trailing T_LBRACE.
+#
+# 4. CompositeDecl must be tried before SimpleDecl because both start with
+#    T_IDENTIFIER, but CompositeDecl has a trailing T_LBRACE.
+#
+# 5. T_KW_END_NOTE ("end note") must be tried as a complete phrase, not split
+#    into the keyword "end" and identifier "note", to correctly terminate
+#    multi-line note bodies.
+#
+# 6. T_COMMENT ("%%...") takes priority over all other statement forms because
+#    "%" is not a valid start of any other construct.
+
+
+# =============================================================================
+# PARSER CONTEXT (Implementation Notes)
+# =============================================================================
+#
+# Because stateDiagram-v2 supports unbounded nesting of composite states, the
+# grammar is context-sensitive in the following way: the meaning of T_RBRACE
+# depends on the nesting depth, and the target list for a Transition depends
+# on which composite state (if any) is currently open.
+#
+# The Selkie implementation handles this via `ParseContext` (state.zig):
+#
+#   ParseContext {
+#       parent_stack:       ArrayList(?[]const u8)   // current nesting path
+#       region_index_stack: ArrayList(?usize)        // active region per level
+#   }
+#
+# Stack operations:
+#   push(state_id)  — on DescribedComposite or CompositeDecl (T_LBRACE)
+#   pop()           — on CloseBrace (T_RBRACE)
+#   setRegionIndex  — on RegionSep (T_REGION_SEP), switches active region
+#
+# This context information is threaded through all statement-parsing functions
+# so that states and transitions are registered at the correct nesting level.

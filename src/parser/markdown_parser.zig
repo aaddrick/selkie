@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cmark = @import("cmark_import.zig").c;
 const ast = @import("ast.zig");
+const math_parser = @import("math_parser.zig");
 
 pub const ParseError = error{
     ParserCreationFailed,
@@ -75,6 +76,21 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
         .text, .code, .html_block, .html_inline => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
         },
+        // For footnote_reference: cmark replaces the author-supplied label with the
+        // 1-based ordinal string (e.g. "1", "2") during its processing phase.
+        // We store that string in `literal` and also parse it into `footnote_index`.
+        .footnote_reference => {
+            node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
+            if (node.literal) |lit| {
+                node.footnote_index = std.fmt.parseInt(u32, lit, 10) catch 0;
+            }
+        },
+        // For footnote_definition: `literal` holds the author-supplied label (e.g. "note").
+        // The ordinal is assigned externally after all definitions have been visited
+        // (see the post-processing step in convertNode for document nodes).
+        .footnote_definition => {
+            node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
+        },
         .code_block => {
             node.literal = try dupeString(allocator, cmark.cmark_node_get_literal(cmark_node));
             node.fence_info = try dupeString(allocator, cmark.cmark_node_get_fence_info(cmark_node));
@@ -139,6 +155,19 @@ fn convertNode(allocator: Allocator, cmark_node: *cmark.cmark_node) ParseError!a
         child = cmark.cmark_node_next(c_node);
     }
 
+    // Post-process document node: assign sequential ordinals to footnote definitions.
+    // cmark appends footnote_definition children to the document root in the order they
+    // are first referenced, so scanning them in children order gives the correct ordinals.
+    if (node_type == .document) {
+        var fn_index: u32 = 0;
+        for (node.children.items) |*c| {
+            if (c.node_type == .footnote_definition) {
+                fn_index += 1;
+                c.footnote_index = fn_index;
+            }
+        }
+    }
+
     return node;
 }
 
@@ -168,7 +197,11 @@ pub fn parse(allocator: Allocator, text: []const u8) ParseError!ast.Document {
     defer cmark.cmark_node_free(doc);
 
     // Convert cmark tree to Zig AST
-    const root = try convertNode(allocator, doc);
+    var root = try convertNode(allocator, doc);
+    errdefer root.deinit(allocator);
+
+    // Post-process: detect and extract LaTeX math ($...$, $$...$$, ```math)
+    try math_parser.processMathNodes(allocator, &root);
 
     return .{ .root = root, .allocator = allocator };
 }
@@ -425,7 +458,165 @@ test "parse footnote definition produces footnote_definition node" {
     try testing.expect(found_def);
 }
 
+test "parse footnote reference has literal label" {
+    const input = "Text[^1].\n\n[^1]: Footnote.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    for (para.children.items) |*child| {
+        if (child.node_type == .footnote_reference) {
+            // cmark-gfm populates the literal with the reference label
+            try testing.expect(child.literal != null);
+            try testing.expectEqualStrings("1", child.literal.?);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "parse footnote definition has literal label" {
+    const input = "Text[^note].\n\n[^note]: Definition.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            // cmark-gfm populates the literal with the definition label
+            try testing.expect(child.literal != null);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
 test "mapNodeType maps footnote types" {
     try testing.expectEqual(ast.NodeType.footnote_definition, mapNodeType(cmark.CMARK_NODE_FOOTNOTE_DEFINITION, null).?);
     try testing.expectEqual(ast.NodeType.footnote_reference, mapNodeType(cmark.CMARK_NODE_FOOTNOTE_REFERENCE, null).?);
+}
+
+test "footnote_reference gets footnote_index populated" {
+    const input = "Text[^1].\n\n[^1]: Footnote.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    for (para.children.items) |*child| {
+        if (child.node_type == .footnote_reference) {
+            // cmark replaces the label literal with the ordinal string "1"
+            // which is also parsed into footnote_index
+            try testing.expectEqual(@as(u32, 1), child.footnote_index);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "footnote_definition gets footnote_index assigned sequentially" {
+    const input = "Text[^a].\n\n[^a]: Definition A.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            // First (and only) definition should get index 1
+            try testing.expectEqual(@as(u32, 1), child.footnote_index);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "two footnote definitions get indices 1 and 2" {
+    const input = "First[^a] second[^b].\n\n[^a]: A.\n\n[^b]: B.\n";
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    var idx: u32 = 0;
+    for (doc.root.children.items) |*child| {
+        if (child.node_type == .footnote_definition) {
+            idx += 1;
+            try testing.expectEqual(idx, child.footnote_index);
+        }
+    }
+    try testing.expectEqual(@as(u32, 2), idx);
+}
+
+test "parse preserves sub and sup as html_inline nodes" {
+    // cmark-gfm must NOT filter or escape <sub>/<sup> tags — they pass through
+    // as html_inline nodes so the layout layer can apply subscript/superscript styling.
+    var doc = try parse(testing.allocator, "H<sub>2</sub>O and x<sup>2</sup>\n");
+    defer doc.deinit();
+
+    const para = &doc.root.children.items[0];
+    try testing.expectEqual(ast.NodeType.paragraph, para.node_type);
+
+    var sub_open: usize = 0;
+    var sub_close: usize = 0;
+    var sup_open: usize = 0;
+    var sup_close: usize = 0;
+    for (para.children.items) |*child| {
+        if (child.node_type == .html_inline) {
+            if (child.literal) |lit| {
+                if (std.mem.eql(u8, lit, "<sub>")) sub_open += 1;
+                if (std.mem.eql(u8, lit, "</sub>")) sub_close += 1;
+                if (std.mem.eql(u8, lit, "<sup>")) sup_open += 1;
+                if (std.mem.eql(u8, lit, "</sup>")) sup_close += 1;
+            }
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), sub_open);
+    try testing.expectEqual(@as(usize, 1), sub_close);
+    try testing.expectEqual(@as(usize, 1), sup_open);
+    try testing.expectEqual(@as(usize, 1), sup_close);
+}
+
+test "parse preserves kbd ins samp mark as html_inline nodes" {
+    // These tags must pass through as html_inline so the layout layer can apply
+    // keyboard-key, underline, monospace-sample, and highlight styling respectively.
+    const input =
+        \\Press <kbd>Enter</kbd> to submit.
+        \\<ins>inserted</ins> text.
+        \\<samp>output</samp> here.
+        \\<mark>highlighted</mark> word.
+        \\
+    ;
+    var doc = try parse(testing.allocator, input);
+    defer doc.deinit();
+
+    // Collect all html_inline literals from the first paragraph
+    var found_kbd_open = false;
+    var found_kbd_close = false;
+    var found_ins_open = false;
+    var found_ins_close = false;
+    var found_samp_open = false;
+    var found_samp_close = false;
+    var found_mark_open = false;
+    var found_mark_close = false;
+
+    for (doc.root.children.items) |*block| {
+        for (block.children.items) |*child| {
+            if (child.node_type == .html_inline) {
+                if (child.literal) |lit| {
+                    if (std.mem.eql(u8, lit, "<kbd>")) found_kbd_open = true;
+                    if (std.mem.eql(u8, lit, "</kbd>")) found_kbd_close = true;
+                    if (std.mem.eql(u8, lit, "<ins>")) found_ins_open = true;
+                    if (std.mem.eql(u8, lit, "</ins>")) found_ins_close = true;
+                    if (std.mem.eql(u8, lit, "<samp>")) found_samp_open = true;
+                    if (std.mem.eql(u8, lit, "</samp>")) found_samp_close = true;
+                    if (std.mem.eql(u8, lit, "<mark>")) found_mark_open = true;
+                    if (std.mem.eql(u8, lit, "</mark>")) found_mark_close = true;
+                }
+            }
+        }
+    }
+
+    try testing.expect(found_kbd_open);
+    try testing.expect(found_kbd_close);
+    try testing.expect(found_ins_open);
+    try testing.expect(found_ins_close);
+    try testing.expect(found_samp_open);
+    try testing.expect(found_samp_close);
+    try testing.expect(found_mark_open);
+    try testing.expect(found_mark_close);
 }

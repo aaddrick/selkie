@@ -7,6 +7,8 @@ const ast = @import("../parser/ast.zig");
 const layout_types = @import("layout_types.zig");
 const Theme = @import("../theme/theme.zig").Theme;
 const Fonts = @import("text_measurer.zig").Fonts;
+/// Used for LaTeX→display-string conversion in table cells containing math_inline nodes.
+const display_math = @import("../render/math_renderer.zig");
 
 /// Layout a table AST node into LayoutNodes appended to the tree.
 pub fn layoutTable(
@@ -19,6 +21,9 @@ pub fn layoutTable(
     content_width: f32,
     cursor_y: *f32,
 ) !void {
+    // Arena allocator for persistent strings (e.g. math display strings in text runs).
+    const arena = tree.arena.allocator();
+
     const alignments = table_node.table_alignments orelse &[_]ast.Alignment{};
     const num_cols: usize = @intCast(table_node.table_columns);
     if (num_cols == 0) return;
@@ -80,8 +85,10 @@ pub fn layoutTable(
 
             var line_count: usize = 1;
             var cursor_x: f32 = 0;
-            // Uses relative coordinates: line_start=0, max=available_w
-            try walkInlineContent(cell, fonts, null, style, &cursor_x, null, 0, available_w, line_h, null, &line_count);
+            // Uses relative coordinates: line_start=0, max=available_w.
+            // layout_node=null means counting-only pass -- math_inline display strings
+            // are measured but never arena-duped, so `allocator` is safe to pass here.
+            try walkInlineContent(cell, fonts, null, style, &cursor_x, null, 0, available_w, line_h, null, &line_count, allocator);
 
             max_lines = @max(max_lines, line_count);
             col_idx += 1;
@@ -145,6 +152,7 @@ pub fn layoutTable(
                 available_w,
                 alignment,
                 line_h,
+                arena,
             );
 
             cell_node.rect = .{
@@ -213,26 +221,11 @@ fn cellTextStyle(theme: *const Theme, font_size: f32, is_header: bool) layout_ty
     };
 }
 
-test "cellTextStyle returns bold for header rows" {
-    var theme = std.mem.zeroes(Theme);
-    theme.text = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const style = cellTextStyle(&theme, 16.0, true);
-    try std.testing.expect(style.bold);
-    try std.testing.expectEqual(@as(f32, 16.0), style.font_size);
-    try std.testing.expectEqual(theme.text, style.color);
-}
-
-test "cellTextStyle returns non-bold for body rows" {
-    var theme = std.mem.zeroes(Theme);
-    theme.text = .{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const style = cellTextStyle(&theme, 14.0, false);
-    try std.testing.expect(!style.bold);
-    try std.testing.expectEqual(@as(f32, 14.0), style.font_size);
-    try std.testing.expectEqual(theme.text, style.color);
-}
-
 /// Layout inline content within a table cell with word wrapping.
 /// Alignment offset applies only when content fits on a single line.
+/// `arena` is the LayoutTree arena allocator, used to persist math display strings
+/// in text runs. The arena is owned by the LayoutTree and lives for the entire
+/// layout pass.
 fn layoutCellInlineContent(
     node: *const ast.Node,
     fonts: *const Fonts,
@@ -244,6 +237,7 @@ fn layoutCellInlineContent(
     available_w: f32,
     alignment: ast.Alignment,
     line_h: f32,
+    arena: Allocator,
 ) !void {
     var total_w: f32 = 0;
     try measureInlineRuns(node, fonts, style, &total_w);
@@ -261,10 +255,27 @@ fn layoutCellInlineContent(
 
     var cursor_x = text_x + offset;
     var cursor_y = text_y;
-    try walkInlineContent(node, fonts, theme, style, &cursor_x, &cursor_y, text_x, max_x, line_h, layout_node, null);
+    try walkInlineContent(node, fonts, theme, style, &cursor_x, &cursor_y, text_x, max_x, line_h, layout_node, null, arena);
+
+    // Post-layout clamp: ensure no text run extends beyond the right cell edge.
+    // This corrects for measurement discrepancies between measureInlineRuns (whole-string)
+    // and wrapText (word-by-word) that can cause right/center-aligned text to overflow.
+    const cell_right = text_x + available_w;
+    var max_right: f32 = 0;
+    for (layout_node.text_runs.items) |run| {
+        const run_right = run.rect.x + run.rect.width;
+        max_right = @max(max_right, run_right);
+    }
+    if (max_right > cell_right + 0.5) { // 0.5 tolerance for float rounding
+        const shift = max_right - cell_right;
+        for (layout_node.text_runs.items) |*run| {
+            run.rect.x -= shift;
+        }
+    }
 }
 
 /// Recursively measure the total width of inline content within a node.
+/// Uses a local stack buffer for math display strings -- measurement only, no allocation.
 fn measureInlineRuns(
     node: *const ast.Node,
     fonts: *const Fonts,
@@ -309,6 +320,19 @@ fn measureInlineRuns(
                 s.underline = true;
                 try measureInlineRuns(child, fonts, s, total_w);
             },
+            .math_inline => {
+                // Convert LaTeX to display string using a local stack buffer (measurement only).
+                // The C library (latex_render_parse) resolves Greek letters, operators,
+                // fractions, super/subscripts, etc. No allocation is needed here because
+                // we only measure the width -- the buffer is discarded after this call.
+                if (child.literal) |latex| {
+                    var buf: [4096]u8 = undefined;
+                    const display = display_math.latexToDisplayString(latex, &buf);
+                    // Math is rendered italic by convention; measure with the italic font.
+                    const m = fonts.measure(display, style.font_size, false, true, false);
+                    total_w.* += m.x;
+                }
+            },
             else => {
                 try measureInlineRuns(child, fonts, style, total_w);
             },
@@ -320,6 +344,9 @@ fn measureInlineRuns(
 /// When `layout_node` is non-null, creates text runs (placement pass).
 /// When `layout_node` is null, only advances cursors for line counting.
 /// `line_start_x` is the left margin for wrap resets; `max_x` is the right edge.
+/// `arena` is used to dupe math display strings into persistent storage when
+/// `layout_node` is non-null. In the counting pass (layout_node == null) no
+/// arena allocation occurs, so any allocator may be safely passed.
 /// All coordinates are in the same space (relative for counting, absolute for placing).
 fn walkInlineContent(
     node: *const ast.Node,
@@ -333,6 +360,7 @@ fn walkInlineContent(
     line_h: f32,
     layout_node: ?*layout_types.LayoutNode,
     line_count: ?*usize,
+    arena: Allocator,
 ) !void {
     for (node.children.items) |*child| {
         switch (child.node_type) {
@@ -372,17 +400,17 @@ fn walkInlineContent(
             .strong => {
                 var s = style;
                 s.bold = true;
-                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count, arena);
             },
             .emph => {
                 var s = style;
                 s.italic = true;
-                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count, arena);
             },
             .strikethrough => {
                 var s = style;
                 s.strikethrough = true;
-                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count, arena);
             },
             .link => {
                 var s = style;
@@ -391,10 +419,50 @@ fn walkInlineContent(
                 }
                 s.underline = true;
                 s.link_url = child.url;
-                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
+                try walkInlineContent(child, fonts, theme, s, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count, arena);
+            },
+            .math_inline => {
+                // Convert LaTeX to Unicode display string via the C library FFI.
+                // The C library (latex_render_parse) handles Greek letters, operators,
+                // fractions, super/subscripts, sqrt, and other LaTeX constructs.
+                // The result is rendered italic with a subtle background (is_math = true).
+                if (child.literal) |latex| {
+                    var buf: [4096]u8 = undefined;
+                    const display_str = display_math.latexToDisplayString(latex, &buf);
+                    // Measure with the italic font (math rendering convention).
+                    const measured = fonts.measure(display_str, style.font_size, false, true, false);
+
+                    // Wrap if this math expression would exceed the current line boundary.
+                    if (cursor_x.* + measured.x > max_x and cursor_x.* > line_start_x) {
+                        cursor_x.* = line_start_x;
+                        if (cursor_y) |cy| cy.* += line_h;
+                        if (line_count) |lc| lc.* += 1;
+                    }
+
+                    if (layout_node) |ln| {
+                        // Dupe the display string into the LayoutTree arena so it
+                        // outlives the local stack buffer `buf`. The arena is alive
+                        // for the entire layout pass, so text run slices remain valid.
+                        const text = try arena.dupe(u8, display_str);
+                        var math_style = style;
+                        math_style.italic = true;
+                        math_style.is_math = true;
+                        try ln.text_runs.append(.{
+                            .text = text,
+                            .style = math_style,
+                            .rect = .{
+                                .x = cursor_x.*,
+                                .y = if (cursor_y) |cy| cy.* else 0,
+                                .width = measured.x,
+                                .height = measured.y,
+                            },
+                        });
+                    }
+                    cursor_x.* += measured.x;
+                }
             },
             else => {
-                try walkInlineContent(child, fonts, theme, style, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count);
+                try walkInlineContent(child, fonts, theme, style, cursor_x, cursor_y, line_start_x, max_x, line_h, layout_node, line_count, arena);
             },
         }
     }
@@ -440,4 +508,99 @@ fn wrapText(
         cursor_x.* += measured.x;
         remaining = remaining[chunk_end..];
     }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const testing = std.testing;
+
+test "cellTextStyle returns bold for header rows" {
+    var theme = std.mem.zeroes(Theme);
+    theme.text = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const style = cellTextStyle(&theme, 16.0, true);
+    try testing.expect(style.bold);
+    try testing.expectEqual(@as(f32, 16.0), style.font_size);
+    try testing.expectEqual(theme.text, style.color);
+}
+
+test "cellTextStyle returns non-bold for body rows" {
+    var theme = std.mem.zeroes(Theme);
+    theme.text = .{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const style = cellTextStyle(&theme, 14.0, false);
+    try testing.expect(!style.bold);
+    try testing.expectEqual(@as(f32, 14.0), style.font_size);
+    try testing.expectEqual(theme.text, style.color);
+}
+
+// --- Alignment offset calculation tests ---
+
+/// Mirror the alignment offset logic from layoutCellInlineContent so we can
+/// unit-test it without constructing a full AST.
+fn computeAlignmentOffset(total_w: f32, available_w: f32, alignment: ast.Alignment) f32 {
+    if (total_w > available_w) return 0;
+    return switch (alignment) {
+        .center => @max(0, (available_w - total_w) / 2.0),
+        .right => @max(0, available_w - total_w),
+        .none, .left => 0,
+    };
+}
+
+test "alignment offset: left and none produce zero offset" {
+    try testing.expectEqual(@as(f32, 0), computeAlignmentOffset(50, 100, .left));
+    try testing.expectEqual(@as(f32, 0), computeAlignmentOffset(50, 100, .none));
+}
+
+test "alignment offset: right aligns text to the cell right edge" {
+    // Content width 50, available 100: right offset is 50 (text starts at 50)
+    try testing.expectApproxEqAbs(@as(f32, 50), computeAlignmentOffset(50, 100, .right), 0.01);
+    // Content equals available -- zero offset
+    try testing.expectApproxEqAbs(@as(f32, 0), computeAlignmentOffset(100, 100, .right), 0.01);
+}
+
+test "alignment offset: center centers text within the available width" {
+    // Content width 60, available 100: center offset is 20
+    try testing.expectApproxEqAbs(@as(f32, 20), computeAlignmentOffset(60, 100, .center), 0.01);
+    // Content equals available -- center offset is 0
+    try testing.expectApproxEqAbs(@as(f32, 0), computeAlignmentOffset(100, 100, .center), 0.01);
+}
+
+test "alignment offset: overflow content gets zero offset (not negative)" {
+    // Content wider than available -- offset is clamped to 0 for all alignments
+    try testing.expectEqual(@as(f32, 0), computeAlignmentOffset(120, 100, .right));
+    try testing.expectEqual(@as(f32, 0), computeAlignmentOffset(120, 100, .center));
+    try testing.expectEqual(@as(f32, 0), computeAlignmentOffset(120, 100, .left));
+}
+
+// --- Math display string integration tests ---
+
+test "math display: E=mc^2 produces superscript 2 via C library" {
+    // Verifies the latexToDisplayString integration for the sample table:
+    // | Math | `$x^2$` | $x^2$ | LaTeX |
+    var buf: [256]u8 = undefined;
+    const display = display_math.latexToDisplayString("E = mc^2", &buf);
+    // C library converts ^2 -> superscript 2 (U+00B2 = \xc2\xb2)
+    try testing.expectEqualStrings("E = mc\xc2\xb2", display);
+}
+
+test "math display: quadratic formula from github-markdown-samples.md" {
+    // Verifies display string for: $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
+    var buf: [512]u8 = undefined;
+    const display = display_math.latexToDisplayString("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", &buf);
+    try testing.expect(display.len > 0);
+    // Should contain plus-minus sign (U+00B1) and square root sign (U+221A)
+    try testing.expect(std.mem.indexOf(u8, display, "\xc2\xb1") != null); // +-
+    try testing.expect(std.mem.indexOf(u8, display, "\xe2\x88\x9a") != null); // sqrt
+}
+
+test "math display: integral formula symbols present" {
+    // docs/github-markdown-samples.md lines 413-415:
+    // $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+    var buf: [512]u8 = undefined;
+    const display = display_math.latexToDisplayString("\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}", &buf);
+    try testing.expect(display.len > 0);
+    try testing.expect(std.mem.indexOf(u8, display, "\xe2\x88\xab") != null); // integral sign
+    try testing.expect(std.mem.indexOf(u8, display, "\xe2\x88\x9e") != null); // infinity
+    try testing.expect(std.mem.indexOf(u8, display, "\xcf\x80") != null); // pi
 }

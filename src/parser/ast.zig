@@ -29,6 +29,9 @@ pub const NodeType = enum {
     link,
     image,
     footnote_reference,
+    // Math (LaTeX)
+    math_inline,
+    math_block,
 };
 
 pub const ListType = enum {
@@ -70,6 +73,15 @@ pub const Node = struct {
 
     // Code block
     fence_info: ?[]const u8 = null,
+
+    // Footnote
+    // For footnote_reference: the 1-based ordinal assigned by cmark (e.g. 1 for the first
+    // referenced footnote).  The original author label (e.g. "note") is NOT preserved
+    // by cmark for references – it replaces the literal with the ordinal string.
+    // For footnote_definition: the 1-based ordinal reflecting the sorted position
+    // in which cmark appended the definition to the document root.
+    // 0 means the ordinal has not been assigned (e.g. unreferenced definition).
+    footnote_index: u32 = 0,
 
     // Source location (1-based line numbers from cmark-gfm)
     start_line: u32 = 0,

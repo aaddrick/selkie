@@ -8,6 +8,7 @@ const theme_loader = @import("theme/theme_loader.zig");
 const stdin_reader = @import("stdin_reader.zig");
 const xdg = @import("xdg.zig");
 const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
+const DetailsStateStore = @import("details_state_store.zig").DetailsStateStore;
 const png_exporter = @import("export/png_exporter.zig");
 const PngExportConfig = png_exporter.PngExportConfig;
 const export_cli = @import("export/cli.zig");
@@ -19,6 +20,8 @@ test {
     _ = @import("parser/markdown_parser.zig");
     _ = @import("parser/gfm_extensions.zig");
     _ = @import("parser/ast.zig");
+    _ = @import("parser/math_parser.zig");
+    _ = @import("parser/inline_parser.zig");
     _ = @import("layout/layout_types.zig");
     _ = @import("theme/theme_loader.zig");
     _ = @import("viewport/scroll.zig");
@@ -33,10 +36,21 @@ test {
     _ = @import("asset_paths.zig");
     _ = @import("xdg.zig");
     _ = @import("scroll_positions.zig");
+    _ = @import("details_state_store.zig");
     _ = @import("stdin_reader.zig");
     _ = @import("tab.zig");
     _ = @import("tab_bar.zig");
     _ = @import("toc_sidebar.zig");
+    // Render subsystem tests
+    _ = @import("render/link_handler.zig");
+    _ = @import("render/text_renderer.zig");
+    _ = @import("render/math_renderer.zig");
+    // Layout subsystem tests
+    _ = @import("layout/document_layout.zig");
+    _ = @import("layout/math_layout.zig");
+    _ = @import("layout/math_renderer.zig");
+    _ = @import("layout/table_layout.zig");
+    _ = @import("layout/emoji.zig");
     // Search subsystem tests
     _ = @import("search/search_state.zig");
     _ = @import("search/searcher.zig");
@@ -55,6 +69,9 @@ test {
     _ = @import("mermaid/models/pie_model.zig");
     _ = @import("mermaid/models/gantt_model.zig");
     _ = @import("mermaid/models/state_model.zig");
+    _ = @import("mermaid/models/gitgraph_model.zig");
+    _ = @import("mermaid/layout/state_layout.zig");
+    _ = @import("mermaid/layout/gitgraph_layout.zig");
     _ = @import("mermaid/models/graph.zig");
     _ = @import("mermaid/models/sequence_model.zig");
     _ = @import("mermaid/models/mindmap_model.zig");
@@ -65,10 +82,15 @@ test {
     _ = @import("mermaid/parsers/class_diagram.zig");
     _ = @import("mermaid/parsers/er.zig");
     _ = @import("mermaid/parsers/state.zig");
+    _ = @import("mermaid/parsers/state_lexer.zig");
+    _ = @import("mermaid/parsers/state_tokenizer.zig");
+    _ = @import("mermaid/parsers/state_rd_parser.zig");
     _ = @import("mermaid/parsers/mindmap.zig");
     _ = @import("mermaid/parsers/gitgraph.zig");
     _ = @import("mermaid/parsers/journey.zig");
     _ = @import("mermaid/parsers/timeline_diagram.zig");
+    _ = @import("mermaid/renderers/gitgraph_renderer.zig");
+    _ = @import("mermaid/renderers/state_renderer.zig");
     // Editor subsystem tests
     _ = @import("editor/editor_state.zig");
     // Command subsystem tests
@@ -269,6 +291,46 @@ pub fn main() !u8 {
 
     if (scroll_store) |s| {
         app.setScrollPositions(s);
+    }
+
+    // Load saved details expand/collapse state from XDG data directory.
+    // Skipped in headless mode — section state is irrelevant for CLI export.
+    const details_store: ?*DetailsStateStore = if (png_export_config != null) null else blk: {
+        const data_home = xdg.getDataHome(allocator) catch |err| {
+            std.log.warn("Could not resolve XDG data home for details state: {}", .{err});
+            break :blk null;
+        };
+        defer allocator.free(data_home);
+
+        xdg.ensureDir(data_home) catch |err| {
+            std.log.warn("Could not create data directory '{s}' for details state: {}", .{ data_home, err });
+            break :blk null;
+        };
+
+        const details_path = std.fs.path.join(allocator, &.{ data_home, "details.json" }) catch {
+            std.log.warn("Could not allocate path for details state", .{});
+            break :blk null;
+        };
+        defer allocator.free(details_path);
+
+        const store = allocator.create(DetailsStateStore) catch {
+            std.log.warn("Could not allocate details state store", .{});
+            break :blk null;
+        };
+        store.* = DetailsStateStore.load(allocator, details_path) catch |err| {
+            std.log.warn("Could not load details state: {}", .{err});
+            allocator.destroy(store);
+            break :blk null;
+        };
+        break :blk store;
+    };
+    defer if (details_store) |s| {
+        s.deinit();
+        allocator.destroy(s);
+    };
+
+    if (details_store) |s| {
+        app.setDetailsStore(s);
     }
 
     app.setTheme(custom_theme, use_dark);

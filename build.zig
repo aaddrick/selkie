@@ -80,6 +80,20 @@ pub fn build(b: *std.Build) void {
         .flags = cmark_flags,
     });
 
+    // --- latex-render static C library ---
+    const latex_lib = b.addStaticLibrary(.{
+        .name = "latex-render",
+        .target = target,
+        .optimize = optimize,
+    });
+    latex_lib.linkLibC();
+    latex_lib.addIncludePath(b.path("deps/latex-render"));
+    latex_lib.addCSourceFiles(.{
+        .root = b.path("deps/latex-render"),
+        .files = &.{"latex_render.c"},
+        .flags = &.{"-std=c99"},
+    });
+
     // --- Selkie executable ---
     const exe = b.addExecutable(.{
         .name = "selkie",
@@ -94,6 +108,7 @@ pub fn build(b: *std.Build) void {
     // Link dependencies
     exe.linkLibrary(raylib_artifact);
     exe.linkLibrary(cmark_lib);
+    exe.linkLibrary(latex_lib);
     exe.root_module.addImport("raylib", raylib);
     exe.root_module.addOptions("build_options", options);
 
@@ -101,6 +116,9 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(b.path("deps/cmark-gfm-config"));
     exe.addIncludePath(b.path("deps/cmark-gfm/src"));
     exe.addIncludePath(b.path("deps/cmark-gfm/extensions"));
+
+    // latex-render include path for @cImport
+    exe.addIncludePath(b.path("deps/latex-render"));
 
     b.installArtifact(exe);
 
@@ -150,12 +168,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     unit_tests.linkLibrary(cmark_lib);
+    unit_tests.linkLibrary(latex_lib);
     unit_tests.linkLibrary(raylib_artifact);
     unit_tests.root_module.addImport("raylib", raylib);
     unit_tests.root_module.addOptions("build_options", options);
     unit_tests.addIncludePath(b.path("deps/cmark-gfm-config"));
     unit_tests.addIncludePath(b.path("deps/cmark-gfm/src"));
     unit_tests.addIncludePath(b.path("deps/cmark-gfm/extensions"));
+    unit_tests.addIncludePath(b.path("deps/latex-render"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");

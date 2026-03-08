@@ -6,6 +6,7 @@ const Fonts = @import("../layout/text_measurer.zig").Fonts;
 const detector = @import("detector.zig");
 const dagre = @import("layout/dagre.zig");
 const linear_layout = @import("layout/linear_layout.zig");
+const state_layout = @import("layout/state_layout.zig");
 const FlowchartModel = @import("models/flowchart_model.zig").FlowchartModel;
 const SequenceModel = @import("models/sequence_model.zig").SequenceModel;
 const PieModel = @import("models/pie_model.zig").PieModel;
@@ -18,6 +19,7 @@ const GitGraphModel = @import("models/gitgraph_model.zig").GitGraphModel;
 const JourneyModel = @import("models/journey_model.zig").JourneyModel;
 const TimelineModel = @import("models/timeline_model.zig").TimelineModel;
 const tree_layout = @import("layout/tree_layout.zig");
+const gitgraph_layout = @import("layout/gitgraph_layout.zig");
 
 /// Create a LayoutNode for a diagram, set its rect, append to the tree, and advance the cursor.
 /// Caller retains ownership of any heap-allocated model inside `data` on error —
@@ -250,9 +252,9 @@ pub fn layoutMermaidBlock(
             }
             model_ptr.* = st_val;
 
-            const layout_result = try dagre.layout(
+            const layout_result = try state_layout.layout(
                 allocator,
-                &model_ptr.graph,
+                model_ptr,
                 fonts,
                 theme,
                 content_width,
@@ -288,61 +290,11 @@ pub fn layoutMermaidBlock(
             }
             model_ptr.* = gg_val;
 
-            // Compute layout dimensions
-            const padding: f32 = 20;
-            const branch_label_w: f32 = 80;
-            const lane_spacing: f32 = 30;
-            const commit_spacing: f32 = 50;
+            // Delegate to dedicated gitgraph layout engine
+            const layout_result = gitgraph_layout.layout(model_ptr, fonts, theme, content_width);
 
-            const num_branches: f32 = @floatFromInt(@max(model_ptr.branches.items.len, @as(usize, 1)));
-            const num_commits: f32 = @floatFromInt(@max(model_ptr.commits.items.len, @as(usize, 1)));
-
-            const is_lr = model_ptr.orientation == .lr;
-
-            const cols = if (is_lr) num_commits else num_branches;
-            const rows = if (is_lr) num_branches else num_commits;
-            const col_spacing = if (is_lr) commit_spacing else lane_spacing;
-            const row_spacing = if (is_lr) lane_spacing else commit_spacing;
-
-            const natural_width = padding * 2 + branch_label_w + cols * col_spacing + 40;
-            const natural_height = padding * 2 + 20 + rows * row_spacing + 40;
-
-            // Pre-compute commit positions
-            const start_x = padding + branch_label_w;
-            const start_y = padding + 20;
-            for (model_ptr.commits.items) |*commit| {
-                const seq_f: f32 = @floatFromInt(commit.seq);
-                const lane_f: f32 = @floatFromInt(commit.lane);
-                if (is_lr) {
-                    commit.x = start_x + seq_f * commit_spacing;
-                    commit.y = start_y + lane_f * lane_spacing;
-                } else {
-                    commit.x = start_x + lane_f * lane_spacing;
-                    commit.y = start_y + seq_f * commit_spacing;
-                }
-            }
-
-            const scale = if (natural_width > content_width and natural_width > 0) content_width / natural_width else 1.0;
-            const diagram_width = @min(natural_width, content_width);
-            const diagram_height = natural_height * scale;
-
-            // Scale pre-computed positions
-            if (scale < 1.0) {
-                for (model_ptr.commits.items) |*commit| {
-                    commit.x *= scale;
-                    commit.y *= scale;
-                }
-            }
-
-            // Store all effective layout values for the renderer
-            model_ptr.effective_lane_spacing = lane_spacing * scale;
-            model_ptr.effective_commit_spacing = commit_spacing * scale;
-            model_ptr.effective_padding = padding * scale;
-            model_ptr.effective_branch_label_w = branch_label_w * scale;
-            model_ptr.effective_header_offset = 20 * scale;
-
-            const diagram_x = content_x + (content_width - diagram_width) / 2;
-            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .gitgraph = model_ptr } }, diagram_x, cursor_y, diagram_width, diagram_height, tree, theme.paragraph_spacing);
+            const diagram_x = content_x + (content_width - layout_result.width) / 2;
+            try appendDiagramNode(allocator, .{ .mermaid_diagram = .{ .gitgraph = model_ptr } }, diagram_x, cursor_y, layout_result.width, layout_result.height, tree, theme.paragraph_spacing);
         },
         .journey => |j_val| {
             const model_ptr = try allocator.create(JourneyModel);

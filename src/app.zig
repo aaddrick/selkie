@@ -31,6 +31,7 @@ const CommandState = @import("command/command_state.zig").CommandState;
 const EditorState = @import("editor/editor_state.zig").EditorState;
 const ModalDialog = @import("modal_dialog.zig").ModalDialog;
 const ScrollPositionStore = @import("scroll_positions.zig").ScrollPositionStore;
+const DetailsStateStore = @import("details_state_store.zig").DetailsStateStore;
 const SplitPane = @import("split_pane.zig").SplitPane;
 
 pub const App = struct {
@@ -100,6 +101,9 @@ pub const App = struct {
     // Scroll position persistence
     scroll_store: ?*ScrollPositionStore = null,
 
+    // Details expand/collapse state persistence
+    details_store: ?*DetailsStateStore = null,
+
     // Modal dialog state
     active_dialog: ?ModalDialog = null,
     should_quit: bool = false,
@@ -149,6 +153,12 @@ pub const App = struct {
     /// The store is owned externally (by main.zig); App does not free it.
     pub fn setScrollPositions(self: *App, store: *ScrollPositionStore) void {
         self.scroll_store = store;
+    }
+
+    /// Set the details state store for persisting expand/collapse state across sessions.
+    /// The store is owned externally (by main.zig); App does not free it.
+    pub fn setDetailsStore(self: *App, store: *DetailsStateStore) void {
+        self.details_store = store;
     }
 
     const font_files = .{
@@ -240,7 +250,7 @@ pub const App = struct {
         };
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark) catch |err| {
                 std.log.err("Failed to layout document: {}", .{err});
             };
         }
@@ -254,6 +264,21 @@ pub const App = struct {
             }
         }
 
+        // Restore saved details expand/collapse state if available.
+        // Must happen after setFilePath so tab.file_path is set, and after
+        // relayout so that the first render reflects the restored toggles.
+        if (self.details_store) |store| {
+            if (tab.file_path) |fp| {
+                store.applyToTab(fp, &tab.details_state);
+                // Re-layout so hidden/shown sections match the restored state
+                if (self.fonts) |*f| {
+                    tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark) catch |err| {
+                        std.log.err("Failed to relayout after restoring details state: {}", .{err});
+                    };
+                }
+            }
+        }
+
         self.updateWindowTitle();
         self.rebuildToc();
     }
@@ -262,8 +287,9 @@ pub const App = struct {
         if (self.tabs.items.len <= 1) return; // Don't close last tab
         if (index >= self.tabs.items.len) return;
 
-        // Save scroll position before closing
+        // Save scroll position and details state before closing
         self.saveTabScrollPosition(index);
+        self.saveTabDetailsState(index);
 
         var tab = self.tabs.orderedRemove(index);
         tab.deinit();
@@ -344,7 +370,7 @@ pub const App = struct {
     fn relayoutActiveTab(self: *App) void {
         const tab = self.activeTab() orelse return;
         const fonts = &(self.fonts orelse return);
-        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
+        tab.relayout(self.theme, fonts, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark) catch |err| {
             std.log.err("Failed to relayout: {}", .{err});
         };
         self.rebuildToc();
@@ -356,7 +382,7 @@ pub const App = struct {
         const y_offset = self.computeContentYOffset();
         const left_offset = self.computeContentLeftOffset();
         for (self.tabs.items) |*tab| {
-            tab.relayout(self.theme, fonts, width, y_offset, left_offset, self.show_line_numbers) catch |err| {
+            tab.relayout(self.theme, fonts, width, y_offset, left_offset, self.show_line_numbers, self.is_dark) catch |err| {
                 std.log.err("Failed to relayout tab: {}", .{err});
             };
         }
@@ -956,7 +982,7 @@ pub const App = struct {
         tab.scroll.jumpTo(0);
 
         if (self.fonts) |*f| {
-            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers) catch |err| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark) catch |err| {
                 std.log.err("Failed to relayout: {}", .{err});
             };
         }
@@ -1186,6 +1212,45 @@ pub const App = struct {
                     tab.search.close();
                     tab.command.open();
                 }
+
+                // Details/summary keyboard accessibility:
+                //   Tab / Shift+Tab  — cycle keyboard focus through details headers
+                //   Enter / Space    — toggle the focused details header
+                //   Escape           — clear details keyboard focus
+                if (!ctrl_held and rl.isKeyPressed(.tab)) {
+                    if (tab.layout_tree) |*tree| {
+                        self.cycleDetailsFocus(tab, tree, if (shift_held) -1 else 1);
+                    }
+                }
+
+                if (!ctrl_held and !shift_held) {
+                    // Enter or Space toggles the keyboard-focused details header.
+                    if ((rl.isKeyPressed(.enter) or rl.isKeyPressed(.space)) and
+                        tab.details_focused_section_id != null)
+                    {
+                        const focused_id = tab.details_focused_section_id.?;
+                        if (tab.layout_tree) |*tree| {
+                            for (tree.nodes.items) |*layout_node| {
+                                if (layout_node.data == .details_header and
+                                    layout_node.data.details_header.section_id == focused_id)
+                                {
+                                    const section_id = layout_node.data.details_header.section_id;
+                                    const current = tab.details_state.get(section_id) orelse
+                                        layout_node.data.details_header.expanded;
+                                    tab.details_state.put(section_id, !current) catch {};
+                                    self.saveTabDetailsState(self.active_tab);
+                                    self.relayoutActiveTab();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Escape clears details keyboard focus (only when no dialog/overlay is open)
+                if (rl.isKeyPressed(.escape) and tab.details_focused_section_id != null) {
+                    tab.details_focused_section_id = null;
+                }
             }
         }
 
@@ -1268,7 +1333,7 @@ pub const App = struct {
                         self.active_dialog = ModalDialog.init(.external_change, self.active_tab);
                     } else {
                         const f = &(self.fonts orelse return);
-                        tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers);
+                        tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark);
                         self.rebuildToc();
                     }
                 },
@@ -1288,7 +1353,79 @@ pub const App = struct {
                 const mouse_y: f32 = @floatFromInt(rl.getMouseY());
                 const mouse_x: f32 = @floatFromInt(rl.getMouseX());
                 if (!menu_is_open and mouse_y >= self.computeContentYOffset() and mouse_x >= self.toc_sidebar.effectiveWidth()) {
-                    tab.link_handler.handleClick();
+                    if (tab.link_handler.handleClick(tree)) |scroll_target| {
+                        // In-document anchor link: scroll to the target position
+                        tab.scroll.y = scroll_target;
+                    }
+
+                    // Details/summary toggle: hover cursor and click to expand/collapse
+                    {
+                        var on_details = false;
+                        for (tree.nodes.items) |*layout_node| {
+                            if (layout_node.data == .details_header) {
+                                const draw_y = layout_node.rect.y - tab.scroll.y;
+                                if (mouse_x >= layout_node.rect.x and
+                                    mouse_x <= layout_node.rect.x + layout_node.rect.width and
+                                    mouse_y >= draw_y and
+                                    mouse_y <= draw_y + layout_node.rect.height)
+                                {
+                                    on_details = true;
+                                    if (tab.link_handler.hovered_url == null) {
+                                        rl.setMouseCursor(.pointing_hand);
+                                    }
+                                    if (rl.isMouseButtonReleased(.left)) {
+                                        const section_id = layout_node.data.details_header.section_id;
+                                        const current = tab.details_state.get(section_id) orelse layout_node.data.details_header.expanded;
+                                        tab.details_state.put(section_id, !current) catch {};
+                                        // Persist the toggle to the store immediately
+                                        self.saveTabDetailsState(self.active_tab);
+                                        // Trigger re-layout
+                                        self.relayoutActiveTab();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        // on_details used to gate cursor reset (future enhancement)
+                    }
+                }
+            }
+        }
+
+        // Animate details disclosure triangles and update focus indicators in-place.
+        // This runs every frame so the triangle smoothly rotates between ▶ and ▼
+        // without requiring a full re-layout. The animation state is also mirrored
+        // into tab.details_anim so that re-layout (triggered by toggle or resize)
+        // seeds the new tree with the correct mid-animation progress.
+        if (tab.layout_tree) |*tree| {
+            const dt = rl.getFrameTime();
+            // Time constant (seconds) for exponential ease-out animation.
+            // 0.12s ≈ 200ms total transition at 60fps.
+            const time_constant: f32 = 0.12;
+            const factor = if (dt > 0) 1.0 - std.math.exp(-dt / time_constant) else 1.0;
+            const snap_threshold: f32 = 0.005;
+
+            for (tree.nodes.items) |*layout_node| {
+                if (layout_node.data == .details_header) {
+                    const section_id = layout_node.data.details_header.section_id;
+                    const is_expanded = layout_node.data.details_header.expanded;
+                    const target: f32 = if (is_expanded) 1.0 else 0.0;
+                    const current = layout_node.data.details_header.anim_progress;
+                    const diff = target - current;
+                    const new_progress = if (@abs(diff) < snap_threshold)
+                        target
+                    else
+                        current + diff * factor;
+                    layout_node.data.details_header.anim_progress = new_progress;
+                    // Mirror into tab.details_anim for re-layout seeding
+                    tab.details_anim.put(section_id, new_progress) catch {};
+
+                    // Update keyboard focus indicator in-place
+                    const focused = if (tab.details_focused_section_id) |fid|
+                        fid == section_id
+                    else
+                        false;
+                    layout_node.data.details_header.focused = focused;
                 }
             }
         }
@@ -1327,7 +1464,7 @@ pub const App = struct {
                     if (target_tab >= self.tabs.items.len) return;
                     const tab = &self.tabs.items[target_tab];
                     const f = &(self.fonts orelse return);
-                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers);
+                    tab.reloadFromDisk(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark);
                     if (tab.editor) |*ed| {
                         ed.is_dirty = false;
                     }
@@ -1960,6 +2097,16 @@ pub const App = struct {
             };
         }
 
+        // Persist details expand/collapse state for all open tabs before shutdown
+        if (self.details_store) |store| {
+            for (0..self.tabs.items.len) |i| {
+                self.saveTabDetailsState(i);
+            }
+            store.save() catch |err| {
+                std.log.err("Failed to save details state: {}", .{err});
+            };
+        }
+
         for (self.tabs.items) |*tab| {
             tab.deinit();
         }
@@ -1976,6 +2123,127 @@ pub const App = struct {
             store.setPosition(fp, tab.scroll.y) catch |err| {
                 std.log.err("Failed to store scroll position for '{s}': {}", .{ fp, err });
             };
+        }
+    }
+
+    /// Save the details expand/collapse state for a tab at the given index.
+    fn saveTabDetailsState(self: *App, index: usize) void {
+        const store = self.details_store orelse return;
+        if (index >= self.tabs.items.len) return;
+        const tab = &self.tabs.items[index];
+        if (tab.file_path) |fp| {
+            store.updateFromTab(fp, &tab.details_state) catch |err| {
+                std.log.err("Failed to store details state for '{s}': {}", .{ fp, err });
+            };
+        }
+    }
+
+    /// Cycle keyboard focus through details header nodes in document order.
+    /// `direction` is +1 (forward/Tab) or -1 (backward/Shift+Tab).
+    /// Focus wraps around: after the last header, Tab moves to the first.
+    /// When no header is currently focused, Tab selects the first (or last for -1).
+    /// After cycling, the viewport scrolls to keep the focused header visible.
+    fn cycleDetailsFocus(
+        self: *App,
+        tab: *@import("tab.zig").Tab,
+        tree: *@import("layout/layout_types.zig").LayoutTree,
+        direction: i32,
+    ) void {
+        const nodes = tree.nodes.items;
+
+        // Scan all nodes to collect details_header positions
+        var first_section_id: ?u32 = null;
+        var last_section_id: ?u32 = null;
+        var first_rect_y: f32 = 0;
+        var last_rect_y: f32 = 0;
+        var current_found = false;
+        var next_section_id: ?u32 = null;
+        var prev_section_id: ?u32 = null;
+        var prev_rect_y: f32 = 0;
+        var header_count: usize = 0;
+
+        for (nodes) |*node| {
+            if (node.data != .details_header) continue;
+            const sid = node.data.details_header.section_id;
+            const rect_y = node.rect.y;
+            header_count += 1;
+
+            if (first_section_id == null) {
+                first_section_id = sid;
+                first_rect_y = rect_y;
+            }
+            last_section_id = sid;
+            last_rect_y = rect_y;
+
+            if (current_found) {
+                if (next_section_id == null) {
+                    next_section_id = sid;
+                }
+            }
+
+            if (tab.details_focused_section_id != null and
+                sid == tab.details_focused_section_id.?)
+            {
+                current_found = true;
+            } else if (!current_found) {
+                prev_section_id = sid;
+                prev_rect_y = rect_y;
+            }
+        }
+
+        if (header_count == 0) return;
+
+        var new_focus: ?u32 = null;
+        var scroll_to_y: f32 = 0;
+
+        if (direction > 0) {
+            // Forward: next after current, or wrap to first
+            if (tab.details_focused_section_id == null or next_section_id == null) {
+                new_focus = first_section_id;
+                scroll_to_y = first_rect_y;
+            } else {
+                new_focus = next_section_id;
+                // Find rect_y for next_section_id
+                for (nodes) |*node| {
+                    if (node.data == .details_header and
+                        node.data.details_header.section_id == next_section_id.?)
+                    {
+                        scroll_to_y = node.rect.y;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Backward: prev before current, or wrap to last
+            if (tab.details_focused_section_id == null or prev_section_id == null) {
+                new_focus = last_section_id;
+                scroll_to_y = last_rect_y;
+            } else {
+                new_focus = prev_section_id;
+                scroll_to_y = prev_rect_y;
+            }
+        }
+
+        tab.details_focused_section_id = new_focus;
+
+        // Scroll the viewport to ensure the focused header is visible.
+        // Target: place the header near the top of the content area.
+        if (new_focus != null) {
+            const content_top = self.computeContentYOffset();
+            const screen_h: f32 = @floatFromInt(rl.getScreenHeight());
+            const header_h: f32 = self.theme.body_font_size * self.theme.line_height;
+            // Desired scroll: header at content_top + small margin
+            const desired_scroll = scroll_to_y - content_top - header_h;
+            const max_scroll = @max(0, tab.scroll.total_height - (screen_h - content_top));
+            const clamped = std.math.clamp(desired_scroll, 0, max_scroll);
+            // Only scroll if the header is outside the current visible range
+            const visible_top = tab.scroll.y;
+            const visible_bottom = tab.scroll.y + (screen_h - content_top);
+            if (scroll_to_y < visible_top + header_h or
+                scroll_to_y + header_h > visible_bottom - header_h)
+            {
+                tab.scroll.target_y = clamped;
+            }
         }
     }
 };

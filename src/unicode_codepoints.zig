@@ -9,6 +9,7 @@ const ranges = [_]Range{
     .{ .start = 0x00A0, .end = 0x00FF }, // Latin-1 Supplement (non-breaking space, accented chars, symbols)
     .{ .start = 0x0100, .end = 0x017F }, // Latin Extended-A (Eastern European)
     .{ .start = 0x0180, .end = 0x024F }, // Latin Extended-B
+    .{ .start = 0x0370, .end = 0x03FF }, // Greek and Coptic (α β γ δ π θ σ etc. — required for math)
     .{ .start = 0x2000, .end = 0x206F }, // General Punctuation (em dash, curly quotes, ellipsis, etc.)
     .{ .start = 0x2070, .end = 0x209F }, // Superscripts and Subscripts
     .{ .start = 0x20A0, .end = 0x20CF }, // Currency Symbols
@@ -78,13 +79,27 @@ test "codepoints contains common symbols" {
     try std.testing.expect(contains(0xFFFD)); // replacement character �
 }
 
+test "codepoints contains Greek letters required for math" {
+    try std.testing.expect(contains(0x03C0)); // π  (pi)
+    try std.testing.expect(contains(0x03B1)); // α  (alpha)
+    try std.testing.expect(contains(0x03B2)); // β  (beta)
+    try std.testing.expect(contains(0x03B3)); // γ  (gamma)
+    try std.testing.expect(contains(0x03B4)); // δ  (delta)
+    try std.testing.expect(contains(0x03B8)); // θ  (theta)
+    try std.testing.expect(contains(0x03C3)); // σ  (sigma)
+    try std.testing.expect(contains(0x03A3)); // Σ  (Sigma — uppercase sum)
+    try std.testing.expect(contains(0x03A0)); // Π  (Pi — uppercase)
+    try std.testing.expect(contains(0x03A9)); // Ω  (Omega)
+}
+
 test "codepoints excludes control characters and gaps" {
     try std.testing.expect(!contains(0x0000)); // null
     try std.testing.expect(!contains(0x0019)); // end of C0 control range
     try std.testing.expect(!contains(0x007F)); // DEL
     try std.testing.expect(!contains(0x0080)); // start of C1 control range
     try std.testing.expect(!contains(0x009F)); // end of C1 control range
-    try std.testing.expect(!contains(0x0250)); // just past Latin Extended-B
+    try std.testing.expect(!contains(0x0250)); // in gap between Latin Extended-B and Greek
+    try std.testing.expect(!contains(0x036F)); // just before Greek and Coptic block
     try std.testing.expect(!contains(0x1FFF)); // just before General Punctuation
     try std.testing.expect(!contains(0x20D0)); // just past Currency Symbols
     try std.testing.expect(!contains(0x27C0)); // just past Dingbats
@@ -95,7 +110,8 @@ test "codepoints excludes control characters and gaps" {
 test "total codepoint count matches expected value" {
     // Hardcoded to catch accidental range additions/removals.
     // Update this value when intentionally changing the ranges.
-    try std.testing.expectEqual(@as(usize, 1991), codepoints.len);
+    // Greek and Coptic block (0x0370-0x03FF) adds 144 codepoints over previous 1991.
+    try std.testing.expectEqual(@as(usize, 2135), codepoints.len);
 }
 
 // Test helper — linear scan, not for production use.

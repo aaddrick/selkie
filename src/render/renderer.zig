@@ -19,6 +19,7 @@ const mindmap_renderer = @import("../mermaid/renderers/mindmap_renderer.zig");
 const gitgraph_renderer = @import("../mermaid/renderers/gitgraph_renderer.zig");
 const journey_renderer = @import("../mermaid/renderers/journey_renderer.zig");
 const timeline_renderer = @import("../mermaid/renderers/timeline_renderer.zig");
+const math_renderer = @import("math_renderer.zig");
 
 /// Render the document layout tree with frustum culling and scrollbar.
 /// `content_top_y` offsets the scissor clip region so content does not
@@ -57,6 +58,7 @@ pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Font
 
         switch (node.data) {
             .text_block, .heading => block_renderer.drawTextBlock(node, fonts, scroll_y, hover, screen_h),
+            .details_header => block_renderer.drawDetailsHeader(node, theme, fonts, scroll_y, screen_h),
             .code_block => block_renderer.drawCodeBlock(node, theme, fonts, scroll_y, screen_h),
             .code_block_header => block_renderer.drawCodeBlockHeader(node, fonts, scroll_y),
             .thematic_break => block_renderer.drawThematicBreak(node, scroll_y),
@@ -64,8 +66,19 @@ pub fn renderEx(tree: *const LayoutTree, theme: *const Theme, fonts: *const Font
             .alert_bg => block_renderer.drawAlertBg(node, scroll_y),
             .table_row_bg => table_renderer.drawTableRowBg(node, scroll_y),
             .table_border => table_renderer.drawTableBorder(node, scroll_y),
-            .table_cell => table_renderer.drawTableCell(node, fonts, scroll_y, hover, screen_h),
+            .table_cell => {
+                table_renderer.drawTableCell(node, fonts, scroll_y, hover, screen_h);
+                // Restore viewport scissor after per-cell clipping (drawTableCell
+                // temporarily replaces it to prevent text overflow into adjacent columns).
+                rl.beginScissorMode(
+                    @intFromFloat(left_offset),
+                    @intFromFloat(content_top_y),
+                    @intFromFloat(screen_w - left_offset),
+                    @intFromFloat(screen_h - content_top_y),
+                );
+            },
             .image => block_renderer.drawImage(node, fonts, scroll_y),
+            .math_block => math_renderer.drawBlockMath(node, fonts, scroll_y, screen_h),
             .mermaid_diagram => |mermaid| {
                 const r = node.rect;
                 switch (mermaid) {

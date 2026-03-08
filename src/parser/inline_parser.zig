@@ -48,7 +48,7 @@ pub const InlineStyle = struct {
 /// Check if a node type is an inline element.
 pub fn isInlineNode(node_type: ast.NodeType) bool {
     return switch (node_type) {
-        .text, .softbreak, .linebreak, .code, .html_inline, .emph, .strong, .strikethrough, .link, .image, .footnote_reference => true,
+        .text, .softbreak, .linebreak, .code, .html_inline, .emph, .strong, .strikethrough, .link, .image, .footnote_reference, .math_inline => true,
         else => false,
     };
 }

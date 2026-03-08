@@ -69,6 +69,10 @@ pub fn exportPdf(
         0,
         0,
         false,
+        false, // is_dark — PDF export defaults to light theme
+        null, // details_state — PDF export renders all sections expanded
+        null, // details_anim — PDF export has no animations
+        null, // details_focused_section_id — PDF export has no focus
     ) catch return ExportError.RenderFailed;
     defer pdf_tree.deinit();
 
@@ -147,6 +151,20 @@ pub fn exportPdf(
                 },
                 .alert_bg => |ab| {
                     try emitRect(page, node.rect, ab.color, page_top_px, scale, page_h_pt);
+                },
+                .details_header => {
+                    // Render summary text runs (disclosure triangle skipped in PDF)
+                    for (node.text_runs.items) |*run| {
+                        try emitTextRun(page, run, page_top_px, scale, page_h_pt);
+                    }
+                },
+                .math_block => |mb| {
+                    // Background rectangle
+                    if (mb.bg_color) |bg| {
+                        try emitRect(page, node.rect, bg, page_top_px, scale, page_h_pt);
+                    }
+                    // Rasterize math block as an image (LaTeX rendering requires raylib context)
+                    try rasterizeNode(allocator, &pw, page, node, &pdf_tree, theme, page_top_px, scale, page_h_pt, &png_buffers);
                 },
             }
         }

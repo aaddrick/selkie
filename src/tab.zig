@@ -40,6 +40,16 @@ pub const Tab = struct {
     /// Tracks the editor edit_version that was last re-parsed for live preview.
     /// Compared against editor.edit_version to detect when a re-parse is needed.
     last_preview_version: u64 = 0,
+    /// Persistent expanded/collapsed state for `<details>` sections.
+    /// Keyed by source line number; survives re-layout.
+    details_state: std.AutoHashMap(u32, bool),
+    /// Per-section disclosure triangle animation progress.
+    /// Maps section_id → f32 in [0.0, 1.0]: 0.0 = ▶ (collapsed), 1.0 = ▼ (expanded).
+    /// Updated in-place each frame; re-layout seeds from this map so progress
+    /// is preserved across toggle-triggered re-layouts.
+    details_anim: std.AutoHashMap(u32, f32),
+    /// Section ID of the currently keyboard-focused details header, or null if none.
+    details_focused_section_id: ?u32 = null,
 
     pub fn init(allocator: Allocator) Tab {
         return .{
@@ -59,6 +69,9 @@ pub const Tab = struct {
             .source_text = null,
             .editor = null,
             .last_preview_version = 0,
+            .details_state = std.AutoHashMap(u32, bool).init(allocator),
+            .details_anim = std.AutoHashMap(u32, f32).init(allocator),
+            .details_focused_section_id = null,
         };
     }
 
@@ -73,6 +86,8 @@ pub const Tab = struct {
         if (self.source_text) |source| self.allocator.free(source);
         if (self.file_path) |path| self.allocator.free(path);
         if (self.base_dir) |dir| self.allocator.free(dir);
+        self.details_state.deinit();
+        self.details_anim.deinit();
     }
 
     /// Parse markdown text into a document, replacing any existing document.
@@ -95,7 +110,7 @@ pub const Tab = struct {
 
     /// Lay out the current document using the given theme, fonts, and dimensions.
     /// Replaces any existing layout tree.
-    pub fn relayout(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool) !void {
+    pub fn relayout(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool, is_dark: bool) !void {
         if (self.layout_tree) |*tree| tree.deinit();
         self.layout_tree = null;
 
@@ -110,6 +125,10 @@ pub const Tab = struct {
             y_offset,
             left_offset,
             show_line_numbers,
+            is_dark,
+            &self.details_state,
+            &self.details_anim,
+            self.details_focused_section_id,
         );
         self.scroll.total_height = tree.total_height;
         self.layout_tree = tree;
@@ -135,7 +154,7 @@ pub const Tab = struct {
     }
 
     /// Reload the markdown file from disk, preserving scroll position.
-    pub fn reloadFromDisk(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool) void {
+    pub fn reloadFromDisk(self: *Tab, theme: *const Theme, fonts: *const Fonts, layout_width: f32, y_offset: f32, left_offset: f32, show_line_numbers: bool, is_dark: bool) void {
         const path = self.file_path orelse return;
 
         const content = std.fs.cwd().readFileAlloc(self.allocator, path, App.max_file_size) catch |err| {
@@ -151,7 +170,7 @@ pub const Tab = struct {
             return;
         };
 
-        self.relayout(theme, fonts, layout_width, y_offset, left_offset, show_line_numbers) catch |err| {
+        self.relayout(theme, fonts, layout_width, y_offset, left_offset, show_line_numbers, is_dark) catch |err| {
             std.log.err("Failed to layout reloaded document: {}", .{err});
         };
 
@@ -747,5 +766,51 @@ test "Tab.updatePreviewFromEditor syncs version and re-parses" {
 
     // Document should have been re-parsed (not null)
     try testing.expect(tab.document != null);
+}
+
+// Sub-AC 3b: details animation and keyboard focus tests.
+
+test "Tab.init details_anim is empty" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+    try testing.expectEqual(@as(usize, 0), tab.details_anim.count());
+}
+
+test "Tab.init details_focused_section_id is null" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+    try testing.expectEqual(@as(?u32, null), tab.details_focused_section_id);
+}
+
+test "Tab details_anim can store and retrieve animation progress" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    try tab.details_anim.put(42, 0.75);
+    try testing.expectApproxEqAbs(
+        @as(f32, 0.75),
+        tab.details_anim.get(42).?,
+        0.001,
+    );
+}
+
+test "Tab details_focused_section_id can be set and cleared" {
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    tab.details_focused_section_id = 17;
+    try testing.expectEqual(@as(?u32, 17), tab.details_focused_section_id);
+
+    tab.details_focused_section_id = null;
+    try testing.expectEqual(@as(?u32, null), tab.details_focused_section_id);
+}
+
+test "Tab.deinit cleans up details_anim without leaks" {
+    var tab = Tab.init(testing.allocator);
+    try tab.details_anim.put(1, 0.25);
+    try tab.details_anim.put(2, 0.5);
+    try tab.details_anim.put(3, 1.0);
+    // deinit via defer — leak detector will catch any issues
+    tab.deinit();
 }
 

@@ -98,8 +98,8 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
                 const model = try er_parser.parse(allocator, source);
                 return .{ .er_diagram = model };
             }
-            // stateDiagram or stateDiagram-v2 — tokenizer may split on hyphen
-            if (std.mem.eql(u8, tok.text, "stateDiagram")) {
+            // stateDiagram or stateDiagram-v2 — tokenizer keeps hyphen in identifier
+            if (std.mem.eql(u8, tok.text, "stateDiagram") or std.mem.startsWith(u8, tok.text, "stateDiagram-")) {
                 const model = try state_parser.parse(allocator, source);
                 return .{ .state_diagram = model };
             }
@@ -107,7 +107,7 @@ pub fn detect(allocator: Allocator, source: []const u8) !DetectResult {
                 const model = try mindmap_parser.parse(allocator, source);
                 return .{ .mindmap = model };
             }
-            if (std.mem.eql(u8, tok.text, "gitGraph")) {
+            if (std.mem.eql(u8, tok.text, "gitGraph") or std.mem.eql(u8, tok.text, "gitgraph")) {
                 const model = try gitgraph_parser.parse(allocator, source);
                 return .{ .gitgraph = model };
             }
