@@ -1,28 +1,28 @@
 Origin: Selkie
 Label: Selkie
 Codename: stable
-Date: Sat, 07 Mar 2026 20:42:07 UTC
+Date: Sun, 08 Mar 2026 20:36:54 UTC
 Architectures: amd64 arm64
 Components: main
 Description: Selkie Markdown Viewer
 MD5Sum:
- d0e39df7a4db919d6daca94c979f40ec 816 main/binary-amd64/Packages
- 8f64aaf9f7e88ca3c2c926d918bea2b3 524 main/binary-amd64/Packages.gz
+ 200ed686674b0081eb1b3819f8524641 816 main/binary-amd64/Packages
+ fa348efffb82a6e8c0560ee301e4386b 523 main/binary-amd64/Packages.gz
  cbf821706234b6cde351b0fcee19c7eb 101 main/binary-amd64/Release
- 013edd1ef7d062853e9dea96096169ac 816 main/binary-arm64/Packages
- 01138dc344be3713fff1d0fdea5e6480 524 main/binary-arm64/Packages.gz
+ 0103ae861624b85a6c8727ad2f70902f 816 main/binary-arm64/Packages
+ 6ac297f3fe2622b3ac2787b01ebd3a63 523 main/binary-arm64/Packages.gz
  54a16c1cc35a2e6897cca73485cc7670 101 main/binary-arm64/Release
 SHA1:
- b9aa8c090f1a6639d0cedb681d8c1091c5637b19 816 main/binary-amd64/Packages
- 0698c02846d87df99674e260d536b3a4bdf88025 524 main/binary-amd64/Packages.gz
+ 1c6f1502be3e6c14b89cfafa9b7dc85dca72c8df 816 main/binary-amd64/Packages
+ 47b38d58958fedc4e83a169080bfe03e7a9c4753 523 main/binary-amd64/Packages.gz
  9f2ba077410d4d204f4885c4299429a9b9c77f55 101 main/binary-amd64/Release
- 424521586e5e01ed5b9725998437e66d6c213c55 816 main/binary-arm64/Packages
- 525efbcb4c567db59eee53671deaead453c8a03e 524 main/binary-arm64/Packages.gz
+ 1fada24cc5bbbee5552f48cc0a2fcb5de1b47e75 816 main/binary-arm64/Packages
+ 531ba8d455574160b4f9ffc8c491b145c2338854 523 main/binary-arm64/Packages.gz
  7ae4b1f83338c179780bc8436f77442e46b576b2 101 main/binary-arm64/Release
 SHA256:
- 18e8804e3db877f83a6e8d392cf810f2a49c26d39c211e82aaffaa5619a6fd92 816 main/binary-amd64/Packages
- 0c28e2a1604aed206a21832f3766493308b115d6196eea87eab8a5f70aca5deb 524 main/binary-amd64/Packages.gz
+ 73f2674f0db2e137b14fae4f2905974ae0d67b866f23089893ef700be66bb6c8 816 main/binary-amd64/Packages
+ fb3a3e25a187405edfa910e1575e750aa0b8c35f752175f1ffe3d09b49a7db2b 523 main/binary-amd64/Packages.gz
  e0bb9432e1991cddae5ccb1e916ad603a5fb768f17fecd184dfa902b5a54ecb6 101 main/binary-amd64/Release
- 94f3d021c5df970f7a339f2427c3ac61e296cbc69809851d7016e9ce2bba22e1 816 main/binary-arm64/Packages
- ae047dde1fec4d6e83afabc3ffc82da5875bc55d60e952f667a5d6f946c49155 524 main/binary-arm64/Packages.gz
+ bc65a3e0b3cadc7bac15b325297de4a2f52dcd4557a22f59acda9748975cecfa 816 main/binary-arm64/Packages
+ 814f9a0e333370d95f03261a53d784c9671ecb59af4547f58744ef9bfd28034a 523 main/binary-arm64/Packages.gz
  86b396ebf4919bb6137ec0e67ca358ca2425607f59ea112768e174502c7a1320 101 main/binary-arm64/Release
