@@ -246,24 +246,40 @@ pub const App = struct {
     /// proliferating textures. The replacement set is fully baked before the
     /// old one is unloaded, so if the rebuild fails (e.g. OOM), the
     /// previously-working atlas in `self.fonts` is left untouched rather than
-    /// torn down.
+    /// torn down. Growth is staged in a scratch copy of `loaded_codepoints`
+    /// and only swapped in after the rebuild succeeds, so a failed rebuild
+    /// never leaves codepoints marked "loaded" when the atlas never actually
+    /// baked them (which would permanently block a retry, since `LoadedSet`
+    /// growth is otherwise one-way).
     ///
     /// No-op (aside from recording growth) if fonts have not been loaded yet
-    /// (`self.fonts == null` / `loadFonts` not yet called) -- there is
-    /// nothing to rebuild. The eventual `loadFonts` call will re-seed
-    /// `loaded_codepoints` from `default_codepoints`.
+    /// (`self.fonts == null` / `loadFonts` not yet called) -- there is no
+    /// atlas to fall out of sync with, so growth is committed immediately.
+    /// The eventual `loadFonts` call will re-seed `loaded_codepoints` from
+    /// `default_codepoints`.
     pub fn ensureGlyphs(self: *App, codepoints: []const i32) !void {
         const set = if (self.loaded_codepoints) |*s| s else return;
 
+        if (self.fonts == null) {
+            for (codepoints) |cp| _ = try set.add(cp);
+            return;
+        }
+
+        // Stage growth in a scratch copy so `set` (self.loaded_codepoints)
+        // is only mutated after the rebuild it describes actually succeeds.
+        var staged = try set.map.clone();
+        defer staged.deinit();
+
         var grew = false;
         for (codepoints) |cp| {
-            if (try set.add(cp)) grew = true;
+            const result = try staged.getOrPut(cp);
+            if (!result.found_existing) grew = true;
         }
-        if (!grew or self.fonts == null) return;
+        if (!grew) return;
 
-        const expanded = try self.allocator.alloc(i32, set.map.count());
+        const expanded = try self.allocator.alloc(i32, staged.count());
         defer self.allocator.free(expanded);
-        var it = set.map.keyIterator();
+        var it = staged.keyIterator();
         var i: usize = 0;
         while (it.next()) |key| : (i += 1) {
             expanded[i] = key.*;
@@ -271,10 +287,16 @@ pub const App = struct {
 
         // Build the expanded atlas before tearing down the old one -- a
         // failure here (e.g. OOM baking a larger atlas) must not leave
-        // self.fonts null.
+        // self.fonts null, and must not commit `staged` into
+        // loaded_codepoints (the `try` below propagates before that swap).
         const new_fonts = try self.loadFontVariants(expanded);
         self.unloadFonts();
         self.fonts = new_fonts;
+
+        // Only now commit the growth: the atlas rebuild succeeded, so it's
+        // safe to record these codepoints as loaded.
+        set.map.deinit();
+        set.map = staged.move();
     }
 
     // =========================================================================
