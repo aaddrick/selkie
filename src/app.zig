@@ -196,7 +196,7 @@ pub const App = struct {
 
             // Safety: raylib only reads from the codepoints array; @constCast needed
             // because raylib-zig's loadFontEx signature takes ?[]i32 (mutable).
-            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, @constCast(&unicode_codepoints.codepoints));
+            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, @constCast(&unicode_codepoints.default_codepoints));
             rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
             loaded_count += 1;
         }
