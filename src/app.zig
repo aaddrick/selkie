@@ -72,6 +72,10 @@ pub const App = struct {
     theme: *const Theme,
     is_dark: bool,
     fonts: ?Fonts,
+    /// Owned. Accumulating record of which codepoints have been baked into
+    /// the current `fonts` atlases. Seeded with `unicode_codepoints.default_codepoints`
+    /// by `loadFonts`; grown by `ensureGlyphs`. Never shrinks.
+    loaded_codepoints: ?unicode_codepoints.LoadedSet = null,
     viewport: Viewport,
     menu_bar: MenuBar,
     /// Owned custom theme loaded from JSON (null if using built-in themes)
@@ -170,7 +174,12 @@ pub const App = struct {
         .{ "mono", "fonts/JetBrainsMono-Regular.ttf" },
     };
 
-    pub fn loadFonts(self: *App) !void {
+    /// Bake all 5 font variants at the fixed 32px size, using `codepoints` as
+    /// the glyph set for every atlas, and assign the result to `self.fonts`.
+    /// Callers must ensure any previously loaded fonts were unloaded first
+    /// (see `unloadFonts`) -- this always builds a fresh set of atlases and
+    /// unconditionally overwrites `self.fonts`.
+    fn loadFontVariants(self: *App, codepoints: []const i32) !void {
         const size = 32;
         var fonts: Fonts = undefined;
         var loaded_count: usize = 0;
@@ -196,11 +205,24 @@ pub const App = struct {
 
             // Safety: raylib only reads from the codepoints array; @constCast needed
             // because raylib-zig's loadFontEx signature takes ?[]i32 (mutable).
-            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, @constCast(&unicode_codepoints.default_codepoints));
+            @field(fonts, entry[0]) = try rl.loadFontEx(path, size, @constCast(codepoints));
             rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
             loaded_count += 1;
         }
         self.fonts = fonts;
+    }
+
+    /// Load all 5 font variants, baking only the eager default codepoint set
+    /// (`unicode_codepoints.default_codepoints`). Seeds `self.loaded_codepoints`
+    /// to track that set. Additional codepoints are loaded on demand via
+    /// `ensureGlyphs`.
+    pub fn loadFonts(self: *App) !void {
+        var loaded_set = try unicode_codepoints.LoadedSet.init(self.allocator);
+        errdefer loaded_set.deinit();
+
+        try self.loadFontVariants(&unicode_codepoints.default_codepoints);
+
+        self.loaded_codepoints = loaded_set;
     }
 
     pub fn unloadFonts(self: *App) void {
@@ -209,6 +231,40 @@ pub const App = struct {
             rl.unloadFont(@field(fonts, entry[0]));
         }
         self.fonts = null;
+    }
+
+    /// Ensure every codepoint in `codepoints` has a baked glyph in all 5 font
+    /// atlases. Codepoints already loaded (from the eager default set or a
+    /// prior `ensureGlyphs` call) are skipped -- this is a no-op if every
+    /// codepoint in `codepoints` is already loaded.
+    ///
+    /// If any codepoint is new, all 5 font variants are rebuilt exactly once
+    /// via `unloadFonts` + `loadFontVariants` with the expanded codepoint
+    /// set -- one atlas per font, never proliferating textures.
+    ///
+    /// No-op (aside from recording growth) if fonts have not been loaded yet
+    /// (`self.fonts == null` / `loadFonts` not yet called) -- there is
+    /// nothing to rebuild. The eventual `loadFonts` call will re-seed
+    /// `loaded_codepoints` from `default_codepoints`.
+    pub fn ensureGlyphs(self: *App, codepoints: []const i32) !void {
+        const set = if (self.loaded_codepoints) |*s| s else return;
+
+        var grew = false;
+        for (codepoints) |cp| {
+            if (try set.add(cp)) grew = true;
+        }
+        if (!grew or self.fonts == null) return;
+
+        const expanded = try self.allocator.alloc(i32, set.map.count());
+        defer self.allocator.free(expanded);
+        var it = set.map.keyIterator();
+        var i: usize = 0;
+        while (it.next()) |key| : (i += 1) {
+            expanded[i] = key.*;
+        }
+
+        self.unloadFonts();
+        try self.loadFontVariants(expanded);
     }
 
     // =========================================================================
@@ -2112,6 +2168,9 @@ pub const App = struct {
         }
         self.tabs.deinit();
         self.toc_sidebar.deinit();
+        if (self.loaded_codepoints) |*set| {
+            set.deinit();
+        }
     }
 
     /// Save the scroll position for a tab at the given index.
@@ -2843,4 +2902,65 @@ test "App.isEditorVisible returns true when editor is open and mode is split" {
     try tab.toggleEditMode();
     app.view_mode = .split;
     try testing.expect(app.isEditorVisible());
+}
+
+// =========================================================================
+// App.ensureGlyphs
+//
+// These tests exercise `loaded_codepoints` growth tracking directly (via a
+// manually-seeded `LoadedSet`, bypassing `loadFonts`/`rl.loadFontEx`) rather
+// than through a real font atlas rebuild -- the test binary has no OpenGL
+// context (no window is ever created), so `self.fonts` stays `null` and the
+// atlas-rebuild branch in `ensureGlyphs` is never taken. This still fully
+// covers the growth-tracking contract that `ensureGlyphs` is responsible for.
+// =========================================================================
+
+test "App.ensureGlyphs with only already-loaded codepoints triggers no rebuild" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.loaded_codepoints = try unicode_codepoints.LoadedSet.init(testing.allocator);
+
+    const before_count = app.loaded_codepoints.?.map.count();
+
+    // 'A', 'a', em dash -- all within default_codepoints already.
+    try app.ensureGlyphs(&.{ 0x41, 0x61, 0x2014 });
+
+    try testing.expectEqual(before_count, app.loaded_codepoints.?.map.count());
+    // No rebuild was attempted (would have crashed without a GL context).
+    try testing.expectEqual(@as(?Fonts, null), app.fonts);
+}
+
+test "App.ensureGlyphs grows the set for a new codepoint range and contains reflects it" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.loaded_codepoints = try unicode_codepoints.LoadedSet.init(testing.allocator);
+
+    const greek_range = unicode_codepoints.remainder_codepoints[0..5];
+    for (greek_range) |cp| {
+        try testing.expect(!app.loaded_codepoints.?.contains(cp));
+    }
+
+    try app.ensureGlyphs(greek_range);
+
+    for (greek_range) |cp| {
+        try testing.expect(app.loaded_codepoints.?.contains(cp));
+    }
+}
+
+test "App.ensureGlyphs is idempotent across repeated calls with the same codepoints" {
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.loaded_codepoints = try unicode_codepoints.LoadedSet.init(testing.allocator);
+
+    const arrow: i32 = 0x2192; // rightwards arrow -- remainder pool
+
+    try app.ensureGlyphs(&.{arrow});
+    const count_after_first = app.loaded_codepoints.?.map.count();
+    try testing.expect(app.loaded_codepoints.?.contains(arrow));
+
+    try app.ensureGlyphs(&.{arrow});
+    try app.ensureGlyphs(&.{arrow});
+
+    try testing.expectEqual(count_after_first, app.loaded_codepoints.?.map.count());
+    try testing.expect(app.loaded_codepoints.?.contains(arrow));
 }
