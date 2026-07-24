@@ -252,11 +252,14 @@ pub const App = struct {
     /// baked them (which would permanently block a retry, since `LoadedSet`
     /// growth is otherwise one-way).
     ///
-    /// No-op (aside from recording growth) if fonts have not been loaded yet
-    /// (`self.fonts == null` / `loadFonts` not yet called) -- there is no
-    /// atlas to fall out of sync with, so growth is committed immediately.
-    /// The eventual `loadFonts` call will re-seed `loaded_codepoints` from
-    /// `default_codepoints`.
+    /// Total no-op if `loadFonts` has never run (`self.loaded_codepoints ==
+    /// null`): nothing is baked and nothing is recorded, since there is no
+    /// default set yet to grow. The eventual `loadFonts` call seeds
+    /// `loaded_codepoints` from `default_codepoints` on its own.
+    ///
+    /// If `loaded_codepoints` exists but `self.fonts` is `null` (fonts were
+    /// unloaded without a reload), growth is committed immediately with no
+    /// atlas rebuild -- there is no atlas to fall out of sync with.
     pub fn ensureGlyphs(self: *App, codepoints: []const i32) !void {
         const set = if (self.loaded_codepoints) |*s| s else return;
 
