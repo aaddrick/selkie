@@ -175,11 +175,13 @@ pub const App = struct {
     };
 
     /// Bake all 5 font variants at the fixed 32px size, using `codepoints` as
-    /// the glyph set for every atlas, and assign the result to `self.fonts`.
-    /// Callers must ensure any previously loaded fonts were unloaded first
-    /// (see `unloadFonts`) -- this always builds a fresh set of atlases and
-    /// unconditionally overwrites `self.fonts`.
-    fn loadFontVariants(self: *App, codepoints: []const i32) !void {
+    /// the glyph set for every atlas, and return the result. Does not touch
+    /// `self.fonts` -- callers decide when (and whether) to swap it in, so a
+    /// failed rebuild never leaves `self.fonts` null with no atlas to fall
+    /// back on. On failure, any variants already baked in this call are
+    /// unloaded via `errdefer`; anything in `self.fonts` from a prior call is
+    /// untouched.
+    fn loadFontVariants(self: *App, codepoints: []const i32) !Fonts {
         const size = 32;
         var fonts: Fonts = undefined;
         var loaded_count: usize = 0;
@@ -209,19 +211,20 @@ pub const App = struct {
             rl.setTextureFilter(@field(fonts, entry[0]).texture, .bilinear);
             loaded_count += 1;
         }
-        self.fonts = fonts;
+        return fonts;
     }
 
     /// Load all 5 font variants, baking only the eager default codepoint set
     /// (`unicode_codepoints.default_codepoints`). Seeds `self.loaded_codepoints`
-    /// to track that set. Additional codepoints are loaded on demand via
-    /// `ensureGlyphs`.
+    /// to track that set, freeing any prior value first. Additional codepoints
+    /// are loaded on demand via `ensureGlyphs`.
     pub fn loadFonts(self: *App) !void {
         var loaded_set = try unicode_codepoints.LoadedSet.init(self.allocator);
         errdefer loaded_set.deinit();
 
-        try self.loadFontVariants(&unicode_codepoints.default_codepoints);
+        self.fonts = try self.loadFontVariants(&unicode_codepoints.default_codepoints);
 
+        if (self.loaded_codepoints) |*old| old.deinit();
         self.loaded_codepoints = loaded_set;
     }
 
@@ -239,8 +242,11 @@ pub const App = struct {
     /// codepoint in `codepoints` is already loaded.
     ///
     /// If any codepoint is new, all 5 font variants are rebuilt exactly once
-    /// via `unloadFonts` + `loadFontVariants` with the expanded codepoint
-    /// set -- one atlas per font, never proliferating textures.
+    /// with the expanded codepoint set -- one atlas per font, never
+    /// proliferating textures. The replacement set is fully baked before the
+    /// old one is unloaded, so if the rebuild fails (e.g. OOM), the
+    /// previously-working atlas in `self.fonts` is left untouched rather than
+    /// torn down.
     ///
     /// No-op (aside from recording growth) if fonts have not been loaded yet
     /// (`self.fonts == null` / `loadFonts` not yet called) -- there is
@@ -263,8 +269,12 @@ pub const App = struct {
             expanded[i] = key.*;
         }
 
+        // Build the expanded atlas before tearing down the old one -- a
+        // failure here (e.g. OOM baking a larger atlas) must not leave
+        // self.fonts null.
+        const new_fonts = try self.loadFontVariants(expanded);
         self.unloadFonts();
-        try self.loadFontVariants(expanded);
+        self.fonts = new_fonts;
     }
 
     // =========================================================================
