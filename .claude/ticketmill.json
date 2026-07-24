@@ -1,0 +1,39 @@
+{
+  "repo": "aaddrick/selkie",
+  "test_command": "zig build test",
+  "test_globs": ["src/**/*.zig", "build.zig", "build.zig.zon"],
+  "install_commands": ["git submodule update --init --recursive"],
+  "env_files": [],
+  "simplify_globs": ["src/**/*.zig"],
+  "serialize_globs": [],
+  "docblock_globs": ["src/**/*.zig"],
+  "docs_dir": "docs",
+  "logs_dir": "logs/ticketmill",
+  "claim_label": "ticketmill",
+  "verify_notes": [
+    "Zig 0.14.1 must be on PATH. On this host it is installed at ~/.local/zig and symlinked at ~/.local/bin/zig. CI installs it from ziglang.org (tarball name order: zig-<arch>-linux-0.14.1.tar.xz).",
+    "GUI dev libraries are required to build (raylib links both Wayland and X11 via build.zig linux_display_backend = .Both): wayland-devel (provides wayland-scanner), wayland-protocols-devel, libxkbcommon-devel, libX11-devel, libXcursor-devel, libXrandr-devel, libXinerama-devel, libXi-devel, mesa-libGL-devel, mesa-libEGL-devel. Already installed on this host.",
+    "cmark-gfm is a git SUBMODULE at deps/cmark-gfm, not vendored source. A fresh worktree has it empty; install_commands runs 'git submodule update --init --recursive' (verified to work in linked worktrees). Without it the build fails with 'arena.c file_hash FileNotFound'.",
+    "Selkie is a native raylib GUI app, not a web UI, so browser verification does not apply. Visual verification is via headless PNG export: ./zig-out/bin/selkie --export-png out.png <file>.md (see CLAUDE.md CLI section).",
+    "Linking emits harmless LLD warnings ('archive member <lib>.so is neither ET_REL nor LLVM bitcode') for system shared libs; the build and 'zig build test' still exit 0. Do not treat those warnings as failures.",
+    "Version changes must update 4 files in sync: build.zig, build.zig.zon, data/selkie.1, data/io.github.aaddrick.selkie.metainfo.xml."
+  ],
+  "warn_base_branches": [],
+  "consolidation": true,
+  "engine_owned_globs": [],
+  "lockstep_installed_paths": [],
+  "browser": null,
+  "models": {},
+  "roles": {
+    "implementers": ["zig-developer"],
+    "default_implementer": "zig-developer",
+    "task_reviewer": "zig-task-reviewer",
+    "spec_reviewer": "zig-spec-reviewer",
+    "code_reviewer": "zig-code-reviewer",
+    "contrarian": "contrarian",
+    "test_validator": "zig-test-validator",
+    "simplifier": "zig-code-simplifier",
+    "docblock_writer": "zig-docblock-writer",
+    "doc_writer": "technical-doc-writer"
+  }
+}
