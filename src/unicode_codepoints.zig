@@ -102,6 +102,41 @@ pub const LoadedSet = struct {
     }
 };
 
+/// Decode `bytes` as UTF-8 and add every codepoint found into `dest`.
+/// Malformed byte sequences are skipped one byte at a time rather than
+/// failing the whole scan -- callers pass arbitrary in-hand text (markdown
+/// source, clipboard contents, file paths) that is not guaranteed to be
+/// validated UTF-8, and a best-effort scan is preferable to aborting glyph
+/// loading over a single bad byte.
+pub fn addUtf8Codepoints(dest: *std.AutoHashMap(i32, void), bytes: []const u8) std.mem.Allocator.Error!void {
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch {
+            i += 1;
+            continue;
+        };
+        if (i + seq_len > bytes.len) {
+            i += 1;
+            continue;
+        }
+        const cp = std.unicode.utf8Decode(bytes[i .. i + seq_len]) catch {
+            i += 1;
+            continue;
+        };
+        try dest.put(@intCast(cp), {});
+        i += seq_len;
+    }
+}
+
+/// Decode `bytes` as UTF-8 and return the set of unique codepoints found.
+/// See `addUtf8Codepoints` for malformed-input handling.
+pub fn collectUtf8Codepoints(allocator: std.mem.Allocator, bytes: []const u8) std.mem.Allocator.Error!std.AutoHashMap(i32, void) {
+    var set = std.AutoHashMap(i32, void).init(allocator);
+    errdefer set.deinit();
+    try addUtf8Codepoints(&set, bytes);
+    return set;
+}
+
 test "default codepoints contains ASCII printable range" {
     for (0x20..0x7F) |cp| {
         try std.testing.expect(containsCp(&default_codepoints, @intCast(cp)));
@@ -234,6 +269,43 @@ test "LoadedSet.add grows the set and is idempotent" {
 
     const grew_second = try set.add(cp);
     try std.testing.expect(!grew_second);
+}
+
+test "collectUtf8Codepoints decodes ASCII, Greek, and multi-byte codepoints" {
+    var set = try collectUtf8Codepoints(std.testing.allocator, "A\xCE\xB1\xE2\x86\x92"); // "A" + α (U+03B1) + → (U+2192)
+    defer set.deinit();
+
+    try std.testing.expect(set.contains('A'));
+    try std.testing.expect(set.contains(0x03B1));
+    try std.testing.expect(set.contains(0x2192));
+    try std.testing.expectEqual(@as(u32, 3), set.count());
+}
+
+test "collectUtf8Codepoints deduplicates repeated codepoints" {
+    var set = try collectUtf8Codepoints(std.testing.allocator, "aaa");
+    defer set.deinit();
+    try std.testing.expectEqual(@as(u32, 1), set.count());
+}
+
+test "collectUtf8Codepoints skips malformed bytes without failing" {
+    // 0xFF is never a valid UTF-8 lead byte; the scan should skip it and
+    // continue decoding the valid bytes on either side.
+    var set = try collectUtf8Codepoints(std.testing.allocator, "a\xFFb");
+    defer set.deinit();
+
+    try std.testing.expect(set.contains('a'));
+    try std.testing.expect(set.contains('b'));
+    try std.testing.expectEqual(@as(u32, 2), set.count());
+}
+
+test "addUtf8Codepoints unions into an existing set" {
+    var set = try collectUtf8Codepoints(std.testing.allocator, "a");
+    defer set.deinit();
+    try addUtf8Codepoints(&set, "b");
+
+    try std.testing.expect(set.contains('a'));
+    try std.testing.expect(set.contains('b'));
+    try std.testing.expectEqual(@as(u32, 2), set.count());
 }
 
 // Test helper — linear scan, not for production use.

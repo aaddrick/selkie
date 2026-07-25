@@ -260,12 +260,36 @@ pub const App = struct {
     /// If `loaded_codepoints` exists but `self.fonts` is `null` (fonts were
     /// unloaded without a reload), growth is committed immediately with no
     /// atlas rebuild -- there is no atlas to fall out of sync with.
-    pub fn ensureGlyphs(self: *App, codepoints: []const i32) !void {
-        const set = if (self.loaded_codepoints) |*s| s else return;
+    ///
+    /// Returns `true` if `codepoints` contained anything not already
+    /// loaded (growth was recorded, and the atlas was rebuilt if `fonts`
+    /// exists), `false` if every codepoint was already loaded. Callers that
+    /// derive layout metrics from the atlas (e.g. `measureTextEx`) should
+    /// re-layout when this returns `true`; high-frequency callers (e.g. one
+    /// per keystroke) can rely on the cheap containment check below to make
+    /// the common all-already-loaded case a fast no-op.
+    pub fn ensureGlyphs(self: *App, codepoints: []const i32) !bool {
+        const set = if (self.loaded_codepoints) |*s| s else return false;
+
+        // Cheap pre-check: skip the hashmap clone below entirely when every
+        // codepoint is already loaded, which is the common case for
+        // high-frequency callers like per-keystroke editor/search/command
+        // input scanning ASCII text against the eager default set.
+        var any_new = false;
+        for (codepoints) |cp| {
+            if (!set.contains(cp)) {
+                any_new = true;
+                break;
+            }
+        }
+        if (!any_new) return false;
 
         if (self.fonts == null) {
-            for (codepoints) |cp| _ = try set.add(cp);
-            return;
+            var grew = false;
+            for (codepoints) |cp| {
+                if (try set.add(cp)) grew = true;
+            }
+            return grew;
         }
 
         // Stage growth in a scratch copy so `set` (self.loaded_codepoints)
@@ -278,7 +302,7 @@ pub const App = struct {
             const result = try staged.getOrPut(cp);
             if (!result.found_existing) grew = true;
         }
-        if (!grew) return;
+        if (!grew) return false;
 
         const expanded = try self.allocator.alloc(i32, staged.count());
         defer self.allocator.free(expanded);
@@ -300,6 +324,8 @@ pub const App = struct {
         // safe to record these codepoints as loaded.
         set.map.deinit();
         set.map = staged.move();
+
+        return true;
     }
 
     // =========================================================================
@@ -346,6 +372,11 @@ pub const App = struct {
                 std.log.err("Failed to layout document: {}", .{err});
             };
         }
+
+        // `path` is scanned alongside `content` since it becomes the tab
+        // title (drawn in the tab bar with the same font atlas) and is
+        // not itself part of the markdown source.
+        self.ensureGlyphsForTab(tab, &.{ content, path });
 
         // Restore saved scroll position if available
         if (self.scroll_store) |store| {
@@ -457,6 +488,119 @@ pub const App = struct {
         const tab = self.activeTab() orelse return;
         try tab.loadMarkdown(text);
         self.relayoutActiveTab();
+        self.ensureGlyphsForTab(tab, &.{text});
+    }
+
+    /// Collect every codepoint needed to render `tab`'s current layout tree
+    /// as the union of a raw UTF-8 scan of `sources` and a walk of the
+    /// tree's text runs, then `ensureGlyphs` them and relayout once if the
+    /// atlas grew -- mirroring the existing double-relayout pattern in
+    /// `newTabWithFile` (relayout, then relayout again after restoring
+    /// details state) so the next `measureTextEx` call sees a fully
+    /// populated atlas rather than a stale one with missing glyphs.
+    ///
+    /// `sources` is the in-hand markdown source buffer (and, for a freshly
+    /// opened file, its path -- the tab title is drawn with the same font
+    /// atlas but is not itself part of the source). It alone covers prose,
+    /// code, tables, headings/ToC, and all Mermaid node/edge/title labels,
+    /// since Mermaid labels are literal text inside the fenced source. The
+    /// text-run walk is needed only for glyphs synthesized purely during
+    /// layout with no literal representation in the source (e.g. math
+    /// symbols rendered from LaTeX).
+    ///
+    /// No-op if `tab` has no layout tree yet (fonts not loaded, or layout
+    /// failed) -- there is nothing to scan or relayout.
+    fn ensureGlyphsForTab(self: *App, tab: *Tab, sources: []const []const u8) void {
+        const tree = if (tab.layout_tree) |*t| t else return;
+
+        var set = std.AutoHashMap(i32, void).init(self.allocator);
+        defer set.deinit();
+
+        for (sources) |source| {
+            unicode_codepoints.addUtf8Codepoints(&set, source) catch |err| {
+                std.log.err("Failed to scan codepoints from source: {}", .{err});
+                return;
+            };
+        }
+        for (tree.nodes.items) |node| {
+            for (node.text_runs.items) |run| {
+                unicode_codepoints.addUtf8Codepoints(&set, run.text) catch |err| {
+                    std.log.err("Failed to scan codepoints from text run: {}", .{err});
+                    return;
+                };
+            }
+        }
+
+        var codepoints = std.ArrayList(i32).initCapacity(self.allocator, set.count()) catch |err| {
+            std.log.err("Failed to collect codepoints: {}", .{err});
+            return;
+        };
+        defer codepoints.deinit();
+        var it = set.keyIterator();
+        while (it.next()) |key| codepoints.appendAssumeCapacity(key.*);
+
+        const grew = self.ensureGlyphs(codepoints.items) catch |err| {
+            std.log.err("Failed to ensure glyphs: {}", .{err});
+            return;
+        };
+        if (!grew) return;
+
+        if (self.fonts) |*f| {
+            tab.relayout(self.theme, f, self.computeLayoutWidth(), self.computeContentYOffset(), self.computeContentLeftOffset(), self.show_line_numbers, self.is_dark) catch |err| {
+                std.log.err("Failed to relayout after glyph load: {}", .{err});
+            };
+        }
+    }
+
+    /// Runtime hook: ensure a single freshly-typed or pasted codepoint is
+    /// loaded, growth-only and idempotent via `ensureGlyphs`'s containment
+    /// pre-check. Called from the editor, search, and command-palette input
+    /// handlers as each character arrives from `rl.getCharPressed()` (which
+    /// already yields a decoded Unicode codepoint, not raw bytes, so no
+    /// UTF-8 scan is needed here). ASCII input -- the only input search and
+    /// the command bar currently accept -- is a cheap no-op: those
+    /// codepoints are already in `default_codepoints`.
+    ///
+    /// No relayout here -- for the editor, the existing `edit_version`-driven
+    /// live-preview reparse (`Tab.previewNeedsUpdate`, checked every frame in
+    /// `update()`) re-measures against the atlas on the same frame, since
+    /// this hook runs before that check. Search and command-bar text isn't
+    /// laid out through the document atlas path at all.
+    fn ensureGlyphForChar(self: *App, codepoint: i32) void {
+        _ = self.ensureGlyphs(&.{codepoint}) catch |err| {
+            std.log.err("Failed to ensure glyph for typed character: {}", .{err});
+        };
+    }
+
+    /// Runtime hook: scan `inserted` (the bytes just added, not the full
+    /// buffer) for codepoints not yet loaded and load them growth-only via
+    /// `ensureGlyphs`. Used for editor paste, where the inserted text
+    /// arrives as a raw UTF-8 clipboard byte slice rather than one
+    /// codepoint at a time. See `ensureGlyphForChar` for why no relayout is
+    /// triggered here.
+    fn ensureGlyphsForBytes(self: *App, inserted: []const u8) void {
+        if (inserted.len == 0) return;
+
+        var set = std.AutoHashMap(i32, void).init(self.allocator);
+        defer set.deinit();
+        unicode_codepoints.addUtf8Codepoints(&set, inserted) catch |err| {
+            std.log.err("Failed to scan inserted codepoints: {}", .{err});
+            return;
+        };
+        if (set.count() == 0) return;
+
+        const codepoints = self.allocator.alloc(i32, set.count()) catch |err| {
+            std.log.err("Failed to collect inserted codepoints: {}", .{err});
+            return;
+        };
+        defer self.allocator.free(codepoints);
+        var i: usize = 0;
+        var it = set.keyIterator();
+        while (it.next()) |key| : (i += 1) codepoints[i] = key.*;
+
+        _ = self.ensureGlyphs(codepoints) catch |err| {
+            std.log.err("Failed to ensure glyphs for inserted text: {}", .{err});
+        };
     }
 
     fn relayoutActiveTab(self: *App) void {
@@ -768,9 +912,11 @@ pub const App = struct {
             } else if (rl.isKeyPressed(.v)) {
                 const clipboard: []const u8 = rl.getClipboardText();
                 if (clipboard.len > 0) {
-                    editor.replaceSelection(clipboard) catch |err| {
+                    if (editor.replaceSelection(clipboard)) |_| {
+                        self.ensureGlyphsForBytes(clipboard);
+                    } else |err| {
                         std.log.err("Editor paste failed: {}", .{err});
-                    };
+                    }
                 }
                 handled = true;
             } else if (rl.isKeyPressed(.z)) {
@@ -915,9 +1061,11 @@ pub const App = struct {
                         std.log.err("Editor delete selection failed: {}", .{err});
                     };
                 }
-                editor.insertChar(@intCast(char)) catch |err| {
+                if (editor.insertChar(@intCast(char))) |_| {
+                    self.ensureGlyphForChar(char);
+                } else |err| {
                     std.log.err("Editor insert failed: {}", .{err});
-                };
+                }
             }
             char = rl.getCharPressed();
         }
@@ -2089,6 +2237,11 @@ pub const App = struct {
         var char = rl.getCharPressed();
         while (char > 0) {
             if (char >= 32 and char < 127) {
+                // Search input is restricted to printable ASCII above, which
+                // is already in `default_codepoints` -- this is a defensive
+                // no-op today, kept for consistency with the other input
+                // surfaces in case that restriction is ever loosened.
+                self.ensureGlyphForChar(char);
                 if (tab.search.appendChar(@intCast(char))) {
                     self.executeSearch();
                 }
@@ -2152,6 +2305,10 @@ pub const App = struct {
         var char = rl.getCharPressed();
         while (char > 0) {
             if (char >= '0' and char <= '9') {
+                // Digits are already in `default_codepoints` -- a defensive
+                // no-op today, kept for consistency with the other input
+                // surfaces (see updateSearch).
+                self.ensureGlyphForChar(char);
                 _ = tab.command.appendChar(@intCast(char));
             }
             char = rl.getCharPressed();
@@ -2958,8 +3115,9 @@ test "App.ensureGlyphs with only already-loaded codepoints triggers no rebuild" 
     const before_count = app.loaded_codepoints.?.map.count();
 
     // 'A', 'a', em dash -- all within default_codepoints already.
-    try app.ensureGlyphs(&.{ 0x41, 0x61, 0x2014 });
+    const grew = try app.ensureGlyphs(&.{ 0x41, 0x61, 0x2014 });
 
+    try testing.expect(!grew);
     try testing.expectEqual(before_count, app.loaded_codepoints.?.map.count());
     // No rebuild was attempted (would have crashed without a GL context).
     try testing.expectEqual(@as(?Fonts, null), app.fonts);
@@ -2975,7 +3133,8 @@ test "App.ensureGlyphs grows the set for a new codepoint range and contains refl
         try testing.expect(!app.loaded_codepoints.?.contains(cp));
     }
 
-    try app.ensureGlyphs(greek_range);
+    const grew = try app.ensureGlyphs(greek_range);
+    try testing.expect(grew);
 
     for (greek_range) |cp| {
         try testing.expect(app.loaded_codepoints.?.contains(cp));
@@ -2989,13 +3148,61 @@ test "App.ensureGlyphs is idempotent across repeated calls with the same codepoi
 
     const arrow: i32 = 0x2192; // rightwards arrow -- remainder pool
 
-    try app.ensureGlyphs(&.{arrow});
+    const grew_first = try app.ensureGlyphs(&.{arrow});
+    try testing.expect(grew_first);
     const count_after_first = app.loaded_codepoints.?.map.count();
     try testing.expect(app.loaded_codepoints.?.contains(arrow));
 
-    try app.ensureGlyphs(&.{arrow});
-    try app.ensureGlyphs(&.{arrow});
+    const grew_second = try app.ensureGlyphs(&.{arrow});
+    const grew_third = try app.ensureGlyphs(&.{arrow});
+    try testing.expect(!grew_second);
+    try testing.expect(!grew_third);
 
     try testing.expectEqual(count_after_first, app.loaded_codepoints.?.map.count());
     try testing.expect(app.loaded_codepoints.?.contains(arrow));
+}
+
+test "App.ensureGlyphsForTab unions raw-source scan (incl. mermaid fence) with text-run walk (synthesized math), growing the loaded set" {
+    const lt = @import("layout/layout_types.zig");
+
+    var app = App.init(testing.allocator);
+    defer app.deinit();
+    app.loaded_codepoints = try unicode_codepoints.LoadedSet.init(testing.allocator);
+
+    var tab = Tab.init(testing.allocator);
+    defer tab.deinit();
+
+    // "Prose with a Greek letter: α." + a mermaid flowchart fence whose node
+    // label is "β" -- mermaid labels are drawn from the parsed diagram
+    // model, not text_runs, so β can only be discovered by the raw-source
+    // scan (this simulates task 4's requirement that mermaid node/edge
+    // labels be captured from the fenced source, not the layout tree).
+    const source = "# Heading\n\nProse with a Greek letter: \xCE\xB1.\n\n```mermaid\nflowchart TD\n    A[\xCE\xB2] --> B[end]\n```\n";
+    try tab.loadMarkdown(source);
+
+    // Simulate a layout tree containing a synthesized math glyph ("π",
+    // U+03C0) with no literal representation anywhere in `source` -- this
+    // is what a real LaTeX math layout pass produces, and it can only be
+    // discovered by the text-run walk.
+    var tree = lt.LayoutTree.init(testing.allocator);
+    var math_node = lt.LayoutNode.init(testing.allocator, .text_block);
+    try math_node.text_runs.append(.{
+        .text = "\xCF\x80", // π
+        .style = .{ .font_size = 16, .color = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+        .rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
+    });
+    try tree.nodes.append(math_node);
+    tab.layout_tree = tree;
+
+    // Sanity: none of the three glyphs are loaded yet -- all three live in
+    // the lazy remainder pool, not the eager default set.
+    try testing.expect(!app.loaded_codepoints.?.contains(0x03B1)); // α
+    try testing.expect(!app.loaded_codepoints.?.contains(0x03B2)); // β
+    try testing.expect(!app.loaded_codepoints.?.contains(0x03C0)); // π
+
+    app.ensureGlyphsForTab(&tab, &.{source});
+
+    try testing.expect(app.loaded_codepoints.?.contains(0x03B1)); // prose (raw-source scan)
+    try testing.expect(app.loaded_codepoints.?.contains(0x03B2)); // mermaid label (raw-source scan)
+    try testing.expect(app.loaded_codepoints.?.contains(0x03C0)); // synthesized math (text-run walk)
 }
