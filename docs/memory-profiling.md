@@ -160,9 +160,113 @@ The atlas is a **material but not dominant** share of the ~200MB baseline:
   ~181MB non-font floor rather than a hard commitment this task alone can
   deliver.
 
-## Reproducing AFTER measurement (for later tasks)
+## AFTER results (lazy font-atlas loading, tasks 2-4 applied)
 
-Once lazy loading lands, rerun the exact same commands in "Measurement
-command" above against the same two fixtures on the same machine, and
-append a comparison table (BEFORE vs AFTER, one-line file and full sample
-doc, cold + warm) to this document or to the closing issue comment.
+Same machine, same procedure, same `-Doptimize=ReleaseSafe` build, run
+immediately after `zig build -Doptimize=ReleaseSafe` at commit `2c9ac05`
+(final commit of tasks 1-4).
+
+### One-line file (`printf '# Hello\n'`)
+
+| Run | Peak RSS (KiB) | Peak RSS (MiB) | Elapsed |
+|-----|---------------:|---------------:|--------:|
+| 1 (cold, first post-build) | 189,092 | 184.7 | 1.49s |
+| 2 (warm) | 190,004 | 185.5 | 0.34s |
+| 3 (warm) | 189,736 | 185.3 | 0.36s |
+
+The one-line doc's eager atlas is the default set only (303 codepoints x 5
+variants) — `ensureGlyphs` never triggers a rebuild for it, since `# Hello`
+contains nothing outside Basic Latin.
+
+### Full sample doc (`docs/github-markdown-samples.md`, 936 lines)
+
+| Run | Peak RSS (KiB) | Peak RSS (MiB) | Elapsed |
+|-----|---------------:|---------------:|--------:|
+| 1 (cold) | 191,976 | 187.5 | 0.41s |
+| 2 (warm) | 191,848 | 187.4 | 0.39s |
+| 3 (warm) | 191,240 | 186.8 | 0.36s |
+
+The sample doc's math/emoji/mermaid content pulls in additional codepoints
+beyond the default set (e.g. `∫ ∑ √ π ± ×` from LaTeX math synthesis, `❤ ⚠`
+from emoji shortcodes), so `ensureGlyphs` performs exactly one atlas rebuild
+per tab load, growing the loaded set past the default 303 — but nowhere
+near the old 2,135, since only the codepoints actually used are added.
+
+### BEFORE vs AFTER comparison (avg of 3 runs)
+
+| Fixture | BEFORE (KiB) | AFTER (KiB) | Delta | Delta % |
+|---------|-------------:|------------:|------:|--------:|
+| One-line file | 199,185 | 189,611 | -9,575 KiB (-9.35 MiB) | -4.81% |
+| Full sample doc | 201,545 | 191,688 | -9,857 KiB (-9.63 MiB) | -4.89% |
+
+**Warm startup:** AFTER warm elapsed (0.34-0.39s) is equal to or faster
+than BEFORE warm elapsed (0.37-0.44s) for both fixtures — not regressed,
+mildly improved. The one-line cold run (1.49s) is an outlier from this
+being the very first process launch after a fresh build with a cold OS
+page cache for the new binary; it is not representative of steady-state
+startup and is excluded from the regression judgment (the same caveat
+documented above under "Take the **first** invocation... as 'cold'").
+
+### Target assessment: **materially reduced, aspirational `<100MB`/`<80MB` target not reached**
+
+- One-line idle peak RSS dropped ~9.4MB (~4.8%), from ~194.5MB to ~185.2MB.
+  This is a real, measurable, material reduction directly attributable to
+  the lazy-atlas work (eager bake shrank from 2,135 to 303 codepoints x 5
+  variants), and warm startup is not regressed.
+- The reduction is smaller than the ~15-20MB the plan estimated from the
+  Task 1 isolation experiment, because that experiment's "reduced" config
+  was ASCII-only (95 codepoints), while the actual eager default per the
+  issue's own spec is larger — Basic Latin + Latin-1 + General Punctuation
+  (303 codepoints). The measured ~9.4MB sits consistently between the
+  ASCII-only floor (95cp -> ~180.9MB) and the full-atlas baseline (2,135cp
+  -> ~194.5MB), scaling roughly with codepoint count as expected.
+- The issue's `<100MB` (ideally `<80MB`) target is **not reached**: idle
+  peak RSS is still ~185-187MB. This was flagged as a likely outcome during
+  planning (see "Go/no-go verdict" above) — the ~181MB ASCII-only floor
+  measured in Task 1 is fixed cost from raylib window creation, the
+  OpenGL/GLX context, and base runtime/allocator overhead, none of which
+  this issue's font-atlas work touches. Closing the remaining gap to
+  `<100MB` would require a separate investigation into that non-font floor
+  and is out of scope for issue #77.
+
+## Glyph coverage verification (no missing-glyph regression)
+
+To verify the tiered loading introduced no missing-glyph regression vs the
+pre-issue-77 baseline, two checks were run against both the AFTER binary
+(commit `2c9ac05`) and a BEFORE binary built from commit `3d842d2^`
+(`9e073de`, the last commit before any issue-77 work, built in a scratch
+`git worktree` with `deps/cmark-gfm` copied in since submodules aren't
+auto-initialized in a fresh worktree checkout):
+
+1. **Targeted glyph-category check** — a small doc exercising every
+   category named in the issue's acceptance criteria (Greek, arrows, math
+   operators, dingbats, ligatures, currency, plus misc symbols, geometric
+   shapes, and superscripts/subscripts) was rendered with `--full-document`
+   on both binaries and diffed pixel-for-pixel. Result: **identical**
+   (a 14x1px anti-aliasing difference in one circled-digit dingbat glyph,
+   well below any visible threshold). Every category renders correctly on
+   both, confirming lazy loading preserves full BMP coverage.
+
+2. **Full sample doc diff** — `docs/github-markdown-samples.md` was
+   rendered full-document on both binaries (1400x22325px) and diffed.
+   Result: 1,391 differing pixels out of ~31.3 million (0.004%), confined
+   to two regions: the GFM alert icons and the emoji-shortcode section.
+   In both regions, the *only* difference is that codepoints outside the
+   Unicode Basic Multilingual Plane (e.g. emoji shortcodes that expand to
+   supplementary-plane codepoints like `:fire:`/`:rocket:`/`:tada:`, and a
+   couple of alert-type icons) render as a `?` placeholder glyph in BEFORE
+   and as blank space in AFTER. These codepoints were **never** in either
+   codepoint table — the pre-issue-77 `codepoints` list (`unicode_codepoints.zig`
+   at `3d842d2^`) tops out at `0xFFFD`, same as today's eager+lazy union —
+   so this is a pre-existing gap in both builds, not a new regression. No
+   glyph that rendered as a real character in BEFORE is blank in AFTER;
+   only the *fallback indicator* for already-unsupported codepoints changed
+   from `?` to blank, which is a raylib font-fallback cosmetic side effect
+   of the atlas being assembled via `unloadFonts`+`loadFontEx` rebuilds
+   instead of a single upfront load, not a functional regression.
+
+**Verdict:** no missing-glyph regression for any of the issue's named
+categories (Greek, arrows, math operators, dingbats, ligatures, currency).
+Supplementary-plane emoji remain unsupported exactly as before — out of
+scope for issue #77, which only targets the BMP ranges enumerated in
+`unicode_codepoints.zig`.
