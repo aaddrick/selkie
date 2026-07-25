@@ -8,6 +8,10 @@ Raw `/usr/bin/time -v` output is **not** committed — regenerate it locally
 with the steps below. Only this procedure and its summarized results are
 tracked.
 
+For how the lazy-loading mechanism itself works (the eager/lazy codepoint
+split, `LoadedSet`, `App.ensureGlyphs`), see
+[Font Atlas Loading](font-atlas-loading.md).
+
 ## Why `--export-png`
 
 Selkie has no daemon/idle mode to attach a profiler to at rest, so the
